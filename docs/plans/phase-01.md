@@ -1,6 +1,14 @@
 # Phase 1 — Repository Bootstrap
 
-**Status:** Not started · refine this plan right before starting.
+**Status:** ✅ Done (2026-06-11).
+
+Delivered: workspace skeleton (`controller`/`agent`/`shared` compile;
+binaries print name+version), `scripts/check.sh` gate (passing),
+placeholder READMEs for `frontend/`/`migrations/`/`deployment/`, and —
+pulled forward from later phases — the local database: MariaDB DB
+`foundry` + `foundry@localhost` user scoped to `foundry.*` only, creds in
+gitignored `/opt/foundry/.env`. CI decision recorded in `../ROADMAP.md`
+(no hosted CI yet; check.sh is the gate).
 
 ## Goal
 

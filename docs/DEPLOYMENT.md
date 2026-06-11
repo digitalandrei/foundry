@@ -49,9 +49,16 @@ Agent traffic also flows through Cloudflare unless a direct origin hostname
 is later added — keep agent request bodies (log/inventory uploads) chunked
 and modest to stay within proxy limits.
 
-## MySQL
+## MySQL (MariaDB)
 
-- Local MySQL 8.x, database `foundry`, dedicated user, `utf8mb4`.
+- This host runs **MariaDB 11.4** (MySQL-compatible; the `mysql` client is
+  a deprecated alias for `mariadb`). sqlx's MySQL driver targets it.
+- Database `foundry` (utf8mb4/utf8mb4_unicode_ci) with dedicated user
+  `foundry@localhost`, granted `ALL` on `foundry.*` **only** — no access
+  to other databases on this shared server (provisioned 2026-06-11).
+- Credentials live in `/opt/foundry/.env` (gitignored, mode 600,
+  `DATABASE_URL`); the production copy moves to `/srv/foundry/.env` in
+  Phase 10.
 - Schema applied exclusively via `sqlx migrate run` from `migrations/`.
 - Backups: daily dump + pre-migration dump before any destructive migration,
   keep last 10 (same discipline as other projects on this host).

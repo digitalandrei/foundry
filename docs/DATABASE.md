@@ -1,6 +1,7 @@
 # Foundry Database Schema
 
-MySQL is the sole persistent store. Schema is managed exclusively through
+MySQL is the sole persistent store (MariaDB 11.4 on this host — see
+`DEPLOYMENT.md` § MySQL). Schema is managed exclusively through
 sqlx migrations in `migrations/` (forward-only; see the
 `mysql-schema-migrations` skill). This document describes every table's
 purpose and key columns — it is the human-readable contract; the migrations

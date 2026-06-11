@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = ["controller", "agent", "shared"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+
+[profile.release]
+strip = "symbols"
+lto = true
+codegen-units = 1

@@ -7,7 +7,7 @@ in `docs/plans/`.
 | Phase | Title | Plan | Status |
 |---|---|---|---|
 | 0 | Documentation & AI tooling bootstrap | (this work) | ✅ Done (2026-06-11) |
-| 1 | Repository bootstrap | [plans/phase-01.md](plans/phase-01.md) | ⬜ Not started |
+| 1 | Repository bootstrap | [plans/phase-01.md](plans/phase-01.md) | ✅ Done (2026-06-11) |
 | 2 | Workspace creation | [plans/phase-02.md](plans/phase-02.md) | ⬜ Not started |
 | 3 | Authentication (GitLab OAuth, multi-instance) | [plans/phase-03.md](plans/phase-03.md) | ⬜ Not started |
 | 4 | Agent enrollment | [plans/phase-04.md](plans/phase-04.md) | ⬜ Not started |
@@ -50,3 +50,9 @@ reflected in the affected docs in the same commit set:
 - **2026-06-11** — UI: dark mode default per approved mockup; light mode
   required. GitLab browsing lives in the dashboard sidebar, not separate
   pages.
+- **2026-06-11** (Phase 1) — Database server is **MariaDB 11.4** on this
+  host, not MySQL 8.x; sqlx's MySQL driver targets it. DB `foundry` +
+  scoped user provisioned (DEPLOYMENT.md § MySQL).
+- **2026-06-11** (Phase 1) — CI decision: no hosted CI initially;
+  `scripts/check.sh` is the verification gate, run locally before every
+  commit. Revisit when the project moves to a GitLab remote.

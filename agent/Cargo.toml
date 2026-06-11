@@ -1,0 +1,10 @@
+[package]
+name = "foundry-agent"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+foundry-shared = { path = "../shared" }
+
+[lints]
+workspace = true
