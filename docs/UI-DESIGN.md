@@ -120,6 +120,11 @@ mockup — final token mapping fixed when the palette lands in Phase 8).
   (utilization sparkline + current mem/temp/power), and the containers
   table with per-container CPU/mem and **port mappings**
   (`host→container/proto`). Series: 30s samples, 24h retention.
+  **Graph scale rule (operator, 0.6.0):** percentage graphs are always
+  pinned 0–100; capacity-bound graphs (memory, disk, GPU memory) are
+  pinned 0–capacity; only truly unbounded series (network rates,
+  power) auto-scale. Each GPU card groups four graphs: usage, memory,
+  temperature (0–100 °C), power.
 - **Audit Logs**: filterable audit table (actor, action, subject, time).
 - **Settings**: GitLab instances (admin), enrollment tokens, theme, profile.
 - **Help**: `/help/gitlab-oauth` — GitLab OAuth app setup guide (steps,

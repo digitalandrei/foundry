@@ -173,35 +173,82 @@ function MetricCard({
   )
 }
 
+/** One card per GPU, with grouped graphs: usage, memory, temperature,
+ * power (operator requirement). Percent/capacity series are pinned to
+ * their full scale; power auto-scales (no limit reported yet). */
 function GpuCard({ gpu, metrics }: { gpu: GpuSummary; metrics: MetricsPoint[] | undefined }) {
+  const pick = (f: (g: NonNullable<MetricsPoint["sample"]["gpus"][number]>) => number) =>
+    (metrics ?? []).map((p) => ({
+      ts: p.sampled_at,
+      value: (() => {
+        const g = p.sample.gpus.find((x) => x.uuid === gpu.gpu_uuid)
+        return g ? f(g) : 0
+      })(),
+    }))
+
   const latest = metrics?.at(-1)?.sample.gpus.find((g) => g.uuid === gpu.gpu_uuid)
-  const utilSeries = (metrics ?? []).map((p) => ({
-    ts: p.sampled_at,
-    value: p.sample.gpus.find((g) => g.uuid === gpu.gpu_uuid)?.util_pct ?? 0,
-  }))
+  const memTotalGb = (gpu.memory_mb ?? 0) / 1024
+
+  const graphs = [
+    {
+      key: "usage",
+      title: "Usage",
+      value: latest ? `${latest.util_pct}%` : "—",
+      points: pick((g) => g.util_pct),
+      unit: "%",
+      max: 100,
+    },
+    {
+      key: "memory",
+      title: "Memory",
+      value: latest
+        ? `${(latest.mem_used_mb / 1024).toFixed(1)} / ${memTotalGb.toFixed(0)} GB`
+        : "—",
+      points: pick((g) => g.mem_used_mb / 1024),
+      unit: "GB",
+      max: memTotalGb,
+    },
+    {
+      key: "temperature",
+      title: "Temperature",
+      value: latest ? `${latest.temperature_c}°C` : "—",
+      points: pick((g) => g.temperature_c),
+      unit: "°C",
+      max: 100,
+    },
+    {
+      key: "power",
+      title: "Power",
+      value: latest ? `${latest.power_w.toFixed(0)} W` : "—",
+      points: pick((g) => g.power_w),
+      unit: "W",
+      max: undefined,
+    },
+  ]
 
   return (
     <Card className="gap-2 py-4">
       <CardHeader className="py-0">
-        <CardTitle className="flex items-baseline justify-between text-sm font-medium">
+        <CardTitle className="text-sm font-medium">
           GPU {gpu.index} {gpu.model ? `· ${gpu.model}` : ""}
-          {latest ? (
-            <span className="font-mono text-xs text-muted-foreground">
-              {latest.util_pct}% · {(latest.mem_used_mb / 1024).toFixed(1)}/
-              {((gpu.memory_mb ?? 0) / 1024).toFixed(0)} GB · {latest.temperature_c}°C ·{" "}
-              {latest.power_w.toFixed(0)} W
-            </span>
-          ) : null}
         </CardTitle>
       </CardHeader>
-      <CardContent className="py-0">
-        {utilSeries.length > 1 ? (
-          <MetricSparkline points={utilSeries} label="Utilization" unit="%" max={100} />
-        ) : (
-          <p className="flex h-16 items-center justify-center text-xs text-muted-foreground">
-            collecting…
-          </p>
-        )}
+      <CardContent className="grid grid-cols-2 gap-x-4 gap-y-2 py-0">
+        {graphs.map((g) => (
+          <div key={g.key}>
+            <p className="flex items-baseline justify-between text-xs text-muted-foreground">
+              {g.title}
+              <span className="font-mono">{g.value}</span>
+            </p>
+            {g.points.length > 1 ? (
+              <MetricSparkline points={g.points} label={g.title} unit={g.unit} max={g.max} />
+            ) : (
+              <p className="flex h-16 items-center justify-center text-xs text-muted-foreground">
+                collecting…
+              </p>
+            )}
+          </div>
+        ))}
       </CardContent>
     </Card>
   )

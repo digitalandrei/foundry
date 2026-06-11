@@ -7,7 +7,12 @@ interface Point {
   value: number
 }
 
-/** Compact area sparkline for the server page metric cards. */
+/** Compact area sparkline for metric cards.
+ *
+ * Scale rule (operator requirement): percentage series are always
+ * 0–100; series with a known capacity (memory, disk) are 0–capacity.
+ * Only unbounded series (network rates, power without a limit) may
+ * auto-scale. Pass `max` whenever the upper limit is known. */
 export function MetricSparkline({
   points,
   label,
@@ -19,13 +24,21 @@ export function MetricSparkline({
   unit: string
   max?: number
 }) {
+  // Guard degenerate capacities (0/NaN would collapse the domain).
+  const upper = max !== undefined && Number.isFinite(max) && max > 0 ? max : undefined
+
   return (
     <ChartContainer
       config={{ value: { label, color: "var(--slot-running)" } }}
       className="h-16 w-full"
     >
       <AreaChart data={points} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
-        <YAxis domain={[0, max ?? "auto"]} hide />
+        <YAxis
+          hide
+          type="number"
+          domain={upper !== undefined ? [0, upper] : [0, "auto"]}
+          allowDataOverflow
+        />
         <ChartTooltip
           content={
             <ChartTooltipContent
@@ -45,6 +58,7 @@ export function MetricSparkline({
           fillOpacity={0.15}
           strokeWidth={1.5}
           isAnimationActive={false}
+          baseValue={0}
         />
       </AreaChart>
     </ChartContainer>
