@@ -146,28 +146,84 @@ pub async fn upsert_tag(
     pool: &MySqlPool,
     repository_id: RegistryRepositoryId,
     t: &GitlabRegistryTagDetail,
-) -> Result<(), AppError> {
+) -> Result<foundry_shared::RegistryTagId, AppError> {
     let now = chrono::Utc::now().naive_utc();
-    sqlx::query!(
-        r#"INSERT INTO registry_tags
-           (id, registry_repository_id, name, digest, size_bytes, pushed_at,
-            last_synced_at, created_at, updated_at)
-           VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE
-             size_bytes = VALUES(size_bytes),
-             pushed_at = VALUES(pushed_at),
-             last_synced_at = VALUES(last_synced_at),
-             updated_at = VALUES(updated_at)"#,
-        Uuid::now_v7(),
+    let existing = sqlx::query_scalar!(
+        r#"SELECT id AS "id: Uuid" FROM registry_tags
+           WHERE registry_repository_id = ? AND name = ?"#,
         repository_id.0,
         t.name,
-        t.total_size,
-        t.created_at.map(|d| d.naive_utc()),
-        now,
-        now,
-        now,
     )
-    .execute(pool)
+    .fetch_optional(pool)
     .await?;
-    Ok(())
+    let id = match existing {
+        Some(id) => {
+            sqlx::query!(
+                "UPDATE registry_tags SET size_bytes = ?, pushed_at = ?,
+                     last_synced_at = ?, updated_at = ? WHERE id = ?",
+                t.total_size,
+                t.created_at.map(|d| d.naive_utc()),
+                now,
+                now,
+                id,
+            )
+            .execute(pool)
+            .await?;
+            id
+        }
+        None => {
+            let id = Uuid::now_v7();
+            sqlx::query!(
+                r#"INSERT INTO registry_tags
+                   (id, registry_repository_id, name, digest, size_bytes, pushed_at,
+                    last_synced_at, created_at, updated_at)
+                   VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)"#,
+                id,
+                repository_id.0,
+                t.name,
+                t.total_size,
+                t.created_at.map(|d| d.naive_utc()),
+                now,
+                now,
+                now,
+            )
+            .execute(pool)
+            .await?;
+            id
+        }
+    };
+    Ok(id.into())
+}
+
+/// Everything needed to build a pullable image_ref + mint a pull token.
+pub struct TagRef {
+    pub tag_name: String,
+    pub repo_path: String,
+    pub instance_id: GitlabInstanceId,
+    pub registry_url: String,
+}
+
+pub async fn tag_ref(
+    pool: &MySqlPool,
+    tag_id: foundry_shared::RegistryTagId,
+) -> Result<TagRef, AppError> {
+    let row = sqlx::query!(
+        r#"SELECT t.name AS tag_name, r.path AS repo_path,
+                  p.gitlab_instance_id AS "instance_id: Uuid", i.registry_url
+           FROM registry_tags t
+           JOIN registry_repositories r ON r.id = t.registry_repository_id
+           JOIN gitlab_projects p ON p.id = r.gitlab_project_id
+           JOIN gitlab_instances i ON i.id = p.gitlab_instance_id
+           WHERE t.id = ?"#,
+        tag_id.0
+    )
+    .fetch_optional(pool)
+    .await?
+    .ok_or(AppError::NotFound("image tag not found"))?;
+    Ok(TagRef {
+        tag_name: row.tag_name,
+        repo_path: row.repo_path,
+        instance_id: row.instance_id.into(),
+        registry_url: row.registry_url,
+    })
 }

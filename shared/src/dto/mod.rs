@@ -4,6 +4,7 @@
 //! here, never redefined locally in controller, agent, or frontend.
 
 mod agent;
+mod deployment;
 mod error;
 mod health;
 mod instance;
@@ -15,8 +16,10 @@ mod project;
 mod registry;
 mod server;
 mod server_detail;
+mod task;
 
 pub use agent::*;
+pub use deployment::*;
 pub use error::*;
 pub use health::*;
 pub use instance::*;
@@ -28,3 +31,4 @@ pub use project::*;
 pub use registry::*;
 pub use server::*;
 pub use server_detail::*;
+pub use task::*;

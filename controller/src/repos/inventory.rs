@@ -108,6 +108,87 @@ pub async fn apply_snapshot(
         .await?;
     }
 
+    // ── Slot ↔ deployment restore pass ──────────────────────────────
+    // A slot that came back from OFFLINE was reset to FREE above, but
+    // an active deployment may still hold it (review finding): restore
+    // the slot state from its deployment so nobody double-books the GPU.
+    sqlx::query!(
+        r#"UPDATE gpu_slots gs
+           JOIN gpus g ON g.id = gs.gpu_id
+           JOIN deployments d ON d.gpu_slot_id = gs.id
+                AND d.state NOT IN ('REMOVED','REPLACED')
+           SET gs.state = CASE
+                 WHEN d.state = 'RUNNING' THEN 'RUNNING'
+                 WHEN d.state = 'STOPPING' THEN 'STOPPING'
+                 WHEN d.state = 'FAILED' THEN 'FAILED'
+                 WHEN d.state IN ('PULLING_IMAGE','CREATING_CONTAINER','STARTING') THEN 'DEPLOYING'
+                 ELSE 'RESERVED' END,
+               gs.updated_at = ?
+           WHERE g.server_id = ? AND gs.state = 'FREE'"#,
+        now,
+        server_id.0,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // ── Deployment ↔ container reconcile (invariant #5) ─────────────
+    // A deployment we believe RUNNING must show its managed container
+    // running in this snapshot; otherwise it crashed/was killed
+    // outside Foundry → FAILED + slot FAILED. 90s grace avoids racing
+    // a snapshot collected before the start was reported.
+    let running_short_ids: std::collections::HashSet<String> = snap
+        .containers
+        .iter()
+        .filter(|c| c.managed && c.state == "running")
+        .map(|c| c.container_id.chars().take(12).collect())
+        .collect();
+    let grace = (Utc::now() - chrono::Duration::seconds(90)).naive_utc();
+    let expected = sqlx::query!(
+        r#"SELECT id AS "id: Uuid", container_id FROM deployments
+           WHERE server_id = ? AND state = 'RUNNING'
+             AND started_at IS NOT NULL AND started_at < ?
+           FOR UPDATE"#,
+        server_id.0,
+        grace,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    for d in expected {
+        let known = d
+            .container_id
+            .as_deref()
+            .map(|cid| running_short_ids.contains(&cid.chars().take(12).collect::<String>()))
+            .unwrap_or(false);
+        if !known {
+            let deployment_id: foundry_shared::DeploymentId = d.id.into();
+            tracing::warn!(deployment = %deployment_id, "managed container missing/stopped — marking FAILED");
+            sqlx::query!(
+                "UPDATE deployments SET error_message = ?, updated_at = ? WHERE id = ?",
+                "container is no longer running on the host (crashed or removed outside Foundry)",
+                now,
+                deployment_id.0,
+            )
+            .execute(&mut *tx)
+            .await?;
+            let slot_id: foundry_shared::SlotId = sqlx::query_scalar!(
+                r#"SELECT gpu_slot_id AS "slot_id: Uuid" FROM deployments WHERE id = ?"#,
+                deployment_id.0
+            )
+            .fetch_one(&mut *tx)
+            .await?
+            .into();
+            crate::lifecycle::transition_deployment(
+                &mut tx,
+                deployment_id,
+                foundry_shared::DeploymentState::Failed,
+                &crate::lifecycle::Actor::controller(),
+                Some(serde_json::json!({ "reason": "container missing from snapshot" })),
+            )
+            .await?;
+            crate::lifecycle::transition_slot(&mut tx, slot_id, SlotState::Failed).await?;
+        }
+    }
+
     tx.commit().await?;
     Ok(())
 }

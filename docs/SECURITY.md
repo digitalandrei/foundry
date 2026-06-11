@@ -81,6 +81,13 @@ protocol, tokens, or deployment execution.
   values marked secret are encrypted at rest and masked in the UI and logs.
 - Containers run with only the devices/ports/volumes the deployment declares;
   no `--privileged` in v1.
+- **Deployment visibility vs control** (decision 2026-06-12): the
+  deployments list and the dashboard slot grid are **org-visible** to
+  every authenticated user — Foundry is an ops dashboard and fleet
+  transparency is the point. *Control* (stop/restart/remove/replace)
+  is owner-or-admin only, as are volume deletion and volume listing
+  (own volumes; admins see all). Image access remains governed by
+  GitLab permissions at deploy time.
 
 ## Network Posture (this host)
 

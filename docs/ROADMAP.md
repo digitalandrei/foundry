@@ -12,7 +12,7 @@ in `docs/plans/`.
 | 3 | Authentication (GitLab OAuth, multi-instance) | [plans/phase-03.md](plans/phase-03.md) | ✅ Done (2026-06-11) — E2E verified against g.protv.ro |
 | 4 | Agent enrollment | [plans/phase-04.md](plans/phase-04.md) | 🔶 Built & deployed (0.2.0) — awaiting first real GPU-server enrollment; rotation endpoint pending |
 | 5 | Inventory (GPU/MIG discovery & reconciliation) | [plans/phase-05.md](plans/phase-05.md) | ✅ Done (2026-06-12) — inventory verified on real L40S servers (0.3/0.4); telemetry shipped (0.5.0) |
-| 6 | Deployments (lifecycle, replacement) | [plans/phase-06.md](plans/phase-06.md) | ⬜ Not started |
+| 6 | Deployments (lifecycle, replacement) | [plans/phase-06.md](plans/phase-06.md) | 🔶 Built & deployed (0.7.0) — TCP/UDP publishing + volumes live; awaiting first real GPU deploy; HTTP/S proxy publishing pending apps-domain choice |
 | 7 | Logs | [plans/phase-07.md](plans/phase-07.md) | ⬜ Not started |
 | 8 | UI (full dashboard, dark+light themes) | [plans/phase-08.md](plans/phase-08.md) | ⬜ Not started |
 | 9 | Security hardening | [plans/phase-09.md](plans/phase-09.md) | ⬜ Not started |
@@ -106,6 +106,19 @@ reflected in the affected docs in the same commit set:
   `/servers/{id}` page with sparklines (shadcn chart/recharts — new
   frontend dep); live System Status card. Detail dialog replaced by
   the page.
+- **2026-06-12** (0.7.0, Phase 6) — **Persistent volumes** (operator):
+  per-user namespaced at `/storage/containers/<owner>/<name>`,
+  create-or-reuse at deploy, survive container removal, explicit
+  delete via new `REMOVE_VOLUME` task type (TaskType amendment).
+  Tables `server_volumes` (+ `deployment_volumes.server_volume_id`,
+  `deployment_ports.kind`) — 24 tables.
+- **2026-06-12** (0.7.0, Phase 6) — Deployments core shipped: lifecycle
+  state machine (single transition fn + legality table + unit tests),
+  task queue with long-poll dispatch, secrets/pull-token injection at
+  dispatch only, result-driven replacement chain, container-crash
+  reconcile via snapshots, port allocator per design, dnd drag-drop UI
+  with per-port kinds (TCP/UDP now; HTTP/S blocked until the apps
+  wildcard domain is chosen).
 - **2026-06-12** (0.4.0) — Deterministic GPU ordering (operator):
   `gpus.display_index` persists the NVML index; lists order by it and
   UI labels use it. Natural slot-name sort (LENGTH, name).

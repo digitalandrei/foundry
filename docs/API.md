@@ -33,11 +33,13 @@ user's GitLab account on the instance that owns the resource.
 | `GET /api/servers/{id}/metrics?minutes=N` | Telemetry series (30s samples, 24h retention; N clamped 5–1440) | ✅ live |
 | `POST /api/servers` | Create a **named** server (GitLab-agent style) — returns the one-time registration command — admin | ✅ live |
 | `POST /api/servers/{id}/enrollment-token` | Re-mint the token (revokes unused older ones) — admin | ✅ live |
-| `GET /api/deployments` | Deployments (filterable by server/slot/state) | Phase 6 |
-| `POST /api/deployments` | Create a deployment; returns it in `PENDING` | Phase 6 |
-| `POST /api/deployments/{id}/replace` | Replace flow for an occupied slot | Phase 6 |
-| `POST /api/deployments/{id}/stop` · `/restart` | Lifecycle actions | Phase 6 |
-| `DELETE /api/deployments/{id}` | Remove a stopped deployment | Phase 6 |
+| `GET /api/deployments` | Deployments with ports/state/uptime (REMOVED filtered out; latest 200) | ✅ live |
+| `POST /api/deployments` | Create from drag-drop: slot (FREE, locked) + tag + ports (per-port kind, pool-allocated) + env (secrets encrypted) + persistent volumes; returns it VALIDATING | ✅ live |
+| `POST /api/deployments/{id}/replace` | Replacement chain: stop old → remove old → REPLACED → deploy successor on the same slot | ✅ live |
+| `POST /api/deployments/{id}/stop` · `/restart` | Lifecycle actions (legality enforced by the transition table) | ✅ live |
+| `DELETE /api/deployments/{id}` | Remove a stopped/failed deployment (container removed; volumes survive) | ✅ live |
+| `GET /api/servers/{id}/volumes` | Persistent volumes (own; admins see all) with attached-to info | ✅ live |
+| `DELETE /api/volumes/{id}` | Delete volume + data (creator/admin; refused while mounted) | ✅ live |
 | `GET /api/deployments/{id}/logs` | Container logs (uploaded by agent) | Phase 7 |
 | `GET /api/audit` | Audit log (admin sees all; users see their own actions) | Phase 8 |
 | `POST /api/enrollment-tokens` | Generate server enrollment token — admin | Phase 4 |
@@ -75,8 +77,8 @@ single-use enrollment token.
 | `POST /agent/heartbeat` | ✅ live — marks the server ONLINE + records agent version; a 30s sweeper flips servers OFFLINE after 90s without a beat |
 | `POST /agent/inventory` | ✅ live — full snapshot (GPUs/MIG + ALL containers with `managed` flag, port mappings + runtime versions) at start + every 60s; controller reconciles UUID-keyed (vanished → OFFLINE, returned → FREE), containers replace-all; bounds: ≤64 GPUs, ≤1024 containers |
 | `POST /agent/metrics` | ✅ live — telemetry sample every 30s: host CPU/mem/disk/net rates (sysinfo), per-GPU util/mem/temp/power (NVML), per-container CPU/mem (Engine stats); stored as JSON in `server_metrics`, 24h sweeper |
-| `GET /agent/tasks/next` | Long-poll for the next queued task for this server |
-| `POST /agent/tasks/result` | Report task success/failure with detail; controller advances deployment state |
+| `GET /agent/tasks/next` | ✅ live — long-poll (≤25s server-side); DEPLOY payloads enriched at dispatch (env decrypted, pull token freshly minted — secrets never rest in the queue); lost DISPATCHED tasks re-queue after 5 min |
+| `POST /agent/tasks/result` | ✅ live — advances the deployment state machine; duplicate reports are idempotent no-ops; replacement chains continue here |
 | `POST /agent/logs` | Upload container log chunks for a deployment |
 
 Agent protocol invariants:

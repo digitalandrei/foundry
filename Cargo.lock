@@ -620,7 +620,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-agent"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "bollard",
  "foundry-shared",
@@ -638,7 +638,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-controller"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -666,7 +666,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-shared"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "serde",

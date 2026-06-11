@@ -61,3 +61,21 @@ export const SERVER_STATUS_META: Record<ServerStatus, StateMeta> = {
   OFFLINE: { label: "Offline", dotClass: "bg-slot-offline", textClass: "text-slot-offline" },
   DEGRADED: { label: "Degraded", dotClass: "bg-slot-reserved", textClass: "text-slot-reserved" },
 }
+
+/** Deployment lifecycle colors (mockup: Running green in tables;
+ * everything transitional yellow; terminal gray; failed red). */
+export const DEPLOYMENT_STATE_META: Record<DeploymentState, StateMeta> = {
+  PENDING: { label: "Pending", dotClass: "bg-slot-reserved", textClass: "text-slot-reserved" },
+  VALIDATING: { label: "Validating", dotClass: "bg-slot-reserved", textClass: "text-slot-reserved" },
+  PULLING_IMAGE: { label: "Pulling image", dotClass: "bg-slot-reserved", textClass: "text-slot-reserved" },
+  CREATING_CONTAINER: { label: "Creating", dotClass: "bg-slot-reserved", textClass: "text-slot-reserved" },
+  STARTING: { label: "Starting", dotClass: "bg-slot-reserved", textClass: "text-slot-reserved" },
+  RUNNING: { label: "Running", dotClass: "bg-slot-free", textClass: "text-slot-free" },
+  STOPPING: { label: "Stopping", dotClass: "bg-slot-reserved", textClass: "text-slot-reserved" },
+  STOPPED: { label: "Stopped", dotClass: "bg-slot-offline", textClass: "text-slot-offline" },
+  RESTARTING: { label: "Restarting", dotClass: "bg-slot-reserved", textClass: "text-slot-reserved" },
+  REMOVING: { label: "Removing", dotClass: "bg-slot-reserved", textClass: "text-slot-reserved" },
+  REMOVED: { label: "Removed", dotClass: "bg-slot-offline", textClass: "text-slot-offline" },
+  FAILED: { label: "Failed", dotClass: "bg-slot-failed", textClass: "text-slot-failed" },
+  REPLACED: { label: "Replaced", dotClass: "bg-slot-offline", textClass: "text-slot-offline" },
+}

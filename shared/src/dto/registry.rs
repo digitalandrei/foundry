@@ -4,7 +4,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::RegistryRepositoryId;
+use crate::{RegistryRepositoryId, RegistryTagId};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegistryBrowseResponse {
@@ -21,6 +21,8 @@ pub struct RegistryRepository {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegistryTag {
+    /// Mirror-row id — what a deployment references (drag payload).
+    pub id: RegistryTagId,
     pub name: String,
     /// Image size in bytes when the instance reports it.
     pub size_bytes: Option<i64>,

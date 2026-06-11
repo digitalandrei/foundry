@@ -1,3 +1,4 @@
+import { useDroppable } from "@dnd-kit/core"
 import { Link } from "@tanstack/react-router"
 import { ServerOffIcon } from "lucide-react"
 
@@ -5,7 +6,7 @@ import { EmptyState } from "@/components/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useServers } from "@/hooks/use-servers"
 import { SERVER_STATUS_META, SLOT_STATE_META } from "@/lib/states"
-import type { GpuSummary, ServerSummary, SlotSummary } from "@/lib/types"
+import type { DropSlotData, GpuSummary, ServerSummary, SlotSummary } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 /** "Servers & GPU Slots" — the dashboard grid (docs/UI-DESIGN.md § 2).
@@ -78,7 +79,7 @@ function ServerRow({ server }: { server: ServerSummary }) {
       ) : (
         <div className="mt-2 flex flex-col gap-2">
           {server.gpus.map((gpu) => (
-            <GpuStrip key={gpu.id} gpu={gpu} />
+            <GpuStrip key={gpu.id} gpu={gpu} server={server} />
           ))}
         </div>
       )}
@@ -86,7 +87,7 @@ function ServerRow({ server }: { server: ServerSummary }) {
   )
 }
 
-function GpuStrip({ gpu }: { gpu: GpuSummary }) {
+function GpuStrip({ gpu, server }: { gpu: GpuSummary; server: ServerSummary }) {
   return (
     <div>
       <p className="mb-1 text-xs font-medium text-muted-foreground">
@@ -99,31 +100,51 @@ function GpuStrip({ gpu }: { gpu: GpuSummary }) {
       </p>
       <div className="flex flex-wrap gap-1.5">
         {gpu.slots.map((slot) => (
-          <SlotChip key={slot.id} slot={slot} />
+          <SlotChip key={slot.id} slot={slot} server={server} />
         ))}
       </div>
     </div>
   )
 }
 
-function SlotChip({ slot }: { slot: SlotSummary }) {
+/** Drop target: FREE → deploy; RUNNING → replace (with confirmation in
+ * the dialog). Other states don't activate (docs/UI-DESIGN.md). */
+function SlotChip({ slot, server }: { slot: SlotSummary; server: ServerSummary }) {
   const meta = SLOT_STATE_META[slot.state]
+  const droppable = slot.state === "FREE" || slot.state === "RUNNING"
+  const data: DropSlotData = {
+    slotId: slot.id,
+    slotName: slot.name,
+    slotState: slot.state,
+    serverId: server.id,
+    serverName: server.name,
+  }
+  const { setNodeRef, isOver } = useDroppable({
+    id: slot.id,
+    data,
+    disabled: !droppable || server.status !== "ONLINE",
+  })
   const capacity =
     slot.mig_profile ??
     (slot.capacity_mb != null ? `${Math.round(slot.capacity_mb / 1024)} GB` : "")
 
   return (
     <div
+      ref={setNodeRef}
       className={cn(
-        "flex min-w-20 flex-col items-center rounded-md border px-3 py-1.5",
+        "flex min-w-20 flex-col items-center rounded-md border px-3 py-1.5 transition-colors",
         slot.state === "FREE" && "border-slot-free/50",
         slot.state === "RUNNING" && "border-slot-running/60 bg-slot-running/10",
         slot.state === "OFFLINE" && "border-dashed opacity-60",
         (slot.state === "RESERVED" || slot.state === "DEPLOYING" || slot.state === "STOPPING") &&
           "border-slot-reserved/60 bg-slot-reserved/10",
         slot.state === "FAILED" && "border-slot-failed/60 bg-slot-failed/10",
+        isOver && slot.state === "FREE" && "border-2 border-dashed border-slot-free bg-slot-free/15",
+        isOver &&
+          slot.state === "RUNNING" &&
+          "border-2 border-dashed border-slot-reserved bg-slot-reserved/15",
       )}
-      title={`${meta.label} · ${slot.slot_type}`}
+      title={`${meta.label} · ${slot.slot_type}${slot.state === "RUNNING" ? " — drop to replace" : ""}`}
     >
       <span className="font-mono text-xs font-medium">{slot.name}</span>
       <span className={cn("text-[10px]", meta.textClass)}>{capacity || meta.label}</span>

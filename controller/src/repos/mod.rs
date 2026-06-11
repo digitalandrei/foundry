@@ -2,10 +2,13 @@
 //! call sites compose them into transactions
 //! (docs/RUST_RULES.md § sqlx / MySQL).
 
+pub mod deployments;
 pub mod instances;
 pub mod inventory;
 pub mod local_admins;
 pub mod metrics;
 pub mod mirror;
 pub mod servers;
+pub mod tasks;
 pub mod users;
+pub mod volumes;

@@ -12,6 +12,7 @@ mod config;
 mod inventory;
 mod metrics;
 mod register;
+mod tasks;
 
 use std::error::Error;
 use std::time::Duration;
@@ -72,7 +73,12 @@ async fn run_agent() -> Result<(), Box<dyn Error>> {
         .timeout(Duration::from_secs(30))
         .build()?;
 
-    heartbeat_loop(&client, &config).await;
+    // Heartbeat/inventory/metrics and the task loop run concurrently;
+    // each exits on SIGTERM/ctrl-c.
+    tokio::join!(
+        heartbeat_loop(&client, &config),
+        tasks::run_loop(&client, &config)
+    );
     tracing::info!("shut down cleanly");
     Ok(())
 }
@@ -179,7 +185,7 @@ async fn heartbeat_loop(client: &reqwest::Client, config: &config::AgentConfig) 
     }
 }
 
-async fn shutdown_signal() {
+pub(crate) async fn shutdown_signal() {
     use tokio::signal;
 
     let ctrl_c = async {

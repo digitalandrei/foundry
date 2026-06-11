@@ -124,8 +124,11 @@ Append-only state-transition log. Columns: `id`, `deployment_id` FK,
 `actor_id` null, `detail` JSON null, `created_at`. Never updated or deleted.
 
 ### `deployment_ports`
-Port mappings. Columns: `id`, `deployment_id` FK, `container_port`,
-`host_port`, `protocol` (tcp/udp).
+Port mappings — one row per published port (a container may expose any
+number). Columns: `id`, `deployment_id` FK, `container_port`,
+`host_port` (controller-allocated from the per-server pool),
+`protocol` (tcp/udp), `kind` (HTTP/HTTPS/TCP/UDP — proxy vs direct,
+plans/phase-06.md).
 
 ### `deployment_env`
 Environment variables. Columns: `id`, `deployment_id` FK, `env_key`,
@@ -134,8 +137,20 @@ otherwise), `is_secret`. (`env_`-prefixed because `KEY` is a MySQL
 reserved word.) Unique: (`deployment_id`, `env_key`).
 
 ### `deployment_volumes`
-Volume mounts. Columns: `id`, `deployment_id` FK, `host_path`,
-`container_path`, `read_only`.
+Volume mounts. Columns: `id`, `deployment_id` FK, `server_volume_id`
+FK null (the persistent volume backing it; NULLed if the volume is
+deleted later), `host_path`, `container_path`, `read_only`.
+
+### `server_volumes`
+> Added in Phase 6 (operator requirement): persistent storage.
+
+Named per-server, per-user volumes at
+`/storage/containers/<owner_slug>/<name>`. Created on first use at
+deploy; survive container removal; remountable into later containers;
+deleted explicitly (REMOVE_VOLUME agent task wipes the directory).
+Columns: `id`, `server_id` FK, `name`, `owner_slug`, `path`,
+`created_by` FK users, timestamps. Unique: (`server_id`, `created_by`,
+`name`) and (`server_id`, `path`).
 
 ## Agent Task Queue
 
@@ -186,12 +201,11 @@ null, `created_at`. Never updated or deleted.
 ## Table Count Check
 
 18 spec tables + amendments (`gitlab_instances`, `sessions`,
-`local_credentials`, `server_containers`, `server_metrics`) = 23
-tables total: users,
-gitlab_accounts, gitlab_instances, local_credentials, sessions,
-gitlab_projects, registry_repositories, registry_tags, servers,
-server_agents, server_containers, server_metrics, gpus, gpu_slots,
-deployments,
-deployment_events, deployment_ports, deployment_env,
+`local_credentials`, `server_containers`, `server_metrics`,
+`server_volumes`) = 24 tables total: users, gitlab_accounts,
+gitlab_instances, local_credentials, sessions, gitlab_projects,
+registry_repositories, registry_tags, servers, server_agents,
+server_containers, server_metrics, server_volumes, gpus, gpu_slots,
+deployments, deployment_events, deployment_ports, deployment_env,
 deployment_volumes, agent_tasks, agent_task_results, audit_logs,
 enrollment_tokens.

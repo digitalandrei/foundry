@@ -84,14 +84,24 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
 - Theming: `next-themes` (`ThemeProvider` in `frontend/src/main.tsx`,
   storage key `foundry-theme`, dark default)
 
+- State machines (transition tables + THE transition fns) →
+  `controller/src/lifecycle.rs`; deployments + port allocator →
+  `controller/src/repos/deployments.rs`; task queue (claim/complete/
+  chains, deploy-payload build) → `controller/src/repos/tasks.rs`;
+  persistent volumes → `controller/src/repos/volumes.rs`; deployment +
+  volume routes → `controller/src/routes/deployments.rs`; dispatch
+  enrichment (env decrypt + pull-token mint) →
+  `controller/src/routes/agent.rs`
+- Agent executors (bollard deploy/stop/restart/remove/volume) + task
+  poll loop → `agent/src/tasks.rs`
+- Frontend deployments: hooks → `hooks/use-deployments.ts`; deploy/
+  replace dialog → `components/deploy-dialog.tsx`; drag sources in
+  `containers-panel.tsx`, drop targets in `server-grid.tsx`,
+  DndContext in `pages/dashboard.tsx`; table → `pages/deployments.tsx`
+
 **Planned (later phases):**
 
-- Resource routes `servers`, `deployments`, `audit`, `agent` →
-  `controller/src/routes/`
-- State-machine transition functions → `controller/src/lifecycle/`
-- Task queue dispatch → `controller/src/tasks/`
-- Agent task executors → `agent/src/tasks/`; NVML inventory →
-  `agent/src/inventory/`
+- Audit route → `controller/src/routes/`; UPLOAD_LOGS executor
 
 ## Maintenance
 

@@ -50,4 +50,6 @@ export const queryKeys = {
   servers: ["servers"] as const,
   serverDetail: (id: string) => ["servers", id] as const,
   serverMetrics: (id: string, minutes: number) => ["servers", id, "metrics", minutes] as const,
+  serverVolumes: (id: string) => ["servers", id, "volumes"] as const,
+  deployments: ["deployments"] as const,
 }

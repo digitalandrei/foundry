@@ -43,8 +43,9 @@ pub async fn browse(
             .registry_tags(project.gitlab_project_id, repo.id)
             .await?
         {
-            mirror::upsert_tag(&state.pool, repo_id, &tag).await?;
+            let tag_id = mirror::upsert_tag(&state.pool, repo_id, &tag).await?;
             tags.push(RegistryTag {
+                id: tag_id,
                 name: tag.name,
                 size_bytes: tag.total_size,
                 pushed_at: tag.created_at,

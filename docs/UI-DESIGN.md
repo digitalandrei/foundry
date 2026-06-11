@@ -107,8 +107,14 @@ mockup — final token mapping fixed when the palette lands in Phase 8).
 
 ## Other Screens (initial sketches; refined in Phase 8)
 
-- **Deployments**: full filterable table (superset of the dashboard panel) +
-  deployment detail with lifecycle timeline (`deployment_events`) and logs.
+- **Deployments** (live since 0.7.0): table with image/server/slot/
+  ports/state (deployment color map)/uptime/creator and per-state
+  actions (stop, start, remove — volumes survive removal, said in the
+  tooltip); failed rows show the error in a tooltip. Detail view with
+  lifecycle timeline (`deployment_events`) and logs comes with
+  Phase 7/8. The deploy dialog (drag-drop) collects name, multi-port
+  rows (TCP/UDP now), env rows with secret toggle, and persistent
+  volume mounts with reuse suggestions.
 - **Servers** (live since 0.2.0): table with status dot (same color
   tokens), hostname/OS/agent version/last heartbeat; admin "Add
   server" dialog → names the server, shows the one-time registration

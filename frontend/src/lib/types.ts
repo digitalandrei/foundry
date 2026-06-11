@@ -52,6 +52,7 @@ export interface ProjectSummary {
 }
 
 export interface RegistryTag {
+  id: string
   name: string
   size_bytes: number | null
   pushed_at: string | null
@@ -152,6 +153,84 @@ export interface MetricsSample {
 export interface MetricsPoint {
   sampled_at: string
   sample: MetricsSample
+}
+
+export type PortKind = "HTTP" | "HTTPS" | "TCP" | "UDP"
+
+export interface PortSpec {
+  container_port: number
+  kind: PortKind
+  host_port?: number | null
+}
+
+export interface EnvSpec {
+  key: string
+  value: string
+  is_secret: boolean
+}
+
+export interface VolumeSpec {
+  volume_name: string
+  container_path: string
+  read_only: boolean
+}
+
+export interface CreateDeploymentRequest {
+  slot_id: string
+  registry_tag_id: string
+  name?: string
+  ports: PortSpec[]
+  env: EnvSpec[]
+  volumes: VolumeSpec[]
+}
+
+export interface DeploymentPort {
+  container_port: number
+  host_port: number
+  protocol: string
+  kind: PortKind
+}
+
+export interface DeploymentSummary {
+  id: string
+  name: string
+  image_ref: string
+  state: import("./states").DeploymentState
+  error_message: string | null
+  server_id: string
+  server_name: string
+  slot_id: string
+  slot_name: string
+  gpu_label: string
+  created_by_name: string
+  ports: DeploymentPort[]
+  created_at: string
+  started_at: string | null
+}
+
+export interface ServerVolume {
+  id: string
+  name: string
+  path: string
+  created_by_name: string
+  attached_to: string[]
+  created_at: string
+}
+
+/** Drag payload: containers-panel tag card → slot chip. */
+export interface DragTagData {
+  registryTagId: string
+  imageName: string
+  tagName: string
+  sizeBytes: number | null
+}
+
+export interface DropSlotData {
+  slotId: string
+  slotName: string
+  slotState: import("./states").SlotState
+  serverId: string
+  serverName: string
 }
 
 export interface ServerDetail {

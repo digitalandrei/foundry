@@ -185,7 +185,14 @@ The agent manages **only** containers carrying Foundry labels:
 foundry.managed=true
 foundry.deployment_id=<uuid>
 foundry.slot_id=<uuid>
+foundry.slot=<display name, e.g. 0 or 0:3>     # hint (operator request)
+foundry.gpu_uuid=<GPU-… or MIG-…>              # hint (operator request)
 ```
+
+The two hint labels make GPU assignment visible host-side
+(`docker ps --format '{{.Names}} {{.Label "foundry.gpu_uuid"}}'`);
+generated container names also embed the slot (`procms-g0-x7f2`).
+Identity remains `deployment_id`/`slot_id`.
 
 Any container without `foundry.managed=true` is invisible to Foundry — never
 stopped, never removed, never reported as a Foundry deployment.
@@ -196,12 +203,25 @@ The controller enqueues typed tasks; the agent polls and executes:
 
 | Task | Effect |
 |---|---|
-| `DEPLOY_CONTAINER` | Pull image (with registry credentials), create container with labels + GPU device requests, start |
+| `DEPLOY_CONTAINER` | Pull image (with registry credentials), create container with labels + GPU device requests + port bindings + volume binds, start |
 | `STOP_CONTAINER` | Stop a managed container |
-| `RESTART_CONTAINER` | Restart a managed container |
-| `REMOVE_CONTAINER` | Remove a managed container (and its resources) |
+| `RESTART_CONTAINER` | Restart (running) / start (stopped) a managed container |
+| `REMOVE_CONTAINER` | Remove a managed container (persistent volumes survive) |
+| `REMOVE_VOLUME` | Delete a persistent volume directory (amendment: persistent storage; hard-scoped under `/storage/containers/`) |
 | `REFRESH_INVENTORY` | Re-enumerate GPUs/MIG slots/containers and upload |
 | `UPLOAD_LOGS` | Collect and upload container logs |
+
+### Persistent storage (amendment, Phase 6 — operator requirement)
+
+Users can mount named persistent volumes into containers. Volumes are
+per-server, **per-user namespaced** host directories at
+`/storage/containers/<owner>/<name>`, created on first use at deploy
+time, and independent of any deployment's lifecycle: removing a
+container keeps the data, and the same volume can be mounted into a
+later container (including the successor in a replacement). Deletion
+is explicit (UI/API), refused while any active deployment mounts the
+volume, and wipes the directory via `REMOVE_VOLUME`. Users see and
+mount only their own volumes; admins see all.
 
 Results are reported to `/agent/tasks/result`; the controller advances the
 deployment state machine accordingly. Task execution must be idempotent —

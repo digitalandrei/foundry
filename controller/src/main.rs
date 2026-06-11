@@ -8,6 +8,7 @@ mod config;
 mod crypto;
 mod error;
 mod gitlab;
+mod lifecycle;
 mod repos;
 mod routes;
 mod state;

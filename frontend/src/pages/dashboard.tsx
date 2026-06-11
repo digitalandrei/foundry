@@ -1,7 +1,19 @@
+import { useState } from "react"
+import { DndContext, DragOverlay, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core"
+import { Link } from "@tanstack/react-router"
+import { PackageIcon } from "lucide-react"
+import { toast } from "sonner"
+
 import { ContainersPanel } from "@/components/containers-panel"
+import { DeployDialog, type DeployTarget } from "@/components/deploy-dialog"
 import { ServerGrid } from "@/components/server-grid"
 import { SlotLegend } from "@/components/slot-legend"
+import { useDeployments } from "@/hooks/use-deployments"
 import { useServers } from "@/hooks/use-servers"
+import { formatRelative, formatSize } from "@/lib/format"
+import { DEPLOYMENT_STATE_META } from "@/lib/states"
+import type { DragTagData, DropSlotData } from "@/lib/types"
+import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -39,13 +51,40 @@ function SystemStatus() {
 }
 
 /** The core screen (docs/UI-DESIGN.md § Dashboard Layout): GitLab
- * sidebar, slot grid, running-deployments panel. Data wiring arrives
- * with the API phases; the empty states below are the real ones. */
+ * sidebar, slot grid (drop targets), running-deployments panel. */
 export function DashboardPage() {
+  const deployments = useDeployments()
+  const [dragging, setDragging] = useState<DragTagData | null>(null)
+  const [target, setTarget] = useState<DeployTarget | null>(null)
+
+  const onDragStart = (e: DragStartEvent) => {
+    setDragging((e.active.data.current as DragTagData) ?? null)
+  }
+  const onDragEnd = (e: DragEndEvent) => {
+    setDragging(null)
+    const tag = e.active.data.current as DragTagData | undefined
+    const slot = e.over?.data.current as DropSlotData | undefined
+    if (!tag || !slot) return
+    if (slot.slotState === "FREE") {
+      setTarget({ tag, slot, replaces: null })
+      return
+    }
+    // Occupied slot → replacement: confirm against what's running.
+    const current = (deployments.data ?? []).find(
+      (d) => d.slot_id === slot.slotId && d.state === "RUNNING",
+    )
+    if (!current) {
+      toast.error("Slot is busy with an operation in progress — try again shortly.")
+      return
+    }
+    setTarget({ tag, slot, replaces: current })
+  }
+
   return (
     // App-like layout: the page itself never scrolls — the containers
     // tree and the main column each scroll independently
     // (header h-14 + main p-4 → 5.5rem of chrome).
+    <DndContext onDragStart={onDragStart} onDragEnd={onDragEnd}>
     <div className="flex h-[calc(100svh-5.5rem)] gap-4">
       <aside className="flex w-72 shrink-0 flex-col gap-4">
         <Card className="flex min-h-0 flex-1 flex-col">
@@ -80,8 +119,18 @@ export function DashboardPage() {
         </Card>
 
         <Card className="shrink-0">
-          <CardHeader>
-            <CardTitle className="text-base">Running Deployments</CardTitle>
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle className="text-base">
+              Running Deployments
+              {deployments.data ? (
+                <Badge variant="secondary" className="ml-2">
+                  {deployments.data.filter((d) => d.state === "RUNNING").length}
+                </Badge>
+              ) : null}
+            </CardTitle>
+            <Link to="/deployments" className="text-sm text-muted-foreground hover:text-foreground">
+              View All
+            </Link>
           </CardHeader>
           <CardContent>
             <Table>
@@ -89,7 +138,6 @@ export function DashboardPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Image</TableHead>
-                  <TableHead>Version</TableHead>
                   <TableHead>Server</TableHead>
                   <TableHead>GPU / Slice</TableHead>
                   <TableHead>Status</TableHead>
@@ -97,16 +145,60 @@ export function DashboardPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                <TableRow>
-                  <TableCell colSpan={7} className="h-20 text-center text-muted-foreground">
-                    No running deployments.
-                  </TableCell>
-                </TableRow>
+                {(deployments.data ?? []).filter((d) => d.state === "RUNNING").length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
+                      No running deployments.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  (deployments.data ?? [])
+                    .filter((d) => d.state === "RUNNING")
+                    .map((d) => (
+                      <TableRow key={d.id}>
+                        <TableCell className="font-medium">{d.name}</TableCell>
+                        <TableCell
+                          className="max-w-56 truncate font-mono text-xs text-muted-foreground"
+                          title={d.image_ref}
+                        >
+                          {d.image_ref}
+                        </TableCell>
+                        <TableCell>{d.server_name}</TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {d.gpu_label} / {d.slot_name}
+                        </TableCell>
+                        <TableCell className={DEPLOYMENT_STATE_META[d.state].textClass}>
+                          {DEPLOYMENT_STATE_META[d.state].label}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {d.started_at ? formatRelative(d.started_at).replace(" ago", "") : "—"}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                )}
               </TableBody>
             </Table>
           </CardContent>
         </Card>
       </section>
     </div>
+
+    <DragOverlay>
+      {dragging ? (
+        <div className="flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm shadow-lg">
+          <PackageIcon className="size-4 text-muted-foreground" aria-hidden />
+          <span>{dragging.imageName}</span>
+          <Badge variant="secondary" className="font-mono text-[10px]">
+            {dragging.tagName}
+          </Badge>
+          {dragging.sizeBytes != null ? (
+            <span className="text-xs text-muted-foreground">{formatSize(dragging.sizeBytes)}</span>
+          ) : null}
+        </div>
+      ) : null}
+    </DragOverlay>
+
+    <DeployDialog target={target} onClose={() => setTarget(null)} />
+    </DndContext>
   )
 }

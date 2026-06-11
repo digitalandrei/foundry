@@ -103,11 +103,13 @@ str_enum! {
 
 str_enum! {
     /// Work items agents poll for (`docs/ARCHITECTURE.md` § Agent Tasks).
+    /// REMOVE_VOLUME is an amendment (persistent storage, Phase 6).
     pub enum TaskType {
         DeployContainer => "DEPLOY_CONTAINER",
         StopContainer => "STOP_CONTAINER",
         RestartContainer => "RESTART_CONTAINER",
         RemoveContainer => "REMOVE_CONTAINER",
+        RemoveVolume => "REMOVE_VOLUME",
         RefreshInventory => "REFRESH_INVENTORY",
         UploadLogs => "UPLOAD_LOGS",
     }
@@ -139,6 +141,28 @@ str_enum! {
         User => "USER",
         Agent => "AGENT",
         Controller => "CONTROLLER",
+    }
+}
+
+str_enum! {
+    /// How a published port is exposed (plans/phase-06.md § Networking).
+    /// HTTP/HTTPS ride the central proxy (later build); TCP/UDP map
+    /// directly onto the server IP.
+    pub enum PortKind {
+        Http => "HTTP",
+        Https => "HTTPS",
+        Tcp => "TCP",
+        Udp => "UDP",
+    }
+}
+
+impl PortKind {
+    /// The L4 protocol Docker publishes for this kind.
+    pub fn protocol(self) -> &'static str {
+        match self {
+            PortKind::Udp => "udp",
+            _ => "tcp",
+        }
     }
 }
 
@@ -185,7 +209,8 @@ mod tests {
         TaskType,
         TaskState,
         ServerStatus,
-        ActorType
+        ActorType,
+        PortKind
     );
 
     #[test]
@@ -197,6 +222,7 @@ mod tests {
         round_trip::<TaskState>();
         round_trip::<ServerStatus>();
         round_trip::<ActorType>();
+        round_trip::<PortKind>();
     }
 
     #[test]

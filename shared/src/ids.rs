@@ -58,6 +58,7 @@ id_type!(SlotId);
 id_type!(EnrollmentTokenId);
 id_type!(DeploymentId);
 id_type!(TaskId);
+id_type!(ServerVolumeId);
 
 #[cfg(test)]
 mod tests {

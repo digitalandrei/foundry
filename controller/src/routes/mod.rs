@@ -2,6 +2,7 @@
 //! per resource; this file only assembles the router.
 
 mod agent;
+mod deployments;
 mod health;
 mod instances;
 mod me;
@@ -35,6 +36,23 @@ pub fn router(state: AppState) -> Router {
         .route("/api/servers/{server_id}", get(servers::detail))
         .route("/api/servers/{server_id}/metrics", get(servers::metrics))
         .route(
+            "/api/servers/{server_id}/volumes",
+            get(deployments::list_volumes),
+        )
+        .route(
+            "/api/volumes/{volume_id}",
+            axum::routing::delete(deployments::delete_volume),
+        )
+        .route("/api/deployments", get(deployments::list))
+        .route("/api/deployments", post(deployments::create))
+        .route("/api/deployments/{id}/stop", post(deployments::stop))
+        .route("/api/deployments/{id}/restart", post(deployments::restart))
+        .route(
+            "/api/deployments/{id}",
+            axum::routing::delete(deployments::remove),
+        )
+        .route("/api/deployments/{id}/replace", post(deployments::replace))
+        .route(
             "/api/servers/{server_id}/enrollment-token",
             post(servers::regenerate_token),
         )
@@ -43,5 +61,7 @@ pub fn router(state: AppState) -> Router {
         .route("/agent/heartbeat", post(agent::heartbeat))
         .route("/agent/inventory", post(agent::inventory))
         .route("/agent/metrics", post(agent::metrics))
+        .route("/agent/tasks/next", get(agent::tasks_next))
+        .route("/agent/tasks/result", post(agent::tasks_result))
         .with_state(state)
 }
