@@ -50,7 +50,7 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   `migrations/*.sql`
 - Agent config (TOML, `FOUNDRY_AGENT_CONFIG` override) →
   `agent/src/config.rs`; poll loop → `agent/src/main.rs`
-- Frontend pages → `frontend/src/pages/{dashboard,deployments,servers,audit,settings,login}.tsx`
+- Frontend pages → `frontend/src/pages/{dashboard,deployments,servers,audit,settings,login,help-gitlab-oauth}.tsx`
 - Layout shell / nav / session guard → `frontend/src/components/layout/app-shell.tsx`
 - API client + query keys → `frontend/src/lib/api.ts`; hooks →
   `frontend/src/hooks/{use-auth,use-instances,use-projects}.ts`

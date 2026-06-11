@@ -1,5 +1,6 @@
 import { Link, Navigate, Outlet } from "@tanstack/react-router"
 import {
+  CircleHelpIcon,
   LayoutDashboardIcon,
   RocketIcon,
   ScrollTextIcon,
@@ -9,6 +10,7 @@ import {
 
 import { ModeToggle } from "@/components/mode-toggle"
 import { UserMenu } from "@/components/user-menu"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useMe } from "@/hooks/use-auth"
 
@@ -61,6 +63,11 @@ export function AppShell() {
             ))}
           </nav>
           <div className="ml-auto flex items-center gap-1">
+            <Button variant="ghost" size="icon" asChild>
+              <Link to="/help/gitlab-oauth" aria-label="Help">
+                <CircleHelpIcon className="size-4" aria-hidden />
+              </Link>
+            </Button>
             <ModeToggle />
             <UserMenu me={me.data} />
           </div>

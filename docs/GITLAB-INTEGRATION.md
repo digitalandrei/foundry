@@ -21,7 +21,21 @@ Foundry never duplicates permissions locally.
   - Redirect URI: `https://foundry.cloudcraft.ro/auth/callback`
     (**one fixed URI for all instances** — the pending instance is
     carried in Foundry's encrypted state cookie)
-  - Scopes: `openid profile email read_api read_registry`
+  - Scopes — exactly these five, all read-only (rationale; mirrored by
+    the in-app help page `/help/gitlab-oauth`, which must stay in sync
+    with this list and `controller/src/gitlab/oauth.rs::SCOPES`):
+    | Scope | Why |
+    |---|---|
+    | `openid` | the OIDC sign-in itself |
+    | `profile` | name + avatar for the portal |
+    | `email` | primary email (display + admin mapping) |
+    | `read_api` | list visible projects + registry repos/tags — GitLab permissions become Foundry permissions |
+    | `read_registry` | browse images; mint short-lived **pull** tokens at deploy time |
+
+    Explicitly **not** requested: `api`, `write_registry` (Foundry
+    never writes to GitLab or pushes images), repository scopes (no
+    source access), `read_user` (covered by `openid`/`read_api`),
+    runner/k8s/observability/AI/sudo/admin scopes (out of scope).
 - Client secrets are AES-256-GCM-encrypted at rest.
 - All cached GitLab data (`gitlab_projects`, `registry_repositories`,
   `registry_tags`) and every deployment are keyed to an instance.

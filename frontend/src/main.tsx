@@ -15,6 +15,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { AuditPage } from "@/pages/audit"
 import { DashboardPage } from "@/pages/dashboard"
 import { DeploymentsPage } from "@/pages/deployments"
+import { HelpGitlabOauthPage } from "@/pages/help-gitlab-oauth"
 import { LoginPage } from "@/pages/login"
 import { ServersPage } from "@/pages/servers"
 import { SettingsPage } from "@/pages/settings"
@@ -51,6 +52,11 @@ const routeTree = rootRoute.addChildren([
     createRoute({ getParentRoute: () => appLayout, path: "/servers", component: ServersPage }),
     createRoute({ getParentRoute: () => appLayout, path: "/audit", component: AuditPage }),
     createRoute({ getParentRoute: () => appLayout, path: "/settings", component: SettingsPage }),
+    createRoute({
+      getParentRoute: () => appLayout,
+      path: "/help/gitlab-oauth",
+      component: HelpGitlabOauthPage,
+    }),
   ]),
 ])
 

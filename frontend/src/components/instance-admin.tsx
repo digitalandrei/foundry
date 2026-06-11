@@ -1,5 +1,6 @@
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
+import { Link } from "@tanstack/react-router"
 import { z } from "zod"
 
 import { useCreateInstance, useInstancesFull } from "@/hooks/use-instances"
@@ -95,6 +96,11 @@ export function InstanceAdmin() {
           <code className="font-mono text-foreground">
             openid profile email read_api read_registry
           </code>
+        </p>
+        <p className="mt-1">
+          <Link to="/help/gitlab-oauth" className="underline underline-offset-2 hover:text-foreground">
+            Full setup guide — which permissions and why →
+          </Link>
         </p>
       </div>
 

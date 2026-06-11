@@ -15,6 +15,11 @@ tree, admin instance onboarding (RHF+zod+Field); production deploy at
 https://foundry.cloudcraft.ro (nginx static SPA + API proxy,
 self-signed origin cert behind Cloudflare Full).
 
+Extension (user request, same day): **in-app help page**
+`/help/gitlab-oauth` — OAuth app setup steps + scope rationale
+(5 required read-only scopes, leave-unchecked list), linked from the
+top-nav help icon and the onboarding form.
+
 Extension (user request, same day): **local operator accounts** —
 argon2id credentials, `POST /auth/local`, operator form on the login
 page, `admin add`/`admin set-password` CLI; first `admin` account live

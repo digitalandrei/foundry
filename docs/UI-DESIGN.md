@@ -101,3 +101,8 @@ mockup — final token mapping fixed when the palette lands in Phase 8).
   inventory and agent health.
 - **Audit Logs**: filterable audit table (actor, action, subject, time).
 - **Settings**: GitLab instances (admin), enrollment tokens, theme, profile.
+- **Help**: `/help/gitlab-oauth` — GitLab OAuth app setup guide (steps,
+  required scopes with rationale, leave-unchecked list). Reached from
+  the top-nav help icon and the Settings onboarding form. Content must
+  stay in sync with `GITLAB-INTEGRATION.md` and the controller's scope
+  list.
