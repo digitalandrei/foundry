@@ -102,16 +102,30 @@ cache, not an ACL.
 
 ## Image Pulls on GPU Servers
 
-Agents must authenticate to the instance's container registry to pull:
+Agents must authenticate to the instance's container registry to pull.
+Network shape: the agent itself never contacts GitLab — only the GPU
+server's **Docker daemon** reaches the registry (e.g.
+`g.protv.ro:5050`, outbound only, registry TLS must be trusted by the
+daemon); the GitLab **API** is only ever called by the controller.
 
-- The controller embeds short-lived pull credentials in the
-  `DEPLOY_CONTAINER` task payload. Source of credentials: the deploying
-  user's token exchanged for a registry token (JWT from
-  `{base_url}/jwt/auth?service=container_registry&scope=repository:{path}:pull`),
-  or a per-instance deploy token if configured — decided per instance at
-  onboarding.
-- The agent uses the credential for `docker pull` (Engine API auth header)
-  and discards it; credentials are never written to disk on GPU servers.
+- The controller mints a short-lived credential **from the deploying
+  user's token** (this is what `read_registry` authorizes) at
+  `{base_url}/jwt/auth?service=container_registry&scope=repository:{path}:pull`
+  — single repository, pull-only, minutes-lived — and embeds it in the
+  `DEPLOY_CONTAINER` task payload. Registry authorization therefore
+  stays personal: a user who cannot pull the image in GitLab cannot
+  deploy it.
+- Agent → Docker handoff (variant locked in Phase 6 against the real
+  instance, in preference order):
+  1. pre-minted JWT passed directly via Docker auth config
+     `registrytoken` (most scoped);
+  2. username + OAuth-token pair via `X-Registry-Auth`, letting the
+     daemon run the `/jwt/auth` dance itself;
+  3. fallback: per-instance **deploy token** (`read_registry` scope)
+     configured at onboarding, if the instance rejects OAuth tokens at
+     the registry auth endpoint.
+- The agent holds the credential in memory for the one pull and
+  discards it; never written to disk, never logged.
 
 ## Failure Modes to Handle
 
