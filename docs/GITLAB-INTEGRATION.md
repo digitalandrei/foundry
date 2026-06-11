@@ -15,9 +15,11 @@ Foundry never duplicates permissions locally.
   `FOUNDRY_INSTANCE_CLIENT_SECRET` (solves the first-instance
   chicken-and-egg: no admin can log in before an instance exists).
   The controller must be able to reach each instance over HTTPS.
-- Each instance needs a GitLab **OAuth application** — any GitLab user
-  can create one (Profile → Applications; "Confidential" on; no
-  instance admin required):
+- Each instance needs a GitLab **OAuth application**, created in any of
+  GitLab's three locations — instance-wide (Admin Area → Applications;
+  admin only, can be marked *Trusted* to skip the per-user consent
+  screen), group-owned (Group → Settings → Applications), or user-owned
+  (Profile → Applications; any user). "Confidential" on:
   - Redirect URI: `https://foundry.cloudcraft.ro/auth/callback`
     (**one fixed URI for all instances** — the pending instance is
     carried in Foundry's encrypted state cookie)
@@ -29,8 +31,8 @@ Foundry never duplicates permissions locally.
     | `openid` | the OIDC sign-in itself |
     | `profile` | name + avatar for the portal |
     | `email` | primary email (display + admin mapping) |
-    | `read_api` | list visible projects + registry repos/tags — GitLab permissions become Foundry permissions |
-    | `read_registry` | browse images; mint short-lived **pull** tokens at deploy time |
+    | `read_api` | list visible projects + browse registry repos/tags via the REST API — GitLab permissions become Foundry permissions |
+    | `read_registry` | authorize the registry **service** (JWT exchange) — required for actual image pulls at deploy time; `read_api` does not grant this |
 
     Explicitly **not** requested: `api`, `write_registry` (Foundry
     never writes to GitLab or pushes images), repository scopes (no

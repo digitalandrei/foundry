@@ -85,8 +85,8 @@ export function InstanceAdmin() {
           Create an OAuth application on the GitLab instance first
         </p>
         <p>
-          GitLab → Profile → Applications (any user can do this; “Confidential” on). Then copy the
-          Application ID and Secret below.
+          GitLab → Admin Area, Group Settings, or Profile → Applications (“Confidential” on). Then
+          copy the Application ID and Secret below.
         </p>
         <p className="mt-1">
           Redirect URI: <code className="font-mono text-foreground">{redirectUri}</code>

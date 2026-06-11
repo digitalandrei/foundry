@@ -38,12 +38,12 @@ const REQUIRED_SCOPES = [
   {
     scope: "read_api",
     purpose:
-      "Read-only API access: lists the projects your account can see and their container registry repositories and tags. This is how your GitLab permissions become your Foundry permissions — Foundry keeps no permission system of its own.",
+      "Read-only REST API access: lists the projects your account can see and browses their registry repositories and tags through the registry API. This is how your GitLab permissions become your Foundry permissions — Foundry keeps no permission system of its own.",
   },
   {
     scope: "read_registry",
     purpose:
-      "Read-only access to container registry images: powers the image browser, and at deploy time lets Foundry mint short-lived pull credentials so a GPU server can pull the image you chose.",
+      "Authorizes the container registry service itself (the JWT token exchange used for image pulls). read_api only covers the REST API — without read_registry, deployments would fail when the GPU server tries to pull the image with the short-lived credential Foundry mints.",
   },
 ] as const
 
@@ -86,14 +86,30 @@ export function HelpGitlabOauthPage() {
         <CardHeader>
           <CardTitle className="text-base">1 · Create the OAuth application</CardTitle>
           <CardDescription>
-            On the GitLab instance — any user can do this, no instance admin needed.
+            GitLab accepts OAuth applications in three places — all work the same for Foundry.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           <ol className="list-decimal space-y-1.5 pl-5">
             <li>
-              In GitLab, open <span className="font-medium">Profile → Applications</span> (or a
-              group/instance-level application — all work the same).
+              Open one of:
+              <ul className="mt-1 list-disc space-y-0.5 pl-5 text-muted-foreground">
+                <li>
+                  <span className="font-medium text-foreground">Admin Area → Applications</span>{" "}
+                  (instance-wide; admin only — can be marked “Trusted” to skip the per-user consent
+                  screen)
+                </li>
+                <li>
+                  <span className="font-medium text-foreground">
+                    Group → Settings → Applications
+                  </span>{" "}
+                  (group-owned)
+                </li>
+                <li>
+                  <span className="font-medium text-foreground">Profile → Applications</span>{" "}
+                  (user-owned; any user can create one)
+                </li>
+              </ul>
             </li>
             <li>
               Set <span className="font-medium">Redirect URI</span> to{" "}
@@ -125,7 +141,11 @@ export function HelpGitlabOauthPage() {
             <CheckIcon className="size-4 text-slot-free" aria-hidden />
             Required scopes — and why
           </CardTitle>
-          <CardDescription>All five are read-only. Foundry requests nothing else.</CardDescription>
+          <CardDescription>
+            All five are read-only. Foundry requests nothing else. Note: read_api and read_registry
+            overlap only for browsing — read_api covers the registry REST API, while read_registry
+            authorizes the registry service itself (actual image pulls). Both are required.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
