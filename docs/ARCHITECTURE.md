@@ -76,6 +76,17 @@ authenticated HTTPS surface, horizontally scalable (agents are independent).
    report observed state and converge toward desired state via tasks.
 4. Every lifecycle transition is persisted as a `deployment_events` row and an
    `audit_logs` entry.
+5. **Observed state in the DB is a cache of reality, never trusted
+   across restarts** (operator requirement, 2026-06-12). Agents upload
+   *full snapshots* (inventory at start + every 60 s), and the
+   controller reconciles unconditionally on every upload — so a
+   crashed controller, a crashed agent, a crashed container, or a MIG
+   reshape all self-heal within one snapshot interval. Nothing
+   incremental, no "assume the DB is right": presence in the snapshot
+   is the truth, absence means gone (→ OFFLINE / removed). Phase 6
+   extends the same rule to deployments: an expected-RUNNING container
+   missing from the snapshot (or exited) drives the deployment state
+   machine to FAILED/STOPPED — detected, evented, audited.
 
 ## Multi-GitLab-Instance Model
 

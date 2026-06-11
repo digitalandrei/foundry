@@ -48,4 +48,5 @@ export const queryKeys = {
   projects: ["projects"] as const,
   registry: (projectId: string) => ["registry", projectId] as const,
   servers: ["servers"] as const,
+  serverDetail: (id: string) => ["servers", id] as const,
 }

@@ -21,6 +21,26 @@ pub async fn list(
     Ok(Json(servers::list(&state.pool).await?))
 }
 
+/// Detail: GPUs/slots + the docker-ps snapshot (docs/API.md).
+pub async fn detail(
+    State(state): State<AppState>,
+    _user: CurrentUser,
+    Path(server_id): Path<ServerId>,
+) -> Result<Json<foundry_shared::dto::ServerDetail>, AppError> {
+    let server = servers::get_summary(&state.pool, server_id).await?;
+    let (docker_version, nvidia_driver_version) =
+        servers::runtime_versions(&state.pool, server_id).await?;
+    let containers = crate::repos::inventory::containers_for_server(&state.pool, server_id).await?;
+    let gpus = server.gpus.clone();
+    Ok(Json(foundry_shared::dto::ServerDetail {
+        server,
+        docker_version,
+        nvidia_driver_version,
+        gpus,
+        containers,
+    }))
+}
+
 fn registration_command(public_url: &str, token: &str) -> String {
     format!("sudo foundry-agent --register --url {public_url} --token {token}")
 }

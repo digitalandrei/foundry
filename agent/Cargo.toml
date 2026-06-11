@@ -12,6 +12,10 @@ tokio = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+# Inventory (docs/GPU-MIG.md): Docker Engine API over the local socket
+# and NVML loaded dynamically (binary still runs on GPU-less hosts).
+bollard = "0.19"
+nvml-wrapper = "0.11"
 
 [lints]
 workspace = true

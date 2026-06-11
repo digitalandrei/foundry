@@ -28,7 +28,8 @@ user's GitLab account on the instance that owns the resource.
 | `POST /api/instances` | Onboard a GitLab instance — admin | ✅ live |
 | `GET /api/projects` | GitLab projects visible to the user, resolved live per instance (degrades per account when an instance is unreachable) | ✅ live |
 | `GET /api/registry/{project_id}` | Registry browse for one project: repositories + tags (size/pushed_at via per-tag detail, capped at 50/repo) — fetched lazily as the sidebar tree expands | ✅ live |
-| `GET /api/servers` | Servers with status/heartbeat/agent version (GPUs+slots join in Phase 5) | ✅ live |
+| `GET /api/servers` | Servers with status/heartbeat/agent version + GPUs and slots (dashboard grid) | ✅ live |
+| `GET /api/servers/{id}` | Detail: runtime versions, GPUs/slots, docker-ps container snapshot | ✅ live |
 | `POST /api/servers` | Create a **named** server (GitLab-agent style) — returns the one-time registration command — admin | ✅ live |
 | `POST /api/servers/{id}/enrollment-token` | Re-mint the token (revokes unused older ones) — admin | ✅ live |
 | `GET /api/deployments` | Deployments (filterable by server/slot/state) | Phase 6 |
@@ -71,7 +72,7 @@ single-use enrollment token.
 |---|---|
 | `POST /agent/enroll` | ✅ live — single-use token → permanent identity `{agent_id, agent_secret}`; binds to the pre-named server; re-enrollment replaces the credential |
 | `POST /agent/heartbeat` | ✅ live — marks the server ONLINE + records agent version; a 30s sweeper flips servers OFFLINE after 90s without a beat |
-| `POST /agent/inventory` | Full upload of GPUs, MIG slots, and Foundry-managed containers; controller reconciles `gpus`/`gpu_slots` |
+| `POST /agent/inventory` | ✅ live — full snapshot (GPUs/MIG + ALL containers with `managed` flag + runtime versions) at start + every 60s; controller reconciles UUID-keyed (vanished → OFFLINE, returned → FREE), containers replace-all; bounds: ≤64 GPUs, ≤1024 containers |
 | `GET /agent/tasks/next` | Long-poll for the next queued task for this server |
 | `POST /agent/tasks/result` | Report task success/failure with detail; controller advances deployment state |
 | `POST /agent/logs` | Upload container log chunks for a deployment |

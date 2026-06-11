@@ -1,8 +1,9 @@
 import { useState } from "react"
-import { KeyRoundIcon, ServerIcon } from "lucide-react"
+import { ContainerIcon, KeyRoundIcon, ServerIcon } from "lucide-react"
 
 import { EmptyState } from "@/components/empty-state"
 import { EnrollServerDialog, RegistrationCommand } from "@/components/enroll-server-dialog"
+import { ServerDetailDialog } from "@/components/server-detail-dialog"
 import { useMe } from "@/hooks/use-auth"
 import { useRegenerateToken, useServers } from "@/hooks/use-servers"
 import { formatRelative } from "@/lib/format"
@@ -33,6 +34,7 @@ export function ServersPage() {
   const me = useMe()
   const regenerate = useRegenerateToken()
   const [tokenResult, setTokenResult] = useState<EnrollmentTokenResponse | null>(null)
+  const [detailId, setDetailId] = useState<string | null>(null)
   const isAdmin = me.data?.is_admin ?? false
 
   return (
@@ -69,7 +71,7 @@ export function ServersPage() {
                 <TableHead>OS</TableHead>
                 <TableHead>Agent</TableHead>
                 <TableHead>Last heartbeat</TableHead>
-                {isAdmin ? <TableHead className="text-right">Actions</TableHead> : null}
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -96,27 +98,35 @@ export function ServersPage() {
                     <TableCell className="text-muted-foreground">
                       {server.last_heartbeat_at ? formatRelative(server.last_heartbeat_at) : "never"}
                     </TableCell>
-                    {isAdmin ? (
-                      <TableCell className="text-right">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={regenerate.isPending}
-                          onClick={() =>
-                            regenerate.mutate(server.id, { onSuccess: setTokenResult })
-                          }
-                        >
-                          <KeyRoundIcon className="size-3.5" aria-hidden />
-                          New token
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1.5">
+                        <Button variant="outline" size="sm" onClick={() => setDetailId(server.id)}>
+                          <ContainerIcon className="size-3.5" aria-hidden />
+                          Details
                         </Button>
-                      </TableCell>
-                    ) : null}
+                        {isAdmin ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={regenerate.isPending}
+                            onClick={() =>
+                              regenerate.mutate(server.id, { onSuccess: setTokenResult })
+                            }
+                          >
+                            <KeyRoundIcon className="size-3.5" aria-hidden />
+                            New token
+                          </Button>
+                        ) : null}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 )
               })}
             </TableBody>
           </Table>
         )}
+
+        <ServerDetailDialog serverId={detailId} onClose={() => setDetailId(null)} />
 
         <Dialog open={tokenResult !== null} onOpenChange={(o) => !o && setTokenResult(null)}>
           <DialogContent>

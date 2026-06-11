@@ -27,21 +27,38 @@ pub async fn list(pool: &MySqlPool) -> Result<Vec<ServerSummary>, AppError> {
     .fetch_all(pool)
     .await?;
 
-    rows.into_iter()
-        .map(|r| {
-            let status: ServerStatus = r.status.parse().map_err(AppError::internal)?;
-            Ok(ServerSummary {
-                id: r.id.into(),
-                name: r.name,
-                hostname: (!r.hostname.is_empty()).then_some(r.hostname),
-                status,
-                last_heartbeat_at: r.last_heartbeat_at.map(|t| t.and_utc()),
-                agent_version: r.agent_version,
-                os_version: r.os_version,
-                enrolled: r.agent_id.is_some(),
-            })
-        })
-        .collect()
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        let status: ServerStatus = r.status.parse().map_err(AppError::internal)?;
+        let id: ServerId = r.id.into();
+        out.push(ServerSummary {
+            id,
+            name: r.name,
+            hostname: (!r.hostname.is_empty()).then_some(r.hostname),
+            status,
+            last_heartbeat_at: r.last_heartbeat_at.map(|t| t.and_utc()),
+            agent_version: r.agent_version,
+            os_version: r.os_version,
+            enrolled: r.agent_id.is_some(),
+            gpus: super::inventory::gpus_for_server(pool, id).await?,
+        });
+    }
+    Ok(out)
+}
+
+/// docker/driver versions for the detail view.
+pub async fn runtime_versions(
+    pool: &MySqlPool,
+    id: ServerId,
+) -> Result<(Option<String>, Option<String>), AppError> {
+    let row = sqlx::query!(
+        "SELECT docker_version, nvidia_driver_version FROM servers WHERE id = ?",
+        id.0
+    )
+    .fetch_optional(pool)
+    .await?
+    .ok_or(AppError::NotFound("server not found"))?;
+    Ok((row.docker_version, row.nvidia_driver_version))
 }
 
 pub async fn get_summary(pool: &MySqlPool, id: ServerId) -> Result<ServerSummary, AppError> {

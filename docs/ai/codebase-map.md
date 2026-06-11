@@ -52,9 +52,12 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
 - Embedded migrations → `controller/src/main.rs` (`MIGRATOR`) reading
   `migrations/*.sql`
 - Agent config (TOML, `FOUNDRY_AGENT_CONFIG` override) →
-  `agent/src/config.rs`; heartbeat loop + CLI dispatch →
+  `agent/src/config.rs`; heartbeat + inventory loops, CLI dispatch →
   `agent/src/main.rs`; `--register` (enroll, self-install, user, unit)
-  → `agent/src/register.rs`
+  → `agent/src/register.rs`; NVML/Docker snapshot collection (incl.
+  `nvidia-smi -L` MIG parse) → `agent/src/inventory.rs`
+- Inventory reconcile (two-phase OFFLINE/upsert, containers
+  replace-all) → `controller/src/repos/inventory.rs`
 - Frontend pages → `frontend/src/pages/{dashboard,deployments,servers,audit,settings,login,help-gitlab-oauth}.tsx`
 - Layout shell / nav / session guard → `frontend/src/components/layout/app-shell.tsx`
 - API client + query keys → `frontend/src/lib/api.ts`; hooks →
@@ -66,7 +69,11 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   user menu → `components/user-menu.tsx`; shared blocks →
   `empty-state.tsx`, `slot-legend.tsx`, `mode-toggle.tsx`; shadcn
   primitives in `frontend/src/components/ui/` (generated, don't edit)
-- Server hooks → `frontend/src/hooks/use-servers.ts` (10s refetch)
+- Server hooks → `frontend/src/hooks/use-servers.ts` (10s refetch;
+  detail 15s)
+- Dashboard slot grid → `frontend/src/components/server-grid.tsx`
+  (ServerRow/GpuStrip/SlotChip); docker-ps detail dialog →
+  `components/server-detail-dialog.tsx`
 - State→color map → `frontend/src/lib/states.ts`; formatting →
   `lib/format.ts`; theme + slot tokens → `frontend/src/index.css`;
   version → `frontend/src/lib/version.ts`

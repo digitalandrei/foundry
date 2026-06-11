@@ -1,7 +1,5 @@
-import { ServerOffIcon } from "lucide-react"
-
 import { ContainersPanel } from "@/components/containers-panel"
-import { EmptyState } from "@/components/empty-state"
+import { ServerGrid } from "@/components/server-grid"
 import { SlotLegend } from "@/components/slot-legend"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
@@ -63,11 +61,7 @@ export function DashboardPage() {
             <SlotLegend />
           </CardHeader>
           <CardContent>
-            <EmptyState
-              icon={ServerOffIcon}
-              title="No servers enrolled"
-              description="Enroll a GPU server with an enrollment token to see its GPUs and MIG slots here."
-            />
+            <ServerGrid />
           </CardContent>
         </Card>
 

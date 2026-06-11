@@ -16,6 +16,9 @@ pub struct ServerSummary {
     pub os_version: Option<String>,
     /// Whether an agent has ever enrolled for this server.
     pub enrolled: bool,
+    /// GPUs with their slots (from the latest inventory snapshot) —
+    /// the dashboard slot grid feeds from this.
+    pub gpus: Vec<super::GpuSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

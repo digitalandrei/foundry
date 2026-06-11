@@ -71,3 +71,23 @@ pub async fn heartbeat(
     servers::record_heartbeat(&state.pool, ctx.server_id, req.agent_version.trim()).await?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+/// Full snapshot upload (docs/GPU-MIG.md). Bounds: an authenticated
+/// agent is not blindly trusted (docs/SECURITY.md § Input hygiene).
+pub async fn inventory(
+    State(state): State<AppState>,
+    AuthenticatedAgent(ctx): AuthenticatedAgent,
+    Json(snap): Json<foundry_shared::dto::InventorySnapshot>,
+) -> Result<StatusCode, AppError> {
+    if snap.gpus.len() > 64 || snap.containers.len() > 1024 {
+        return Err(AppError::BadRequest("snapshot exceeds sane bounds".into()));
+    }
+    crate::repos::inventory::apply_snapshot(&state.pool, ctx.server_id, &snap).await?;
+    tracing::debug!(
+        server = %ctx.server_id,
+        gpus = snap.gpus.len(),
+        containers = snap.containers.len(),
+        "inventory applied"
+    );
+    Ok(StatusCode::NO_CONTENT)
+}

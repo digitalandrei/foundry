@@ -69,6 +69,24 @@ export interface RegistryBrowseResponse {
 
 export type ServerStatus = "ONLINE" | "OFFLINE" | "DEGRADED"
 
+export interface SlotSummary {
+  id: string
+  name: string
+  slot_type: "FULL_GPU" | "MIG_SLOT"
+  mig_profile: string | null
+  capacity_mb: number | null
+  state: import("./states").SlotState
+}
+
+export interface GpuSummary {
+  id: string
+  gpu_uuid: string
+  model: string | null
+  memory_mb: number | null
+  mig_enabled: boolean
+  slots: SlotSummary[]
+}
+
 export interface ServerSummary {
   id: string
   name: string
@@ -78,6 +96,25 @@ export interface ServerSummary {
   agent_version: string | null
   os_version: string | null
   enrolled: boolean
+  gpus: GpuSummary[]
+}
+
+export interface ServerContainer {
+  container_id: string
+  name: string
+  image: string
+  state: string
+  status: string
+  managed: boolean
+  reported_at: string
+}
+
+export interface ServerDetail {
+  server: ServerSummary
+  docker_version: string | null
+  nvidia_driver_version: string | null
+  gpus: GpuSummary[]
+  containers: ServerContainer[]
 }
 
 export interface EnrollmentTokenResponse {

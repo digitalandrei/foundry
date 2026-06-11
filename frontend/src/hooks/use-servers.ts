@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { api, ApiError, queryKeys } from "@/lib/api"
-import type { EnrollmentTokenResponse, ServerSummary } from "@/lib/types"
+import type { EnrollmentTokenResponse, ServerDetail, ServerSummary } from "@/lib/types"
 
 export function useServers() {
   return useQuery({
@@ -10,6 +10,16 @@ export function useServers() {
     queryFn: () => api<ServerSummary[]>("/api/servers"),
     // Heartbeats land every ~15s; keep the fleet view close to live.
     refetchInterval: 10_000,
+  })
+}
+
+/** Detail (docker ps + GPU breakdown); fetched while the dialog is open. */
+export function useServerDetail(serverId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.serverDetail(serverId ?? ""),
+    queryFn: () => api<ServerDetail>(`/api/servers/${serverId}`),
+    enabled: serverId !== null,
+    refetchInterval: 15_000,
   })
 }
 

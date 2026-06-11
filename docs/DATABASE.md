@@ -70,6 +70,15 @@ Agent identity and auth per server. Columns: `id`, `server_id` FK,
 `agent_version`, `token_hash` (current credential, hashed),
 `token_rotated_at`, `enrolled_at`, timestamps.
 
+### `server_containers`
+> Added in Phase 5 (amendment): docker-ps visibility.
+
+Observed containers per server — full snapshot per inventory upload
+(replace-all). Read-only visibility; Foundry only ever *manages*
+containers labeled `foundry.managed=true`. Columns: `id`, `server_id`
+FK, `container_id` (short), `name`, `image`, `state`, `status`,
+`managed`, `reported_at`.
+
 ### `gpus`
 Physical GPUs per server. Columns: `id`, `server_id` FK, `gpu_uuid` (NVML),
 `model`, `memory_mb`, `mig_enabled`, `last_seen_at`. Unique: `gpu_uuid`.
@@ -165,10 +174,11 @@ null, `created_at`. Never updated or deleted.
 
 ## Table Count Check
 
-18 spec tables + `gitlab_instances` + `sessions` + `local_credentials`
-(amendments) = 21 tables total: users, gitlab_accounts,
-gitlab_instances, local_credentials, sessions, gitlab_projects,
-registry_repositories, registry_tags, servers, server_agents, gpus,
-gpu_slots, deployments, deployment_events, deployment_ports,
-deployment_env, deployment_volumes, agent_tasks, agent_task_results,
-audit_logs, enrollment_tokens.
+18 spec tables + amendments (`gitlab_instances`, `sessions`,
+`local_credentials`, `server_containers`) = 22 tables total: users,
+gitlab_accounts, gitlab_instances, local_credentials, sessions,
+gitlab_projects, registry_repositories, registry_tags, servers,
+server_agents, server_containers, gpus, gpu_slots, deployments,
+deployment_events, deployment_ports, deployment_env,
+deployment_volumes, agent_tasks, agent_task_results, audit_logs,
+enrollment_tokens.

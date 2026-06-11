@@ -9,6 +9,7 @@
 //! - `foundry-agent --version`
 
 mod config;
+mod inventory;
 mod register;
 
 use std::error::Error;
@@ -75,20 +76,42 @@ async fn run_agent() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Heartbeat until SIGTERM/ctrl-c. Logs only on state *transitions*
-/// (reachable/unreachable) to keep journald quiet. TLS is always
-/// verified — no insecure escape hatch (docs/SECURITY.md).
+/// Heartbeat + periodic inventory until SIGTERM/ctrl-c. Logs only on
+/// state *transitions* (reachable/unreachable) to keep journald quiet.
+/// TLS is always verified — no insecure escape hatch (docs/SECURITY.md).
 async fn heartbeat_loop(client: &reqwest::Client, config: &config::AgentConfig) {
-    let url = format!(
-        "{}/agent/heartbeat",
-        config.controller_url.trim_end_matches('/')
-    );
+    let base = config.controller_url.trim_end_matches('/');
+    let url = format!("{base}/agent/heartbeat");
+    let inventory_url = format!("{base}/agent/inventory");
     let mut interval = tokio::time::interval(Duration::from_secs(config.poll_interval_secs));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // Full snapshot at start, then every minute (docs/GPU-MIG.md).
+    let mut inventory_interval = tokio::time::interval(Duration::from_secs(60));
+    inventory_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut healthy: Option<bool> = None;
 
     loop {
         tokio::select! {
+            _ = inventory_interval.tick() => {
+                let snapshot = inventory::collect().await;
+                tracing::debug!(
+                    gpus = snapshot.gpus.len(),
+                    containers = snapshot.containers.len(),
+                    "uploading inventory"
+                );
+                let result = client
+                    .post(&inventory_url)
+                    .header("x-foundry-agent-id", &config.agent_id)
+                    .bearer_auth(&config.agent_secret)
+                    .json(&snapshot)
+                    .send()
+                    .await;
+                match result {
+                    Ok(resp) if resp.status().is_success() => {}
+                    Ok(resp) => tracing::warn!(status = %resp.status(), "inventory upload rejected"),
+                    Err(err) => tracing::debug!(%err, "inventory upload failed (controller unreachable)"),
+                }
+            }
             _ = interval.tick() => {
                 let result = client
                     .post(&url)

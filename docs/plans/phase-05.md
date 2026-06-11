@@ -1,6 +1,32 @@
 # Phase 5 — Inventory (GPU/MIG Discovery & Reconciliation)
 
-**Status:** Not started · refine this plan right before starting.
+**Status:** 🔶 Built & deployed as 0.3.0 (2026-06-12) — awaiting real
+snapshots from protv-ai-04-03 / -04 (operator updates the agent
+binary). MIG-device enumeration via `nvidia-smi -L` (wrapper gap —
+`../GPU-MIG.md`). Verified with simulated snapshots: no-MIG → FULL_GPU
+slots FREE; MIG reshape → new MIG slots + old slot OFFLINE; vanished
+GPU → OFFLINE; containers replace-all.
+
+## Telemetry extension (operator request 2026-06-12 — next build, 0.4.0)
+
+Beyond existence, we want usage, on the dashboard (summary) and on a
+**dedicated page per server**:
+
+- **Host metrics**: CPU %, memory used/total, disk used/total (root
+  mount + docker root), network rx/tx rate — `sysinfo` crate, sampled
+  with each heartbeat.
+- **GPU metrics**: utilization %, memory used, temperature, power —
+  NVML `utilization_rates`/`memory_info` (already wrapped).
+- **Container metrics**: per-container CPU/mem from the Engine API
+  stats endpoint, plus **exposed/mapped ports** in `ContainerInfo`
+  (bollard provides both) — feeds the Phase 6 port-publishing dialog
+  prefill too.
+- Transport: `POST /agent/metrics` (or piggyback on heartbeat),
+  compact sample; storage: `server_metrics` ring table, 24 h retention
+  + sweeper; UI: `/servers/{id}` route page with current values +
+  sparklines, containers table with ports.
+
+## Goal (original)
 
 ## Goal
 

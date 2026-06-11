@@ -32,6 +32,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/registry/{project_id}", get(registry::browse))
         .route("/api/servers", get(servers::list))
         .route("/api/servers", post(servers::create))
+        .route("/api/servers/{server_id}", get(servers::detail))
         .route(
             "/api/servers/{server_id}/enrollment-token",
             post(servers::regenerate_token),
@@ -39,5 +40,6 @@ pub fn router(state: AppState) -> Router {
         // Agent protocol (docs/API.md § Agent API)
         .route("/agent/enroll", post(agent::enroll))
         .route("/agent/heartbeat", post(agent::heartbeat))
+        .route("/agent/inventory", post(agent::inventory))
         .with_state(state)
 }

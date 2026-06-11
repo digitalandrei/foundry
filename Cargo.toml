@@ -5,7 +5,7 @@ members = ["controller", "agent", "shared"]
 [workspace.package]
 # Bump the minor version on EVERY production deploy (operator rule:
 # 0.1 -> 0.2 -> 0.3) and keep frontend/package.json in sync.
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 [workspace.dependencies]
@@ -23,6 +23,11 @@ sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "mysql", "u
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 toml = "0.8"
 dotenvy = "0.15"
+# Agent-side discovery (Phase 5): NVML loads libnvidia-ml at runtime
+# (hosts without it report gracefully), bollard talks to the local
+# Docker socket only.
+nvml-wrapper = "0.11"
+bollard = "0.19"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "warn"

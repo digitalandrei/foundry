@@ -7,10 +7,14 @@ document covers the NVIDIA-specific mechanics.
 ## Discovery (agent side)
 
 - Primary: **NVML** (via the `nvml-wrapper` crate) — enumerate devices,
-  read UUIDs, model, memory, MIG mode, and MIG device instances.
-- Fallback/cross-check: `nvidia-smi -L` and
-  `nvidia-smi --query-gpu=... --format=csv` parsing. NVML is authoritative;
-  nvidia-smi output is for diagnostics and sanity checks.
+  read UUIDs, model, memory, and MIG *mode*.
+- **MIG device enumeration deviation (Phase 5, 2026-06-12):**
+  `nvml-wrapper` 0.11 does not wrap the MIG device handles
+  (`nvmlDeviceGetMigDeviceHandleByIndex`), so the per-slice layout
+  (UUIDs, profiles, instance ids) is parsed from `nvidia-smi -L`
+  (`agent/src/inventory.rs::parse_smi_list`, unit-tested). Slice
+  memory is derived from the profile name (`1g.10gb` → 10240 MB).
+  Revisit if the wrapper grows MIG support or we add raw FFI.
 - Inventory runs at agent start, on `REFRESH_INVENTORY` tasks, and on a
   periodic timer; results are uploaded as a full snapshot to
   `/agent/inventory`.
