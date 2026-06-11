@@ -27,6 +27,8 @@ rand = "0.9"
 base64 = "0.22"
 # Local operator account password hashing (docs/SECURITY.md).
 argon2 = { version = "0.5", features = ["std"] }
+# Constant-time agent-credential comparison.
+subtle = "2"
 # cookie max-age durations (the cookie crate's time type)
 time = "0.3"
 

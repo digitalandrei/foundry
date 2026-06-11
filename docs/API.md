@@ -28,7 +28,9 @@ user's GitLab account on the instance that owns the resource.
 | `POST /api/instances` | Onboard a GitLab instance — admin | ✅ live |
 | `GET /api/projects` | GitLab projects visible to the user, resolved live per instance (degrades per account when an instance is unreachable) | ✅ live |
 | `GET /api/registry/{project_id}` | Registry browse for one project: repositories + tags (size/pushed_at via per-tag detail, capped at 50/repo) — fetched lazily as the sidebar tree expands | ✅ live |
-| `GET /api/servers` | Enrolled servers with GPUs, slots, and states | Phase 4–5 |
+| `GET /api/servers` | Servers with status/heartbeat/agent version (GPUs+slots join in Phase 5) | ✅ live |
+| `POST /api/servers` | Create a **named** server (GitLab-agent style) — returns the one-time registration command — admin | ✅ live |
+| `POST /api/servers/{id}/enrollment-token` | Re-mint the token (revokes unused older ones) — admin | ✅ live |
 | `GET /api/deployments` | Deployments (filterable by server/slot/state) | Phase 6 |
 | `POST /api/deployments` | Create a deployment; returns it in `PENDING` | Phase 6 |
 | `POST /api/deployments/{id}/replace` | Replace flow for an occupied slot | Phase 6 |
@@ -59,14 +61,16 @@ Sessions: `foundry_session` cookie — HttpOnly, Secure, SameSite=Lax,
 
 ## Agent API (`/agent/...`)
 
-Authentication: agent credential issued at enrollment (agent id + secret,
-sent per request; hashed at rest, rotatable). Except `/agent/enroll`, which
-authenticates with a single-use enrollment token.
+Authentication: agent credential issued at enrollment — headers
+`X-Foundry-Agent-Id: <uuid>` + `Authorization: Bearer <secret>` on every
+request (secret SHA-256 at rest, constant-time compare, scoped to its
+own server). Except `/agent/enroll`, which authenticates with a
+single-use enrollment token.
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /agent/enroll` | Exchange enrollment token for permanent agent identity; registers the server |
-| `POST /agent/heartbeat` | Liveness + basic health (agent version, load); controller marks server ONLINE/OFFLINE |
+| `POST /agent/enroll` | ✅ live — single-use token → permanent identity `{agent_id, agent_secret}`; binds to the pre-named server; re-enrollment replaces the credential |
+| `POST /agent/heartbeat` | ✅ live — marks the server ONLINE + records agent version; a 30s sweeper flips servers OFFLINE after 90s without a beat |
 | `POST /agent/inventory` | Full upload of GPUs, MIG slots, and Foundry-managed containers; controller reconciles `gpus`/`gpu_slots` |
 | `GET /agent/tasks/next` | Long-poll for the next queued task for this server |
 | `POST /agent/tasks/result` | Report task success/failure with detail; controller advances deployment state |

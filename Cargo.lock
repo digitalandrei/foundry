@@ -499,8 +499,9 @@ dependencies = [
 
 [[package]]
 name = "foundry-agent"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "foundry-shared",
  "reqwest",
  "serde",
  "thiserror 2.0.18",
@@ -512,7 +513,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-controller"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -529,6 +530,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sqlx",
+ "subtle",
  "thiserror 2.0.18",
  "time",
  "tokio",
@@ -539,7 +541,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-shared"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "serde",

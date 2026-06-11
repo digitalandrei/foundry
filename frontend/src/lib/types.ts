@@ -66,3 +66,23 @@ export interface RegistryRepository {
 export interface RegistryBrowseResponse {
   repositories: RegistryRepository[]
 }
+
+export type ServerStatus = "ONLINE" | "OFFLINE" | "DEGRADED"
+
+export interface ServerSummary {
+  id: string
+  name: string
+  hostname: string | null
+  status: ServerStatus
+  last_heartbeat_at: string | null
+  agent_version: string | null
+  os_version: string | null
+  enrolled: boolean
+}
+
+export interface EnrollmentTokenResponse {
+  server: ServerSummary
+  token: string
+  command: string
+  expires_at: string
+}

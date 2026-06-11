@@ -10,7 +10,7 @@ in `docs/plans/`.
 | 1 | Repository bootstrap | [plans/phase-01.md](plans/phase-01.md) | ✅ Done (2026-06-11) |
 | 2 | Workspace creation | [plans/phase-02.md](plans/phase-02.md) | ✅ Done (2026-06-11) |
 | 3 | Authentication (GitLab OAuth, multi-instance) | [plans/phase-03.md](plans/phase-03.md) | ✅ Done (2026-06-11) — E2E verified against g.protv.ro |
-| 4 | Agent enrollment | [plans/phase-04.md](plans/phase-04.md) | ⬜ Not started |
+| 4 | Agent enrollment | [plans/phase-04.md](plans/phase-04.md) | 🔶 Built & deployed (0.2.0) — awaiting first real GPU-server enrollment; rotation endpoint pending |
 | 5 | Inventory (GPU/MIG discovery & reconciliation) | [plans/phase-05.md](plans/phase-05.md) | ⬜ Not started |
 | 6 | Deployments (lifecycle, replacement) | [plans/phase-06.md](plans/phase-06.md) | ⬜ Not started |
 | 7 | Logs | [plans/phase-07.md](plans/phase-07.md) | ⬜ Not started |
@@ -81,6 +81,17 @@ reflected in the affected docs in the same commit set:
   static SPA at `https://foundry.cloudcraft.ro`. **Serving model
   decided**: Nginx serves the frontend statically, controller is
   API-only (no rust-embed) — closes the Phase 8 decision point.
+- **2026-06-11** (Phase 4) — **Version bump rule**: every production
+  deploy increments the minor version (0.1 → 0.2 → …); preferences.md
+  § Version sync. Deployed 0.2.0.
+- **2026-06-11** (Phase 4) — **GitLab-agent-style enrollment** (user
+  request): servers are created *named* in the UI, which mints the
+  single-use token and prints the full
+  `sudo foundry-agent --register --url … --token …` command;
+  `--register` installs binary + system user + config + systemd unit
+  and starts the service. `enrollment_tokens.server_id` added. Agent
+  binary published at `https://foundry.cloudcraft.ro/downloads/foundry-agent`
+  (glibc, Ubuntu 24.04+ — no musl build).
 - **2026-06-11** (Phase 3) — First-instance bootstrap CLI:
   `foundry-controller instance add` (Settings UI requires an admin,
   who requires a login, which requires an instance).

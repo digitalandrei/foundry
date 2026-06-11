@@ -5,4 +5,5 @@
 pub mod instances;
 pub mod local_admins;
 pub mod mirror;
+pub mod servers;
 pub mod users;

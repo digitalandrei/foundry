@@ -46,11 +46,13 @@ No speculative abstractions, no placeholder scaffolding.
 ### Debug builds during iteration
 `cargo build` (debug) while iterating; `--release` for deploys.
 
-### Version sync
-`Cargo.toml` workspace version and `frontend/package.json` version move
-together on every bump. The frontend surfaces it (package.json →
-`__APP_VERSION__` → `lib/version.ts` → dashboard sidebar), so a missed
-bump is visible to the operator.
+### Version sync — bump on every deploy
+**Every production deploy increments the minor version** (0.1 → 0.2 →
+0.3; user rule 2026-06-11) so the operator always knows the running
+build: `Cargo.toml` workspace version and `frontend/package.json` move
+together. Visible at `/health` (controller), `foundry-agent --version`
++ heartbeat (agent, shown on the Servers page), and the dashboard
+sidebar (frontend).
 
 ## Project Invariants (quick recall)
 

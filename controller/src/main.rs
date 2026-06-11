@@ -49,6 +49,7 @@ async fn serve() -> Result<(), Box<dyn Error>> {
     tracing::info!("database connected, migrations up to date");
 
     auth::session::spawn_sweeper(pool.clone());
+    repos::servers::spawn_offline_sweeper(pool.clone());
 
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))

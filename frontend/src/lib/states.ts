@@ -52,3 +52,12 @@ export const SLOT_STATE_META: Record<SlotState, StateMeta> = {
 
 /** The four states shown in the dashboard legend (per the mockup). */
 export const LEGEND_STATES: readonly SlotState[] = ["FREE", "RUNNING", "RESERVED", "OFFLINE"]
+
+import type { ServerStatus } from "@/lib/types"
+
+/** Server liveness colors — same tokens, same single-source rule. */
+export const SERVER_STATUS_META: Record<ServerStatus, StateMeta> = {
+  ONLINE: { label: "Online", dotClass: "bg-slot-free", textClass: "text-slot-free" },
+  OFFLINE: { label: "Offline", dotClass: "bg-slot-offline", textClass: "text-slot-offline" },
+  DEGRADED: { label: "Degraded", dotClass: "bg-slot-reserved", textClass: "text-slot-reserved" },
+}

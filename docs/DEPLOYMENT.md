@@ -113,23 +113,40 @@ port). Agent against a dev controller:
 **Always finish the deploy** — a change is done when it is running on this
 host and verified via `/health`, not when it compiles.
 
-## GPU Server Runbook (Ubuntu 24.04)
+## GPU Server Runbook (Ubuntu 24.04+, glibc build)
 
 Prerequisites: NVIDIA driver, Docker Engine, NVIDIA Container Toolkit, MIG
 geometry pre-created if desired (`GPU-MIG.md`).
 
-Enrollment:
+Enrollment (GitLab-agent style):
 
-1. Admin: generate enrollment token in UI (Settings → Servers).
-2. On the GPU server: install `foundry-agent` (package/script from
-   `deployment/agent/`), then run
-   `foundry-agent enroll --controller https://foundry.cloudcraft.ro --token <token>`.
-3. Agent stores identity at `/etc/foundry-agent/config.toml` (root-only
-   perms) and starts via systemd unit `foundry-agent.service`.
-4. Verify: server appears ONLINE in UI with full GPU/MIG inventory.
+1. Admin: **Servers → Add server** in the UI — names the server and
+   shows the one-time registration command (token: single-use, 72h;
+   "New token" re-mints and revokes unused older ones).
+2. On the GPU server:
 
-Agent ops: `systemctl status foundry-agent`,
-`journalctl -u foundry-agent -f`. The agent needs only outbound 443.
+   ```bash
+   curl -fsSLo /usr/local/bin/foundry-agent \
+     https://foundry.cloudcraft.ro/downloads/foundry-agent
+   chmod +x /usr/local/bin/foundry-agent
+   sudo foundry-agent --register --url https://foundry.cloudcraft.ro --token <token>
+   ```
+
+   `--register` enrolls, installs the binary to `/usr/local/bin` if run
+   from elsewhere, creates the `foundry-agent` system user (joining
+   docker/video/render groups where present), writes
+   `/etc/foundry-agent/config.toml` (0600), writes the systemd unit if
+   missing, and `systemctl enable --now`s it. `--force` re-enrolls an
+   already-registered server with a fresh token (replaces the
+   credential).
+3. Verify: server flips ONLINE in the UI within ~15 s (heartbeat).
+
+Agent ops: `systemctl status|stop|restart foundry-agent`,
+`journalctl -u foundry-agent -f` (JSON logs; state-transition lines
+only). The agent needs only outbound 443 (+ the registry port at deploy
+time, e.g. `g.protv.ro:5050`). The published binary lives at
+`/srv/foundry/downloads/foundry-agent` (served by the vhost, updated on
+every controller deploy).
 
 ## Observability
 

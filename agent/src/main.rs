@@ -2,23 +2,66 @@
 //! HTTPS to the controller (docs/ARCHITECTURE.md § Pull-Based Agent
 //! Model).
 //!
-//! Phase 2 scope: config, HTTPS client, and a connectivity loop polling
-//! the controller's `/health`. The heartbeat/enrollment protocol
-//! replaces the loop body in Phase 4.
+//! Modes:
+//! - `foundry-agent` — run the heartbeat loop (config required)
+//! - `foundry-agent --register --url <controller> --token <token>
+//!    [--force]` — enroll this server and install the service
+//! - `foundry-agent --version`
 
 mod config;
+mod register;
 
 use std::error::Error;
 use std::time::Duration;
+
+use foundry_shared::dto::HeartbeatRequest;
+
+const USAGE: &str = "\
+usage: foundry-agent                                   run (enrolled servers)
+       foundry-agent --register --url <controller> --token <token> [--force]
+       foundry-agent --version";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     init_tracing();
 
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        println!("foundry-agent {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+    if args.iter().any(|a| a == "--register") {
+        let get = |flag: &str| -> Option<String> {
+            args.iter()
+                .position(|a| a == flag)
+                .and_then(|i| args.get(i + 1))
+                .cloned()
+        };
+        let (Some(url), Some(token)) = (get("--url"), get("--token")) else {
+            eprintln!("{USAGE}");
+            return Err("--register requires --url and --token".into());
+        };
+        return register::run(register::RegisterArgs {
+            url,
+            token,
+            force: args.iter().any(|a| a == "--force"),
+        })
+        .await;
+    }
+    if !args.is_empty() {
+        eprintln!("{USAGE}");
+        return Err(format!("unknown arguments: {args:?}").into());
+    }
+
+    run_agent().await
+}
+
+async fn run_agent() -> Result<(), Box<dyn Error>> {
     let path = config::config_path();
     let config = config::load(&path)?;
     tracing::info!(
         controller = %config.controller_url,
+        server = config.server_name.as_deref().unwrap_or("?"),
         version = env!("CARGO_PKG_VERSION"),
         "foundry-agent starting"
     );
@@ -27,23 +70,64 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .timeout(Duration::from_secs(30))
         .build()?;
 
-    run_loop(&client, &config).await;
+    heartbeat_loop(&client, &config).await;
     tracing::info!("shut down cleanly");
     Ok(())
 }
 
-/// Poll the controller until SIGTERM/ctrl-c. TLS is always verified —
-/// there is intentionally no insecure escape hatch (docs/SECURITY.md).
-async fn run_loop(client: &reqwest::Client, config: &config::AgentConfig) {
-    let health_url = format!("{}/health", config.controller_url.trim_end_matches('/'));
+/// Heartbeat until SIGTERM/ctrl-c. Logs only on state *transitions*
+/// (reachable/unreachable) to keep journald quiet. TLS is always
+/// verified — no insecure escape hatch (docs/SECURITY.md).
+async fn heartbeat_loop(client: &reqwest::Client, config: &config::AgentConfig) {
+    let url = format!(
+        "{}/agent/heartbeat",
+        config.controller_url.trim_end_matches('/')
+    );
     let mut interval = tokio::time::interval(Duration::from_secs(config.poll_interval_secs));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut healthy: Option<bool> = None;
 
     loop {
         tokio::select! {
             _ = interval.tick() => {
-                match client.get(&health_url).send().await {
-                    Ok(resp) => tracing::debug!(status = %resp.status(), "controller reachable"),
-                    Err(err) => tracing::warn!(%err, "controller unreachable"),
+                let result = client
+                    .post(&url)
+                    .header("x-foundry-agent-id", &config.agent_id)
+                    .bearer_auth(&config.agent_secret)
+                    .json(&HeartbeatRequest {
+                        agent_version: env!("CARGO_PKG_VERSION").to_string(),
+                    })
+                    .send()
+                    .await;
+
+                match result {
+                    Ok(resp) if resp.status().is_success() => {
+                        if healthy != Some(true) {
+                            tracing::info!("heartbeat ok — controller reachable");
+                            healthy = Some(true);
+                        }
+                    }
+                    Ok(resp) if resp.status() == reqwest::StatusCode::UNAUTHORIZED => {
+                        if healthy != Some(false) {
+                            tracing::error!(
+                                "controller rejected credentials (rotated or server removed?) — \
+                                 re-enroll with a fresh token"
+                            );
+                            healthy = Some(false);
+                        }
+                    }
+                    Ok(resp) => {
+                        if healthy != Some(false) {
+                            tracing::warn!(status = %resp.status(), "heartbeat failed");
+                            healthy = Some(false);
+                        }
+                    }
+                    Err(err) => {
+                        if healthy != Some(false) {
+                            tracing::warn!(%err, "controller unreachable");
+                            healthy = Some(false);
+                        }
+                    }
                 }
             }
             _ = shutdown_signal() => break,

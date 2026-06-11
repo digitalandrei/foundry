@@ -47,4 +47,5 @@ export const queryKeys = {
   instancesFull: ["instances", "full"] as const,
   projects: ["projects"] as const,
   registry: (projectId: string) => ["registry", projectId] as const,
+  servers: ["servers"] as const,
 }

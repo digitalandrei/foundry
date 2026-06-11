@@ -82,9 +82,11 @@ full GPU), `mig_profile` (e.g. `2g.20gb`, null for full GPU), `name`
 states), `last_seen_at`. Unique: `mig_uuid` where present.
 
 ### `enrollment_tokens`
-Single-use server enrollment tokens. Columns: `id`, `token_hash`,
-`created_by` FK users, `expires_at`, `used_at`, `used_by_server_id` FK null,
-timestamps.
+Single-use server enrollment tokens, bound to a pre-created server
+(GitLab-agent style; amendment 2026-06-11). Columns: `id`, `token_hash`,
+`server_id` FK (the intended server), `created_by` FK users,
+`expires_at` (72h; re-minting revokes unused older tokens), `used_at`,
+`used_by_server_id` FK null (consumption record), timestamps.
 
 ## Deployments
 

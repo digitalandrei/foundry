@@ -1,7 +1,7 @@
 //! Agent configuration from `/etc/foundry-agent/config.toml`
 //! (override path with `FOUNDRY_AGENT_CONFIG` for development).
-//!
-//! Enrollment (Phase 4) writes this file; identity fields join it then.
+//! Written by `foundry-agent --register`; the identity authenticates
+//! every controller request.
 
 use std::path::{Path, PathBuf};
 
@@ -13,6 +13,12 @@ pub const DEFAULT_CONFIG_PATH: &str = "/etc/foundry-agent/config.toml";
 pub struct AgentConfig {
     /// Base URL of the controller, e.g. `https://foundry.cloudcraft.ro`.
     pub controller_url: String,
+    /// Permanent identity issued at enrollment.
+    pub agent_id: String,
+    pub agent_secret: String,
+    /// Display name of this server in the controller (informational).
+    #[serde(default)]
+    pub server_name: Option<String>,
     /// Seconds between controller polls.
     #[serde(default = "default_poll_interval_secs")]
     pub poll_interval_secs: u64,
@@ -25,8 +31,9 @@ fn default_poll_interval_secs() -> u64 {
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error(
-        "config not found at {0} — this server is not enrolled \
-         (set FOUNDRY_AGENT_CONFIG to override the path)"
+        "config not found at {0} — this server is not enrolled; run \
+         `sudo foundry-agent --register --url <controller> --token <token>` \
+         (token from the Foundry UI, Servers page)"
     )]
     NotFound(PathBuf),
     #[error("failed to read {path}: {source}")]

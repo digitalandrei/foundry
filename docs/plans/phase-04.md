@@ -1,6 +1,20 @@
 # Phase 4 — Agent Enrollment
 
-**Status:** Not started · refine this plan right before starting.
+**Status:** 🔶 Built & deployed as 0.2.0 (2026-06-11) — GitLab-agent
+style per operator request. Remaining: first real GPU-server
+enrollment (operator deploying now), credential rotation endpoint
+(confirm-then-switch), agent install script removal from scope
+(`--register` does it all).
+
+Delivered: named-server creation in the UI minting the one-time
+72h token + full registration command; `POST /agent/enroll` (single
+use, credential replace on re-enroll) + `POST /agent/heartbeat`
+(ONLINE; 30s sweeper → OFFLINE after 90s quiet); agent-auth extractor
+(constant-time, per-server scope); `foundry-agent --register`
+(self-install, system user + groups, config 0600, systemd unit,
+enable --now) + transition-logged heartbeat loop; Servers page with
+live status and token re-minting; binary published at
+/downloads/foundry-agent. Smoke-tested end-to-end locally.
 
 ## Goal
 

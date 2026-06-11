@@ -109,8 +109,11 @@ mockup — final token mapping fixed when the palette lands in Phase 8).
 
 - **Deployments**: full filterable table (superset of the dashboard panel) +
   deployment detail with lifecycle timeline (`deployment_events`) and logs.
-- **Servers**: enrollment (token generation), server detail with GPU/MIG
-  inventory and agent health.
+- **Servers** (live since 0.2.0): table with status dot (same color
+  tokens), hostname/OS/agent version/last heartbeat; admin "Add
+  server" dialog → names the server, shows the one-time registration
+  command + binary download hint; "New token" re-mint per server.
+  Server detail with GPU/MIG inventory lands in Phase 5.
 - **Audit Logs**: filterable audit table (actor, action, subject, time).
 - **Settings**: GitLab instances (admin), enrollment tokens, theme, profile.
 - **Help**: `/help/gitlab-oauth` — GitLab OAuth app setup guide (steps,

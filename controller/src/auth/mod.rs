@@ -1,6 +1,7 @@
 //! Sessions, auth extractors, and the OAuth login/callback/logout
 //! routes (docs/SECURITY.md § Identity & Sessions).
 
+pub mod agent;
 pub mod cookies;
 pub mod routes;
 pub mod session;

@@ -42,24 +42,31 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
 - GitLab: OAuth/PKCE → `controller/src/gitlab/oauth.rs`; API client
   (pagination caps) → `gitlab/client.rs`; token refresh →
   `gitlab/tokens.rs`; response types → `gitlab/types.rs`
-- Data access → `controller/src/repos/{instances,users,mirror,local_admins}.rs`
-  (local_admins: argon2id local operator accounts)
+- Data access → `controller/src/repos/{instances,users,mirror,local_admins,servers}.rs`
+  (local_admins: argon2id operator accounts; servers: enrollment
+  tokens, agent identity, heartbeat, offline sweeper)
+- Agent auth extractor → `controller/src/auth/agent.rs`; agent routes →
+  `controller/src/routes/{servers,agent}.rs`
 - Routes (one module per resource) → `controller/src/routes/{health,me,instances,projects,registry}.rs`
 - Bootstrap CLI (`instance add`) → `controller/src/cli.rs`
 - Embedded migrations → `controller/src/main.rs` (`MIGRATOR`) reading
   `migrations/*.sql`
 - Agent config (TOML, `FOUNDRY_AGENT_CONFIG` override) →
-  `agent/src/config.rs`; poll loop → `agent/src/main.rs`
+  `agent/src/config.rs`; heartbeat loop + CLI dispatch →
+  `agent/src/main.rs`; `--register` (enroll, self-install, user, unit)
+  → `agent/src/register.rs`
 - Frontend pages → `frontend/src/pages/{dashboard,deployments,servers,audit,settings,login,help-gitlab-oauth}.tsx`
 - Layout shell / nav / session guard → `frontend/src/components/layout/app-shell.tsx`
 - API client + query keys → `frontend/src/lib/api.ts`; hooks →
   `frontend/src/hooks/{use-auth,use-instances,use-projects}.ts`
 - Dashboard sidebar tree → `frontend/src/components/containers-panel.tsx`;
   instance onboarding form → `components/instance-admin.tsx`; operator
-  sign-in → `components/local-login-form.tsx`; user menu
-  → `components/user-menu.tsx`; shared blocks → `empty-state.tsx`,
-  `slot-legend.tsx`, `mode-toggle.tsx`; shadcn primitives in
-  `frontend/src/components/ui/` (generated, don't edit)
+  sign-in → `components/local-login-form.tsx`; server enrollment dialog
+  + one-time command block → `components/enroll-server-dialog.tsx`;
+  user menu → `components/user-menu.tsx`; shared blocks →
+  `empty-state.tsx`, `slot-legend.tsx`, `mode-toggle.tsx`; shadcn
+  primitives in `frontend/src/components/ui/` (generated, don't edit)
+- Server hooks → `frontend/src/hooks/use-servers.ts` (10s refetch)
 - State→color map → `frontend/src/lib/states.ts`; formatting →
   `lib/format.ts`; theme + slot tokens → `frontend/src/index.css`;
   version → `frontend/src/lib/version.ts`
