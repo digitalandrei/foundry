@@ -22,6 +22,13 @@ the auth parts of `../SECURITY.md`.
 - Servers UI: token generation, server list with health
 - systemd unit + install script in `deployment/agent/`
 
+## Test Host
+
+A separate host (Docker installed, **read-only expectations** — observe
+only, no container mutations) is available for real-world agent testing;
+ask for connection details when starting this phase
+(`../ROADMAP.md` § Amendments).
+
 ## Acceptance
 
 - A real Ubuntu 24.04 box enrolls with one command and shows ONLINE in the

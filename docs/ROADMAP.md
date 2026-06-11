@@ -8,7 +8,7 @@ in `docs/plans/`.
 |---|---|---|---|
 | 0 | Documentation & AI tooling bootstrap | (this work) | ✅ Done (2026-06-11) |
 | 1 | Repository bootstrap | [plans/phase-01.md](plans/phase-01.md) | ✅ Done (2026-06-11) |
-| 2 | Workspace creation | [plans/phase-02.md](plans/phase-02.md) | ⬜ Not started |
+| 2 | Workspace creation | [plans/phase-02.md](plans/phase-02.md) | ✅ Done (2026-06-11) |
 | 3 | Authentication (GitLab OAuth, multi-instance) | [plans/phase-03.md](plans/phase-03.md) | ⬜ Not started |
 | 4 | Agent enrollment | [plans/phase-04.md](plans/phase-04.md) | ⬜ Not started |
 | 5 | Inventory (GPU/MIG discovery & reconciliation) | [plans/phase-05.md](plans/phase-05.md) | ⬜ Not started |
@@ -53,6 +53,17 @@ reflected in the affected docs in the same commit set:
 - **2026-06-11** (Phase 1) — Database server is **MariaDB 11.4** on this
   host, not MySQL 8.x; sqlx's MySQL driver targets it. DB `foundry` +
   scoped user provisioned (DEPLOYMENT.md § MySQL).
-- **2026-06-11** (Phase 1) — CI decision: no hosted CI initially;
-  `scripts/check.sh` is the verification gate, run locally before every
-  commit. Revisit when the project moves to a GitLab remote.
+- **2026-06-11** (Phase 1, confirmed Phase 2) — **No CI.** Deploying is
+  easy enough from this host; `scripts/check.sh` is the verification
+  gate, run locally before every commit.
+- **2026-06-11** (Phase 2) — Controller binds `127.0.0.1:8400` by
+  default (8080 is taken on this host). Migrations are embedded in the
+  controller and run at startup.
+- **2026-06-11** (Phase 2) — Frontend theming via `next-themes`
+  (already a shadcn/sonner dependency — reuse over a hand-rolled
+  provider); storage key `foundry-theme`, dark default.
+- **2026-06-11** — A separate test host (Docker, **read-only for now**)
+  is available for deploying the agent against real containers — to be
+  wired in during Phases 4–5 (enrollment + inventory are exactly the
+  read-only surface). Connection details to be provided at Phase 4
+  start.

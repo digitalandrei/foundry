@@ -46,6 +46,12 @@ No speculative abstractions, no placeholder scaffolding.
 ### Debug builds during iteration
 `cargo build` (debug) while iterating; `--release` for deploys.
 
+### Version sync
+`Cargo.toml` workspace version and `frontend/package.json` version move
+together on every bump. The frontend surfaces it (package.json →
+`__APP_VERSION__` → `lib/version.ts` → dashboard sidebar), so a missed
+bump is visible to the operator.
+
 ## Project Invariants (quick recall)
 
 - Pull-only agents; controller never connects to GPU servers; no SSH; no

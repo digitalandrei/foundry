@@ -106,8 +106,10 @@ Port mappings. Columns: `id`, `deployment_id` FK, `container_port`,
 `host_port`, `protocol` (tcp/udp).
 
 ### `deployment_env`
-Environment variables. Columns: `id`, `deployment_id` FK, `key`, `value`
-(encrypted at rest when marked secret), `is_secret`.
+Environment variables. Columns: `id`, `deployment_id` FK, `env_key`,
+`env_value` (VARBINARY: encrypted at rest when `is_secret`, UTF-8 bytes
+otherwise), `is_secret`. (`env_`-prefixed because `KEY` is a MySQL
+reserved word.) Unique: (`deployment_id`, `env_key`).
 
 ### `deployment_volumes`
 Volume mounts. Columns: `id`, `deployment_id` FK, `host_path`,

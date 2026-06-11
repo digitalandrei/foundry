@@ -1,0 +1,30 @@
+# Foundry control plane — draft (finalized in Phase 10).
+# Install: sudo install -m 644 deployment/systemd/foundry-controller.service /etc/systemd/system/
+# Docs: docs/DEPLOYMENT.md · skill: ubuntu-2404-systemd
+
+[Unit]
+Description=Foundry GPU orchestration controller
+After=network-online.target mysql.service mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=foundry
+Group=foundry
+ExecStart=/srv/foundry/foundry-controller
+EnvironmentFile=/srv/foundry/.env
+Environment=FOUNDRY_LOG_FORMAT=json
+Restart=on-failure
+RestartSec=5
+# Graceful shutdown: in-flight requests finish before exit.
+TimeoutStopSec=30
+
+# Hardening baseline (docs/SECURITY.md): localhost-bound API behind Nginx.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=
+
+[Install]
+WantedBy=multi-user.target

@@ -27,7 +27,15 @@ GPU servers → HTTPS → foundry.cloudcraft.ro (agents; outbound only)
 | `/etc/systemd/system/foundry-controller.service` | systemd unit (in `deployment/`) |
 | `/etc/nginx/sites-available/foundry.cloudcraft.ro` | Nginx vhost (in `deployment/`) |
 
-Controller binds `127.0.0.1` only; Nginx is the sole public listener.
+Controller binds `127.0.0.1:8400` (override `FOUNDRY_BIND`); Nginx is
+the sole public listener. Other controller env:
+`FOUNDRY_DB_MAX_CONNECTIONS` (default 10), `FOUNDRY_LOG_FORMAT=json`
+for journald, `RUST_LOG` filter.
+
+**Migrations run automatically at controller startup** (embedded via
+`sqlx::migrate!`); a deployed binary is always schema-complete. Manual
+application is possible with sqlx-cli (`sqlx migrate run` reading
+`DATABASE_URL`) but not required.
 
 ## Nginx + Cloudflare Notes
 
@@ -63,7 +71,7 @@ and modest to stay within proxy limits.
 - Backups: daily dump + pre-migration dump before any destructive migration,
   keep last 10 (same discipline as other projects on this host).
 
-## Controller Deploy Flow (once Phases 1–2 exist)
+## Controller Deploy Flow (service goes live in Phase 10)
 
 ```bash
 cd /opt/foundry
@@ -71,12 +79,17 @@ cargo build --release -p foundry-controller
 sudo install -m 755 target/release/foundry-controller /srv/foundry/foundry-controller
 sudo systemctl restart foundry-controller
 systemctl is-active foundry-controller
-curl -fsS http://127.0.0.1:<bind-port>/health
+curl -fsS http://127.0.0.1:8400/health   # {"status":"ok",...,"database":"up"}
 ```
 
-Frontend: built with `npm run build` in `frontend/`; serving model (embedded
-via rust-embed vs Nginx static root) is decided in Phase 8 — record the
-decision here when made.
+Unit/vhost templates live in `deployment/` (drafts; keep them and this
+doc in sync). Frontend: built with `npm run build` in `frontend/`;
+serving model (embedded via rust-embed vs Nginx static root) is decided
+in Phase 8 — record the decision here when made.
+
+Dev loop on this host: `cargo run -p foundry-controller` (reads `.env`),
+`cd frontend && npm run dev`. Agent against a dev controller:
+`FOUNDRY_AGENT_CONFIG=/tmp/agent.toml cargo run -p foundry-agent`.
 
 **Always finish the deploy** — a change is done when it is running on this
 host and verified via `/health`, not when it compiles.

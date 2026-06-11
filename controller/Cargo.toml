@@ -4,7 +4,14 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-foundry-shared = { path = "../shared" }
+foundry-shared = { workspace = true }
+axum = { workspace = true }
+dotenvy = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [lints]
 workspace = true

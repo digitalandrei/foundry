@@ -1,0 +1,37 @@
+# Foundry GPU-server agent — draft (install script lands with the
+# enrollment phase). Pull-only: outbound HTTPS, no listener.
+# Docs: docs/DEPLOYMENT.md § GPU Server Runbook · skill: ubuntu-2404-systemd
+
+[Unit]
+Description=Foundry GPU server agent
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=foundry-agent
+Group=foundry-agent
+# Docker socket access is the agent's privilege boundary — docker group,
+# not root.
+SupplementaryGroups=docker
+ExecStart=/usr/local/bin/foundry-agent
+Environment=FOUNDRY_LOG_FORMAT=json
+Restart=on-failure
+RestartSec=5
+# Sized to the container stop grace period: a deploy/stop task in
+# flight finishes or is safely re-dispatched (tasks are idempotent).
+TimeoutStopSec=45
+
+# Hardening baseline; relaxations are required by function:
+#   - /etc/foundry-agent: identity config (read-only would break rotation)
+#   - /var/run/docker.sock via SupplementaryGroups
+#   - /dev/nvidia*: NVML inventory
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/etc/foundry-agent
+
+[Install]
+WantedBy=multi-user.target

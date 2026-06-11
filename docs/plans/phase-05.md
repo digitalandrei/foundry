@@ -18,6 +18,12 @@ controller derives slots. Implements `../GPU-MIG.md`.
 - Dashboard: server rows with GPU strips and slot chips (read-only at this
   phase), legend, system-status card (`../UI-DESIGN.md`)
 
+## Test Host
+
+The Phase 4 test host (read-only) is the inventory proving ground:
+enumerate its real Docker containers (`foundry.managed` filtering must
+show zero managed containers there) and its GPUs if present.
+
 ## Acceptance
 
 - A MIG-enabled server shows correct slot layout in the UI; toggling MIG

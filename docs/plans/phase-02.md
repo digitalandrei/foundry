@@ -1,6 +1,19 @@
 # Phase 2 — Workspace Creation
 
-**Status:** Not started · refine this plan right before starting.
+**Status:** ✅ Done (2026-06-11).
+
+Delivered: `shared` wire contract (7 state enums with canonical strings
++ tests, 13 UUIDv7 ID newtypes, error/health DTOs); initial 19-table
+migration applied to the live `foundry` DB; controller skeleton (env
+config, `/health` with DB check on `127.0.0.1:8400`, embedded
+migrations, JSON tracing, graceful shutdown — verified live with the
+agent polling it); agent skeleton (TOML config, rustls client,
+connectivity loop, SIGTERM-clean); frontend shell (Vite + React 19 + TS
+strict + Tailwind 4 + shadcn nova preset, dark default + light via
+`next-themes`, slot-state tokens + `lib/states.ts` map, TanStack
+Query/Router, 5 pages with real empty states, version in sidebar);
+systemd + nginx drafts in `deployment/`. `scripts/check.sh` covers
+fmt/clippy/test/frontend-build and passes.
 
 ## Goal
 

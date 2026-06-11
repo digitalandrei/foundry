@@ -6,6 +6,22 @@ members = ["controller", "agent", "shared"]
 version = "0.1.0"
 edition = "2021"
 
+[workspace.dependencies]
+foundry-shared = { path = "shared" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v7", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+axum = "0.8"
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "mysql", "uuid", "chrono"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+toml = "0.8"
+dotenvy = "0.15"
+
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "warn"
 
