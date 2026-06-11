@@ -20,6 +20,12 @@ persistent left sidebar rather than separate pages.
 
 Three regions:
 
+### Scroll model (operator feedback, 2026-06-11)
+
+The dashboard is app-like: the page itself never scrolls. The
+containers tree scrolls within its card (search box pinned), and the
+main column scrolls independently; System Status stays put.
+
 ### 1. Left sidebar — "Available Containers (from GitLab)"
 
 - GitLab-branded section: nav entries **Projects / Groups / Registry /
@@ -27,6 +33,12 @@ Three regions:
   with multi-instance, the instance is selectable).
 - Filters: container search box, project dropdown ("All Projects"), tag
   dropdown ("All Tags"), "Show only mine" checkbox.
+- Search semantics (operator feedback, 2026-06-11): one query filters
+  project paths AND — inside expanded projects — repository paths +
+  tag names. Tags load lazily, so collapsed projects' tags aren't
+  searched (the empty-result hint says so). Long tag lists show the
+  first 8 with a "Show N more" expander; a filtered view shows all
+  matches.
 - Collapsible project groups (`namespace / project` with item count badge),
   each listing **container cards**: package icon, image name, version tag
   (e.g. `v1.7.0`) and size (e.g. `2.8 GB`). These cards are the **drag

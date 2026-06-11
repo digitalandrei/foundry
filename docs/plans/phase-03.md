@@ -1,8 +1,8 @@
 # Phase 3 — Authentication (GitLab OAuth, Multi-Instance)
 
-**Status:** 🔶 Built & deployed (2026-06-11) — closing item: E2E login
-against the first real GitLab instance (waiting on instance details +
-OAuth app from the operator; see ROADMAP amendments for what changed).
+**Status:** ✅ Done (2026-06-11). E2E verified: the operator onboarded
+`g.protv.ro` (instance-wide OAuth app from the Admin Area) and a real
+user logged in and browsed live registry tags on the dashboard.
 
 Delivered: sessions table + hashed-token sessions (7d, sweeper);
 AES-256-GCM secrets at rest; OAuth PKCE flow with encrypted state

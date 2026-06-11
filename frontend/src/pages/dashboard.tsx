@@ -20,17 +20,20 @@ import { APP_VERSION } from "@/lib/version"
  * with the API phases; the empty states below are the real ones. */
 export function DashboardPage() {
   return (
-    <div className="flex gap-4">
+    // App-like layout: the page itself never scrolls — the containers
+    // tree and the main column each scroll independently
+    // (header h-14 + main p-4 → 5.5rem of chrome).
+    <div className="flex h-[calc(100svh-5.5rem)] gap-4">
       <aside className="flex w-72 shrink-0 flex-col gap-4">
-        <Card>
-          <CardHeader>
+        <Card className="flex min-h-0 flex-1 flex-col">
+          <CardHeader className="shrink-0">
             <CardTitle className="text-sm">Available Containers (from GitLab)</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="min-h-0 flex-1">
             <ContainersPanel />
           </CardContent>
         </Card>
-        <Card>
+        <Card className="shrink-0">
           <CardHeader>
             <CardTitle className="text-sm">System Status</CardTitle>
           </CardHeader>
@@ -53,8 +56,8 @@ export function DashboardPage() {
         </Card>
       </aside>
 
-      <section className="flex min-w-0 flex-1 flex-col gap-4">
-        <Card>
+      <section className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
+        <Card className="shrink-0">
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle className="text-base">Servers &amp; GPU Slots (NVIDIA MIG)</CardTitle>
             <SlotLegend />
@@ -68,7 +71,7 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="shrink-0">
           <CardHeader>
             <CardTitle className="text-base">Running Deployments</CardTitle>
           </CardHeader>

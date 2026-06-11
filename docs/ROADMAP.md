@@ -9,7 +9,7 @@ in `docs/plans/`.
 | 0 | Documentation & AI tooling bootstrap | (this work) | ✅ Done (2026-06-11) |
 | 1 | Repository bootstrap | [plans/phase-01.md](plans/phase-01.md) | ✅ Done (2026-06-11) |
 | 2 | Workspace creation | [plans/phase-02.md](plans/phase-02.md) | ✅ Done (2026-06-11) |
-| 3 | Authentication (GitLab OAuth, multi-instance) | [plans/phase-03.md](plans/phase-03.md) | 🔶 Built & deployed — E2E login awaits the first GitLab instance |
+| 3 | Authentication (GitLab OAuth, multi-instance) | [plans/phase-03.md](plans/phase-03.md) | ✅ Done (2026-06-11) — E2E verified against g.protv.ro |
 | 4 | Agent enrollment | [plans/phase-04.md](plans/phase-04.md) | ⬜ Not started |
 | 5 | Inventory (GPU/MIG discovery & reconciliation) | [plans/phase-05.md](plans/phase-05.md) | ⬜ Not started |
 | 6 | Deployments (lifecycle, replacement) | [plans/phase-06.md](plans/phase-06.md) | ⬜ Not started |
