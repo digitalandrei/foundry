@@ -5,8 +5,11 @@
 ## Networking & Port Publishing (designed 2026-06-12, operator + assistant)
 
 When a user drags an image onto a slot, the deployment dialog collects
-the container's ports and a **kind** per port; publishing differs by
-kind:
+the container's ports — **a container may expose any number of ports**;
+the dialog is a repeatable row list and every port gets its own kind,
+its own allocation, and its own publishing (mixing kinds in one
+deployment is normal: e.g. one HTTP UI + one raw TCP gRPC port).
+Publishing differs by kind:
 
 | Kind | Meaning | Publishing |
 |---|---|---|

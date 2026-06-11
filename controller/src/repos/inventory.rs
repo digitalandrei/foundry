@@ -126,9 +126,10 @@ async fn upsert_gpu(
     match existing {
         Some(id) => {
             sqlx::query!(
-                "UPDATE gpus SET server_id = ?, model = ?, memory_mb = ?, mig_enabled = ?,
-                     last_seen_at = ?, updated_at = ? WHERE id = ?",
+                "UPDATE gpus SET server_id = ?, display_index = ?, model = ?, memory_mb = ?,
+                     mig_enabled = ?, last_seen_at = ?, updated_at = ? WHERE id = ?",
                 server_id.0,
+                gpu.index,
                 gpu.model,
                 gpu.memory_mb,
                 gpu.mig_enabled,
@@ -143,12 +144,13 @@ async fn upsert_gpu(
         None => {
             let id = Uuid::now_v7();
             sqlx::query!(
-                "INSERT INTO gpus (id, server_id, gpu_uuid, model, memory_mb, mig_enabled,
-                     last_seen_at, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO gpus (id, server_id, gpu_uuid, display_index, model, memory_mb,
+                     mig_enabled, last_seen_at, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 id,
                 server_id.0,
                 gpu.uuid,
+                gpu.index,
                 gpu.model,
                 gpu.memory_mb,
                 gpu.mig_enabled,
@@ -244,9 +246,10 @@ pub async fn gpus_for_server(
     server_id: ServerId,
 ) -> Result<Vec<foundry_shared::dto::GpuSummary>, AppError> {
     let gpu_rows = sqlx::query!(
-        r#"SELECT id AS "id: Uuid", gpu_uuid, model, memory_mb,
+        r#"SELECT id AS "id: Uuid", gpu_uuid, display_index, model, memory_mb,
                   mig_enabled AS "mig_enabled: bool"
-           FROM gpus WHERE server_id = ? ORDER BY gpu_uuid"#,
+           FROM gpus WHERE server_id = ?
+           ORDER BY display_index, gpu_uuid"#,
         server_id.0
     )
     .fetch_all(pool)
@@ -254,9 +257,11 @@ pub async fn gpus_for_server(
 
     let mut out = Vec::with_capacity(gpu_rows.len());
     for g in gpu_rows {
+        // LENGTH-first gives natural ordering for g:i names
+        // ("0:5" < "0:10").
         let slot_rows = sqlx::query!(
             r#"SELECT id AS "id: Uuid", name, slot_type, mig_profile, capacity_mb, state
-               FROM gpu_slots WHERE gpu_id = ? ORDER BY name"#,
+               FROM gpu_slots WHERE gpu_id = ? ORDER BY LENGTH(name), name"#,
             g.id
         )
         .fetch_all(pool)
@@ -277,6 +282,7 @@ pub async fn gpus_for_server(
         out.push(foundry_shared::dto::GpuSummary {
             id: g.id.into(),
             gpu_uuid: g.gpu_uuid,
+            index: g.display_index,
             model: g.model,
             memory_mb: g.memory_mb,
             mig_enabled: g.mig_enabled,

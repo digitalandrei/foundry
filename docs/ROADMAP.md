@@ -102,8 +102,11 @@ reflected in the affected docs in the same commit set:
   + MIG mode (GPU-MIG.md).
 - **2026-06-12** — **Telemetry scope added** (operator): host
   CPU/mem/disk/network, GPU utilization, container stats + port
-  mappings; dedicated `/servers/{id}` page. Planned as 0.4.0
+  mappings; dedicated `/servers/{id}` page. Next build
   (plans/phase-05.md § Telemetry extension).
+- **2026-06-12** (0.4.0) — Deterministic GPU ordering (operator):
+  `gpus.display_index` persists the NVML index; lists order by it and
+  UI labels use it. Natural slot-name sort (LENGTH, name).
 - **2026-06-12** — **Port-publishing design for deployments** agreed:
   per-port kind chosen at drag-drop (HTTP/HTTPS via central nginx
   proxy + per-app hostname; TCP/UDP direct on server IP), controller-

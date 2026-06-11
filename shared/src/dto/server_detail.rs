@@ -10,6 +10,9 @@ use crate::{GpuId, SlotId, SlotState, SlotType};
 pub struct GpuSummary {
     pub id: GpuId,
     pub gpu_uuid: String,
+    /// NVML index from the latest snapshot — lists are ordered by this
+    /// and labels use it (identity stays the UUID).
+    pub index: u32,
     pub model: Option<String>,
     pub memory_mb: Option<u32>,
     pub mig_enabled: bool,

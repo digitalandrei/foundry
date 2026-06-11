@@ -7,7 +7,7 @@ binary). MIG-device enumeration via `nvidia-smi -L` (wrapper gap —
 slots FREE; MIG reshape → new MIG slots + old slot OFFLINE; vanished
 GPU → OFFLINE; containers replace-all.
 
-## Telemetry extension (operator request 2026-06-12 — next build, 0.4.0)
+## Telemetry extension (operator request 2026-06-12 — next build)
 
 Beyond existence, we want usage, on the dashboard (summary) and on a
 **dedicated page per server**:

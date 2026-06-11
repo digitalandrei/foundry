@@ -70,8 +70,8 @@ function ServerRow({ server }: { server: ServerSummary }) {
         </p>
       ) : (
         <div className="mt-2 flex flex-col gap-2">
-          {server.gpus.map((gpu, i) => (
-            <GpuStrip key={gpu.id} gpu={gpu} ordinal={i} />
+          {server.gpus.map((gpu) => (
+            <GpuStrip key={gpu.id} gpu={gpu} />
           ))}
         </div>
       )}
@@ -79,11 +79,11 @@ function ServerRow({ server }: { server: ServerSummary }) {
   )
 }
 
-function GpuStrip({ gpu, ordinal }: { gpu: GpuSummary; ordinal: number }) {
+function GpuStrip({ gpu }: { gpu: GpuSummary }) {
   return (
     <div>
       <p className="mb-1 text-xs font-medium text-muted-foreground">
-        GPU {ordinal} {gpu.model ? `(${gpu.model})` : ""}
+        GPU {gpu.index} {gpu.model ? `(${gpu.model})` : ""}
         {gpu.mig_enabled ? (
           <span className="ml-2 text-slot-free">MIG: Enabled</span>
         ) : (

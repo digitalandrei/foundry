@@ -81,6 +81,7 @@ export interface SlotSummary {
 export interface GpuSummary {
   id: string
   gpu_uuid: string
+  index: number
   model: string | null
   memory_mb: number | null
   mig_enabled: boolean
