@@ -1,5 +1,7 @@
 import { useTheme } from "next-themes"
 
+import { InstanceAdmin } from "@/components/instance-admin"
+import { useMe } from "@/hooks/use-auth"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import {
@@ -20,6 +22,7 @@ export function SettingsPage() {
   // No SSR here, so next-themes has the stored theme from the first
   // render — no mounted-flag dance needed.
   const { theme, setTheme } = useTheme()
+  const me = useMe()
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-4">
@@ -54,10 +57,18 @@ export function SettingsPage() {
           <CardTitle className="text-base">GitLab Instances</CardTitle>
           <CardDescription>
             Foundry onboards one or more GitLab instances; users log in through them and inherit
-            their GitLab permissions. Instance onboarding opens up with the authentication
-            milestone.
+            their GitLab permissions.
           </CardDescription>
         </CardHeader>
+        <CardContent>
+          {me.data?.is_admin ? (
+            <InstanceAdmin />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Only administrators can onboard instances.
+            </p>
+          )}
+        </CardContent>
       </Card>
 
       <Card>

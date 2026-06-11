@@ -8,6 +8,10 @@ Complete the frontend to the approved design (`../UI-DESIGN.md`): all pages,
 polish, both themes. Earlier phases shipped functional UI incrementally;
 this phase closes the gaps.
 
+> Decided early (Phase 3): the serving model is **Nginx static SPA +
+> API-only controller** — that decision point is closed
+> (`../DEPLOYMENT.md`).
+
 ## Deliverables
 
 - Dashboard finalized per mockup: sidebar (filters, favorites, "show only

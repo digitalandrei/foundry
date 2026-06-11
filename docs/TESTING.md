@@ -12,8 +12,17 @@ add or tighten one. Don't claim completion without running the relevant set.
   test database; migrations applied automatically). Cover: enrollment flow,
   task queue dispatch/result handling, deployment transaction atomicity
   (state + event + audit commit together).
+  *Open item (noted Phase 3):* the scoped `foundry` DB user cannot
+  create `sqlx::test` databases; the harness needs either a dedicated
+  `foundry_test` DB + grant or a test-only MySQL user. Until then,
+  route behavior is verified live (curl probes: auth required on every
+  protected route, error envelopes, health) as done in Phase 3.
 - HTTP-level tests with `axum`'s `tower::ServiceExt::oneshot` — auth
   required on every `/api` and `/agent` route is itself a test.
+- sqlx note: `query!` macros compile against the live dev DB
+  (`DATABASE_URL` from `.env`); building on a host without the DB
+  requires `cargo sqlx prepare` offline data (not set up — single-host
+  project, no CI by decision).
 
 ## Agent (`agent/`)
 

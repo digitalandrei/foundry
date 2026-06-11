@@ -1,5 +1,6 @@
-import { ContainerIcon, ServerOffIcon } from "lucide-react"
+import { ServerOffIcon } from "lucide-react"
 
+import { ContainersPanel } from "@/components/containers-panel"
 import { EmptyState } from "@/components/empty-state"
 import { SlotLegend } from "@/components/slot-legend"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -26,12 +27,7 @@ export function DashboardPage() {
             <CardTitle className="text-sm">Available Containers (from GitLab)</CardTitle>
           </CardHeader>
           <CardContent>
-            <EmptyState
-              icon={ContainerIcon}
-              title="No GitLab instance connected"
-              description="Onboard a GitLab instance in Settings to browse container images."
-              className="border-0 p-6"
-            />
+            <ContainersPanel />
           </CardContent>
         </Card>
         <Card>

@@ -1,7 +1,16 @@
-import { Link, Outlet } from "@tanstack/react-router"
-import { LayoutDashboardIcon, RocketIcon, ServerIcon, ScrollTextIcon, SettingsIcon } from "lucide-react"
+import { Link, Navigate, Outlet } from "@tanstack/react-router"
+import {
+  LayoutDashboardIcon,
+  RocketIcon,
+  ScrollTextIcon,
+  ServerIcon,
+  SettingsIcon,
+} from "lucide-react"
 
 import { ModeToggle } from "@/components/mode-toggle"
+import { UserMenu } from "@/components/user-menu"
+import { Skeleton } from "@/components/ui/skeleton"
+import { useMe } from "@/hooks/use-auth"
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboardIcon },
@@ -11,14 +20,28 @@ const NAV = [
   { to: "/settings", label: "Settings", icon: SettingsIcon },
 ] as const
 
-/** Top navigation per docs/UI-DESIGN.md § Pages. */
+/** Authenticated layout: top navigation (docs/UI-DESIGN.md § Pages)
+ * around every app page; unauthenticated visitors land on /login. */
 export function AppShell() {
+  const me = useMe()
+
+  if (me.isPending) {
+    return (
+      <div className="flex min-h-svh items-center justify-center">
+        <Skeleton className="h-8 w-40" />
+      </div>
+    )
+  }
+  if (!me.data) {
+    return <Navigate to="/login" />
+  }
+
   return (
     <div className="flex min-h-svh flex-col">
       <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
         <div className="flex h-14 items-center gap-6 px-4">
           <Link to="/" className="flex items-center gap-2 font-semibold">
-            <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs font-bold">
+            <span className="flex size-7 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
               F
             </span>
             Foundry
@@ -37,8 +60,9 @@ export function AppShell() {
               </Link>
             ))}
           </nav>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-1">
             <ModeToggle />
+            <UserMenu me={me.data} />
           </div>
         </div>
       </header>

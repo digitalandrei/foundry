@@ -1,25 +1,45 @@
 //! Foundry control plane: axum API, GitLab integration, scheduler state,
 //! agent task queue.
 
+mod audit;
+mod auth;
+mod cli;
 mod config;
+mod crypto;
+mod error;
+mod gitlab;
+mod repos;
 mod routes;
 mod state;
 
 use std::error::Error;
+use std::sync::Arc;
+use std::time::Duration;
 
 use sqlx::mysql::MySqlPoolOptions;
 
 use crate::config::Config;
+use crate::crypto::SecretBox;
 use crate::state::AppState;
 
 /// Embedded migrations: applied automatically on startup so a deployed
 /// binary is always schema-complete (docs/DEPLOYMENT.md § MySQL).
-static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../migrations");
+pub(crate) static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../migrations");
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     init_tracing();
+
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if !args.is_empty() {
+        return cli::run(args).await;
+    }
+    serve().await
+}
+
+async fn serve() -> Result<(), Box<dyn Error>> {
     let config = Config::from_env()?;
+    let secrets = SecretBox::from_base64_key(&config.encryption_key)?;
 
     let pool = MySqlPoolOptions::new()
         .max_connections(config.db_max_connections)
@@ -28,9 +48,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
     MIGRATOR.run(&pool).await?;
     tracing::info!("database connected, migrations up to date");
 
-    let app = routes::router(AppState { pool });
+    auth::session::spawn_sweeper(pool.clone());
+
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()?;
+
+    let state = AppState {
+        pool,
+        secrets,
+        http,
+        public_url: Arc::from(config.public_url.as_str()),
+        admin_emails: Arc::from(config.admin_emails.clone()),
+    };
+
+    let app = routes::router(state);
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
-    tracing::info!(bind = %config.bind, version = env!("CARGO_PKG_VERSION"), "foundry-controller listening");
+    tracing::info!(bind = %config.bind, public_url = %config.public_url,
+        version = env!("CARGO_PKG_VERSION"), "foundry-controller listening");
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())

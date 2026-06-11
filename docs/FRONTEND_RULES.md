@@ -38,9 +38,11 @@ frontend/src/
 
 - TanStack Router; URL is state for filters/selection (server, project,
   search), so views are shareable.
-- Forms: react-hook-form + zod + shadcn `Form` components, always. Zod
-  schemas validate deployment configs (ports, env, volumes) client-side;
-  the server revalidates.
+- Forms: react-hook-form + zod + shadcn form primitives — the **Field
+  family** (`Field`, `FieldLabel`, `FieldError`, …; shadcn 4.x replaced
+  the old `Form` wrapper). Zod schemas validate deployment configs
+  (ports, env, volumes) client-side; the server revalidates. Reference
+  implementation: `components/instance-admin.tsx`.
 
 ## shadcn/ui & Styling
 

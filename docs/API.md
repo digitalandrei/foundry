@@ -20,29 +20,39 @@ Authentication: session cookie established by the GitLab OAuth flow
 (HttpOnly, Secure, SameSite=Lax). Authorization: resolved against the
 user's GitLab account on the instance that owns the resource.
 
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/me` | Current user, linked GitLab account(s), admin flag |
-| `GET /api/instances` | Onboarded GitLab instances (for login picker / browsing scope) |
-| `GET /api/projects` | GitLab projects visible to the user (per instance) |
-| `GET /api/registry` | Registry repositories + tags the user may deploy (browse tree: project → repository → tag) |
-| `GET /api/servers` | Enrolled servers with GPUs, slots, and states |
-| `GET /api/deployments` | Deployments (filterable by server/slot/state) |
-| `POST /api/deployments` | Create a deployment (slot + tag + ports/env/volumes); returns the new deployment in `PENDING` |
-| `POST /api/deployments/{id}/replace` | Replace flow for an occupied slot (confirmation handled in UI) |
-| `POST /api/deployments/{id}/stop` · `/restart` | Lifecycle actions |
-| `DELETE /api/deployments/{id}` | Remove a stopped deployment |
-| `GET /api/deployments/{id}/logs` | Container logs (uploaded by agent) |
-| `GET /api/audit` | Audit log (admin sees all; users see their own actions) |
+| Endpoint | Purpose | Status |
+|---|---|---|
+| `GET /api/me` | Current user, linked GitLab account(s), admin flag | ✅ live |
+| `GET /api/instances` | Minimal instance list `{id, name}` for the login picker — **the one unauthenticated `/api` endpoint, by design** | ✅ live |
+| `GET /api/instances/full` | Full instance list (no secrets) — admin | ✅ live |
+| `POST /api/instances` | Onboard a GitLab instance — admin | ✅ live |
+| `GET /api/projects` | GitLab projects visible to the user, resolved live per instance (degrades per account when an instance is unreachable) | ✅ live |
+| `GET /api/registry/{project_id}` | Registry browse for one project: repositories + tags (size/pushed_at via per-tag detail, capped at 50/repo) — fetched lazily as the sidebar tree expands | ✅ live |
+| `GET /api/servers` | Enrolled servers with GPUs, slots, and states | Phase 4–5 |
+| `GET /api/deployments` | Deployments (filterable by server/slot/state) | Phase 6 |
+| `POST /api/deployments` | Create a deployment; returns it in `PENDING` | Phase 6 |
+| `POST /api/deployments/{id}/replace` | Replace flow for an occupied slot | Phase 6 |
+| `POST /api/deployments/{id}/stop` · `/restart` | Lifecycle actions | Phase 6 |
+| `DELETE /api/deployments/{id}` | Remove a stopped deployment | Phase 6 |
+| `GET /api/deployments/{id}/logs` | Container logs (uploaded by agent) | Phase 7 |
+| `GET /api/audit` | Audit log (admin sees all; users see their own actions) | Phase 8 |
+| `POST /api/enrollment-tokens` | Generate server enrollment token — admin | Phase 4 |
+| `POST /api/servers/{id}/rotate-token` | Rotate an agent credential — admin | Phase 4 |
 
-Auth/OAuth endpoints (session bootstrap, not under `/api`):
-`GET /auth/login/{instance}` → redirect to GitLab,
-`GET /auth/callback/{instance}` → code exchange + session,
-`POST /auth/logout`.
+Auth/OAuth endpoints (session bootstrap, not under `/api`) — ✅ live:
 
-Admin-only: `POST /api/instances` (onboard a GitLab instance),
-`POST /api/enrollment-tokens` (generate server enrollment token),
-`POST /api/servers/{id}/rotate-token`.
+- `GET /auth/login/{instance_id}` → 302 to GitLab authorize (PKCE +
+  CSRF state in an encrypted 10-min `foundry_oauth` cookie)
+- `GET /auth/callback` → code exchange, user upsert, session cookie,
+  302 to `/`. **One fixed redirect URI for all instances** (amendment:
+  the spec's `/auth/callback/{instance}` was dropped — a single
+  registered URI per OAuth app is simpler; the pending instance rides
+  in the encrypted state cookie). Failures 302 to `/login?error=…`.
+- `POST /auth/logout` → deletes the server-side session, clears the
+  cookie, 204.
+
+Sessions: `foundry_session` cookie — HttpOnly, Secure, SameSite=Lax,
+7-day TTL, random token whose SHA-256 is stored server-side.
 
 ## Agent API (`/agent/...`)
 

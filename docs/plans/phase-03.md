@@ -1,6 +1,19 @@
 # Phase 3 — Authentication (GitLab OAuth, Multi-Instance)
 
-**Status:** Not started · refine this plan right before starting.
+**Status:** 🔶 Built & deployed (2026-06-11) — closing item: E2E login
+against the first real GitLab instance (waiting on instance details +
+OAuth app from the operator; see ROADMAP amendments for what changed).
+
+Delivered: sessions table + hashed-token sessions (7d, sweeper);
+AES-256-GCM secrets at rest; OAuth PKCE flow with encrypted state
+cookie and **fixed** `/auth/callback`; token refresh; `/api/me`,
+`/api/instances` (+`/full`, admin POST), `/api/projects` (live,
+degrades per instance), `/api/registry/{project}` (lazy tree, tag
+size/date); audit rows for login/logout/onboarding; bootstrap CLI;
+frontend login picker, session guard, user menu, registry sidebar
+tree, admin instance onboarding (RHF+zod+Field); production deploy at
+https://foundry.cloudcraft.ro (nginx static SPA + API proxy,
+self-signed origin cert behind Cloudflare Full).
 
 ## Goal
 

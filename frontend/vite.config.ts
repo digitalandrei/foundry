@@ -19,4 +19,15 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  server: {
+    // Dev: same-origin API via proxy to a dev controller on 8401
+    // (8400 is the production service on this host). Run it with
+    // FOUNDRY_BIND=127.0.0.1:8401 FOUNDRY_PUBLIC_URL=http://localhost:5173
+    // so OAuth redirects back to the dev origin (docs/DEPLOYMENT.md).
+    proxy: {
+      "/api": "http://127.0.0.1:8401",
+      "/auth": "http://127.0.0.1:8401",
+      "/health": "http://127.0.0.1:8401",
+    },
+  },
 })

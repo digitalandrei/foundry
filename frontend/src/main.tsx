@@ -5,6 +5,7 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  Outlet,
   RouterProvider,
 } from "@tanstack/react-router"
 import { ThemeProvider } from "next-themes"
@@ -14,19 +15,43 @@ import { Toaster } from "@/components/ui/sonner"
 import { AuditPage } from "@/pages/audit"
 import { DashboardPage } from "@/pages/dashboard"
 import { DeploymentsPage } from "@/pages/deployments"
+import { LoginPage } from "@/pages/login"
 import { ServersPage } from "@/pages/servers"
 import { SettingsPage } from "@/pages/settings"
 
 import "./index.css"
 
-const rootRoute = createRootRoute({ component: AppShell })
+const rootRoute = createRootRoute({ component: Outlet })
+
+// /login renders standalone; everything else lives under the
+// session-guarded AppShell layout.
+const loginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/login",
+  component: LoginPage,
+  validateSearch: (search): { error?: string } =>
+    typeof search.error === "string" ? { error: search.error } : {},
+})
+
+const appLayout = createRoute({
+  getParentRoute: () => rootRoute,
+  id: "app",
+  component: AppShell,
+})
 
 const routeTree = rootRoute.addChildren([
-  createRoute({ getParentRoute: () => rootRoute, path: "/", component: DashboardPage }),
-  createRoute({ getParentRoute: () => rootRoute, path: "/deployments", component: DeploymentsPage }),
-  createRoute({ getParentRoute: () => rootRoute, path: "/servers", component: ServersPage }),
-  createRoute({ getParentRoute: () => rootRoute, path: "/audit", component: AuditPage }),
-  createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: SettingsPage }),
+  loginRoute,
+  appLayout.addChildren([
+    createRoute({ getParentRoute: () => appLayout, path: "/", component: DashboardPage }),
+    createRoute({
+      getParentRoute: () => appLayout,
+      path: "/deployments",
+      component: DeploymentsPage,
+    }),
+    createRoute({ getParentRoute: () => appLayout, path: "/servers", component: ServersPage }),
+    createRoute({ getParentRoute: () => appLayout, path: "/audit", component: AuditPage }),
+    createRoute({ getParentRoute: () => appLayout, path: "/settings", component: SettingsPage }),
+  ]),
 ])
 
 const router = createRouter({ routeTree })
@@ -37,8 +62,6 @@ declare module "@tanstack/react-router" {
   }
 }
 
-// Server state lives in TanStack Query (docs/FRONTEND_RULES.md); hooks
-// arrive with the first API wiring.
 const queryClient = new QueryClient()
 
 createRoot(document.getElementById("root")!).render(

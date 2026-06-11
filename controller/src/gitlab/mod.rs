@@ -1,0 +1,23 @@
+//! Everything that talks to a GitLab instance
+//! (docs/GITLAB-INTEGRATION.md; skill: gitlab-api-oauth-registry).
+//! All URLs derive from the per-instance `base_url` — nothing is
+//! hardcoded.
+
+pub mod client;
+pub mod oauth;
+pub mod tokens;
+pub mod types;
+
+use foundry_shared::GitlabInstanceId;
+
+/// A decrypted, ready-to-use instance row (client secret in memory
+/// only for the duration of the request). The registry URL joins this
+/// struct when pull-token issuance lands (Phase 6).
+#[derive(Clone)]
+pub struct InstanceConfig {
+    pub id: GitlabInstanceId,
+    pub name: String,
+    pub base_url: String,
+    pub oauth_client_id: String,
+    pub oauth_client_secret: String,
+}

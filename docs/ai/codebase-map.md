@@ -30,34 +30,48 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   `shared/src/states.rs` — single source of truth; DB columns store
   these exact strings; mirrored by `frontend/src/lib/states.ts`
 - ID newtypes (UUIDv7) → `shared/src/ids.rs`
-- Shared DTOs (error envelope, health) → `shared/src/dto/`
-- Controller config / app state / routes → `controller/src/config.rs`,
-  `state.rs`, `routes/` (one module per resource; `routes/health.rs`)
+- Shared DTOs (error, health, instance, me, project, registry) →
+  `shared/src/dto/`; frontend mirror → `frontend/src/lib/types.ts`
+- Controller config / app state → `controller/src/config.rs`, `state.rs`
+- Secrets-at-rest + token hashing → `controller/src/crypto.rs`
+  (AES-256-GCM SecretBox, `random_token`, `token_hash`)
+- Error envelope → `controller/src/error.rs` (AppError)
+- Audit writes → `controller/src/audit.rs` (append-only)
+- Sessions + extractors (`CurrentUser`, `AdminUser`), cookies, OAuth
+  routes → `controller/src/auth/{session,cookies,routes}.rs`
+- GitLab: OAuth/PKCE → `controller/src/gitlab/oauth.rs`; API client
+  (pagination caps) → `gitlab/client.rs`; token refresh →
+  `gitlab/tokens.rs`; response types → `gitlab/types.rs`
+- Data access → `controller/src/repos/{instances,users,mirror}.rs`
+- Routes (one module per resource) → `controller/src/routes/{health,me,instances,projects,registry}.rs`
+- Bootstrap CLI (`instance add`) → `controller/src/cli.rs`
 - Embedded migrations → `controller/src/main.rs` (`MIGRATOR`) reading
   `migrations/*.sql`
 - Agent config (TOML, `FOUNDRY_AGENT_CONFIG` override) →
   `agent/src/config.rs`; poll loop → `agent/src/main.rs`
-- Frontend pages → `frontend/src/pages/{dashboard,deployments,servers,audit,settings}.tsx`
-- Layout shell / nav → `frontend/src/components/layout/app-shell.tsx`
-- Shared UI building blocks → `frontend/src/components/`
-  (`empty-state.tsx`, `slot-legend.tsx`, `mode-toggle.tsx`); shadcn
-  primitives in `frontend/src/components/ui/` (generated, don't edit)
-- State→color map → `frontend/src/lib/states.ts`; theme + slot tokens →
-  `frontend/src/index.css` (`:root` + `.dark`); version →
-  `frontend/src/lib/version.ts`
+- Frontend pages → `frontend/src/pages/{dashboard,deployments,servers,audit,settings,login}.tsx`
+- Layout shell / nav / session guard → `frontend/src/components/layout/app-shell.tsx`
+- API client + query keys → `frontend/src/lib/api.ts`; hooks →
+  `frontend/src/hooks/{use-auth,use-instances,use-projects}.ts`
+- Dashboard sidebar tree → `frontend/src/components/containers-panel.tsx`;
+  instance onboarding form → `components/instance-admin.tsx`; user menu
+  → `components/user-menu.tsx`; shared blocks → `empty-state.tsx`,
+  `slot-legend.tsx`, `mode-toggle.tsx`; shadcn primitives in
+  `frontend/src/components/ui/` (generated, don't edit)
+- State→color map → `frontend/src/lib/states.ts`; formatting →
+  `lib/format.ts`; theme + slot tokens → `frontend/src/index.css`;
+  version → `frontend/src/lib/version.ts`
 - Theming: `next-themes` (`ThemeProvider` in `frontend/src/main.tsx`,
   storage key `foundry-theme`, dark default)
 
 **Planned (later phases):**
 
-- Resource routes `auth`, `me`, `instances`, `projects`, `registry`,
-  `servers`, `deployments`, `audit`, `agent` → `controller/src/routes/`
+- Resource routes `servers`, `deployments`, `audit`, `agent` →
+  `controller/src/routes/`
 - State-machine transition functions → `controller/src/lifecycle/`
-- GitLab clients → `controller/src/gitlab/`
 - Task queue dispatch → `controller/src/tasks/`
 - Agent task executors → `agent/src/tasks/`; NVML inventory →
   `agent/src/inventory/`
-- Frontend query/mutation hooks → `frontend/src/hooks/`
 
 ## Maintenance
 

@@ -20,14 +20,22 @@ protocol, tokens, or deployment execution.
 
 ## Identity & Sessions
 
-- User identity comes from GitLab OAuth (per onboarded instance). Foundry
-  sessions are HttpOnly/Secure/SameSite cookies with server-side session
-  state; logout invalidates server-side.
-- GitLab access/refresh tokens are encrypted at rest (MySQL) and used
+- User identity comes from GitLab OAuth (per onboarded instance) with
+  PKCE + CSRF state; the cross-redirect state lives in an encrypted
+  10-minute cookie.
+- Foundry sessions: HttpOnly/Secure/SameSite=Lax cookie holding a
+  256-bit random token; the server stores only its SHA-256
+  (`sessions.token_hash`), 7-day TTL, hourly sweeper; logout deletes
+  the row.
+- GitLab access/refresh tokens and OAuth client secrets are encrypted
+  at rest (AES-256-GCM; key = `FOUNDRY_ENCRYPTION_KEY`, base64 32
+  bytes). Every controller process sharing the DB must share the key;
+  rotation requires re-encrypting stored secrets. Tokens are used
   server-side only.
 - The `is_admin` flag governs only Foundry-operational actions (instance
   onboarding, enrollment tokens, token rotation) — never project/registry
-  access.
+  access. Bootstrap admins via `FOUNDRY_ADMIN_EMAILS` (granted at
+  login, never auto-revoked).
 
 ## Agent Authentication
 

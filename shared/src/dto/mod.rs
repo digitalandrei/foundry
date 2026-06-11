@@ -5,6 +5,14 @@
 
 mod error;
 mod health;
+mod instance;
+mod me;
+mod project;
+mod registry;
 
 pub use error::*;
 pub use health::*;
+pub use instance::*;
+pub use me::*;
+pub use project::*;
+pub use registry::*;

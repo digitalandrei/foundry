@@ -9,7 +9,7 @@ in `docs/plans/`.
 | 0 | Documentation & AI tooling bootstrap | (this work) | ✅ Done (2026-06-11) |
 | 1 | Repository bootstrap | [plans/phase-01.md](plans/phase-01.md) | ✅ Done (2026-06-11) |
 | 2 | Workspace creation | [plans/phase-02.md](plans/phase-02.md) | ✅ Done (2026-06-11) |
-| 3 | Authentication (GitLab OAuth, multi-instance) | [plans/phase-03.md](plans/phase-03.md) | ⬜ Not started |
+| 3 | Authentication (GitLab OAuth, multi-instance) | [plans/phase-03.md](plans/phase-03.md) | 🔶 Built & deployed — E2E login awaits the first GitLab instance |
 | 4 | Agent enrollment | [plans/phase-04.md](plans/phase-04.md) | ⬜ Not started |
 | 5 | Inventory (GPU/MIG discovery & reconciliation) | [plans/phase-05.md](plans/phase-05.md) | ⬜ Not started |
 | 6 | Deployments (lifecycle, replacement) | [plans/phase-06.md](plans/phase-06.md) | ⬜ Not started |
@@ -67,3 +67,20 @@ reflected in the affected docs in the same commit set:
   wired in during Phases 4–5 (enrollment + inventory are exactly the
   read-only surface). Connection details to be provided at Phase 4
   start.
+- **2026-06-11** (Phase 3) — **OAuth over PATs**: portal-triggered
+  GitLab OAuth is the only v1 login method; self-generated read-only
+  PATs stay documented as a future fallback
+  (GITLAB-INTEGRATION.md § Multi-Instance Model).
+- **2026-06-11** (Phase 3) — **One fixed OAuth redirect URI**
+  (`/auth/callback`) for all instances; pending-login state rides in an
+  encrypted cookie. Replaces the spec's `/auth/callback/{instance}`.
+- **2026-06-11** (Phase 3) — `sessions` table added (server-side
+  sessions, hashed tokens). DATABASE.md now counts 20 tables.
+- **2026-06-11** (Phase 3) — **Went live early** (user-approved; spec
+  put this in Phase 10): controller systemd service + Nginx vhost +
+  static SPA at `https://foundry.cloudcraft.ro`. **Serving model
+  decided**: Nginx serves the frontend statically, controller is
+  API-only (no rust-embed) — closes the Phase 8 decision point.
+- **2026-06-11** (Phase 3) — First-instance bootstrap CLI:
+  `foundry-controller instance add` (Settings UI requires an admin,
+  who requires a login, which requires an instance).

@@ -6,12 +6,27 @@ edition.workspace = true
 [dependencies]
 foundry-shared = { workspace = true }
 axum = { workspace = true }
+axum-extra = { version = "0.10", features = ["cookie"] }
 dotenvy = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+reqwest = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+oauth2 = { version = "5", default-features = false, features = ["reqwest", "rustls-tls"] }
+# Secrets at rest (docs/SECURITY.md): AES-256-GCM for tokens + client
+# secrets; sha2 for session-token and enrollment hashes.
+aes-gcm = "0.10"
+sha2 = "0.10"
+rand = "0.9"
+base64 = "0.22"
+# cookie max-age durations (the cookie crate's time type)
+time = "0.3"
 
 [lints]
 workspace = true

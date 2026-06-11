@@ -17,15 +17,22 @@ GPU servers → HTTPS → foundry.cloudcraft.ro (agents; outbound only)
 
 `foundry.cloudcraft.ro` is already configured in Cloudflare DNS (proxied).
 
-## Controller Host Layout (planned; updated as Phase 10 lands)
+## Controller Host Layout (LIVE since Phase 3)
 
 | Path | Purpose |
 |---|---|
 | `/opt/foundry` | Source tree (this repo) |
-| `/srv/foundry/foundry-controller` | Deployed controller binary |
-| `/srv/foundry/.env` | Controller environment (DB URL, session key, bind addr) |
-| `/etc/systemd/system/foundry-controller.service` | systemd unit (in `deployment/`) |
-| `/etc/nginx/sites-available/foundry.cloudcraft.ro` | Nginx vhost (in `deployment/`) |
+| `/srv/foundry/foundry-controller` | Deployed controller binary (service user `foundry`) |
+| `/srv/foundry/frontend/` | Built SPA, served statically by Nginx |
+| `/srv/foundry/.env` | Controller environment (0600): `DATABASE_URL`, `FOUNDRY_ENCRYPTION_KEY` (same key as dev — same DB), `FOUNDRY_ADMIN_EMAILS`, `FOUNDRY_PUBLIC_URL` |
+| `/etc/systemd/system/foundry-controller.service` | systemd unit (source: `deployment/systemd/`) |
+| `/etc/nginx/sites-available/foundry.cloudcraft.ro` | Nginx vhost (source: `deployment/nginx/`) |
+| `/etc/nginx/snippets/foundry-realip.conf`, `foundry-proxy-headers.conf` | CF real-IP (server-scope) + shared proxy headers |
+| `/etc/nginx/ssl/foundry.cloudcraft.ro/` | Self-signed origin cert (10y) — host pattern, Cloudflare **Full** mode |
+
+**Serving model (decided Phase 3, supersedes the Phase 8 decision
+point): Nginx serves the SPA statically; the controller is API-only.**
+No rust-embed — frontend ships by copying `dist/`, no Rust rebuild.
 
 Controller binds `127.0.0.1:8400` (override `FOUNDRY_BIND`); Nginx is
 the sole public listener. Other controller env:
@@ -71,24 +78,36 @@ and modest to stay within proxy limits.
 - Backups: daily dump + pre-migration dump before any destructive migration,
   keep last 10 (same discipline as other projects on this host).
 
-## Controller Deploy Flow (service goes live in Phase 10)
+## Deploy Flow (live)
 
 ```bash
 cd /opt/foundry
+# Backend
 cargo build --release -p foundry-controller
 sudo install -m 755 target/release/foundry-controller /srv/foundry/foundry-controller
 sudo systemctl restart foundry-controller
 systemctl is-active foundry-controller
 curl -fsS http://127.0.0.1:8400/health   # {"status":"ok",...,"database":"up"}
+# Frontend (independent of the binary — static serving)
+cd frontend && npm run build && cd ..
+sudo \cp -rf frontend/dist/. /srv/foundry/frontend/
+sudo chown -R foundry:foundry /srv/foundry/frontend
+# End-to-end
+curl -fsS https://foundry.cloudcraft.ro/health
 ```
 
-Unit/vhost templates live in `deployment/` (drafts; keep them and this
-doc in sync). Frontend: built with `npm run build` in `frontend/`;
-serving model (embedded via rust-embed vs Nginx static root) is decided
-in Phase 8 — record the decision here when made.
+Nginx config changes: edit in `deployment/nginx/`, then
+`sudo install -m 644 deployment/nginx/foundry.cloudcraft.ro.conf /etc/nginx/sites-available/foundry.cloudcraft.ro && sudo nginx -t && sudo systemctl reload nginx`.
+(Host note: nginx 1.24 — use the `listen … ssl http2;` form, and
+real-IP directives live in the **server-scope** snippet because other
+vhosts own the http-scope `real_ip_header`.)
 
-Dev loop on this host: `cargo run -p foundry-controller` (reads `.env`),
-`cd frontend && npm run dev`. Agent against a dev controller:
+Dev loop on this host: controller `FOUNDRY_BIND=127.0.0.1:8401
+FOUNDRY_PUBLIC_URL=http://localhost:5173 cargo run -p
+foundry-controller` (8400 is the production service), frontend
+`cd frontend && npm run dev` (vite proxies `/api` `/auth` `/health` to
+8401 — adjust the proxy target in `vite.config.ts` if you change the
+port). Agent against a dev controller:
 `FOUNDRY_AGENT_CONFIG=/tmp/agent.toml cargo run -p foundry-agent`.
 
 **Always finish the deploy** — a change is done when it is running on this

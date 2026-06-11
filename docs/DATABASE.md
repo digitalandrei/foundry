@@ -129,6 +129,17 @@ re-dispatch after agent crash is expected.
 One row per task execution report. Columns: `id`, `agent_task_id` FK,
 `success`, `detail` JSON, `logs_excerpt` TEXT null, `reported_at`.
 
+## Sessions
+
+### `sessions`
+> Added in Phase 3 (amendment): server-side session store.
+
+Portal sessions. The browser cookie holds a random 256-bit token; only
+its SHA-256 lands here (`token_hash` VARBINARY(32) unique), so a DB
+leak yields no usable sessions. Columns: `id`, `token_hash`, `user_id`
+FK, `ip_address`, `user_agent`, `expires_at` (7 days), `created_at`.
+Expired rows are swept hourly by the controller.
+
 ## Audit
 
 ### `audit_logs`
@@ -140,9 +151,9 @@ null, `created_at`. Never updated or deleted.
 
 ## Table Count Check
 
-18 spec tables + `gitlab_instances` (amendment) = 19 tables total:
-users, gitlab_accounts, gitlab_instances, gitlab_projects,
-registry_repositories, registry_tags, servers, server_agents, gpus,
-gpu_slots, deployments, deployment_events, deployment_ports, deployment_env,
-deployment_volumes, agent_tasks, agent_task_results, audit_logs,
-enrollment_tokens.
+18 spec tables + `gitlab_instances` + `sessions` (amendments) = 20
+tables total: users, gitlab_accounts, gitlab_instances, sessions,
+gitlab_projects, registry_repositories, registry_tags, servers,
+server_agents, gpus, gpu_slots, deployments, deployment_events,
+deployment_ports, deployment_env, deployment_volumes, agent_tasks,
+agent_task_results, audit_logs, enrollment_tokens.
