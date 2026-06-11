@@ -48,6 +48,9 @@ Auth/OAuth endpoints (session bootstrap, not under `/api`) — ✅ live:
   the spec's `/auth/callback/{instance}` was dropped — a single
   registered URI per OAuth app is simpler; the pending instance rides
   in the encrypted state cookie). Failures 302 to `/login?error=…`.
+- `POST /auth/local` → local operator sign-in (`{username, password}`,
+  argon2id-verified) → session cookie, 204. Failures are uniformly 401
+  (no username enumeration); rate-limited by the nginx `/auth/` zone.
 - `POST /auth/logout` → deletes the server-side session, clears the
   cookie, 204.
 

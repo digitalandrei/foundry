@@ -1,6 +1,7 @@
 import { Navigate, useSearch } from "@tanstack/react-router"
 import { ExternalLinkIcon } from "lucide-react"
 
+import { LocalLoginForm } from "@/components/local-login-form"
 import { useMe } from "@/hooks/use-auth"
 import { useInstances } from "@/hooks/use-instances"
 import { Button } from "@/components/ui/button"
@@ -11,6 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 
 /** Instance picker → GitLab OAuth (docs/GITLAB-INTEGRATION.md § OAuth).
@@ -72,6 +74,13 @@ export function LoginPage() {
               </Button>
             ))
           )}
+
+          <div className="my-2 flex items-center gap-3">
+            <Separator className="flex-1" />
+            <span className="text-xs text-muted-foreground">operator</span>
+            <Separator className="flex-1" />
+          </div>
+          <LocalLoginForm />
         </CardContent>
       </Card>
     </div>

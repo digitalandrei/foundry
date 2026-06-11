@@ -1,15 +1,15 @@
-//! Operator CLI: `foundry-controller instance add ...` — bootstrap an
-//! instance before any admin can log in (the chicken-and-egg of
-//! onboarding the very first GitLab instance). Runs on the controller
-//! host with direct DB access; the client secret is read from the
-//! FOUNDRY_INSTANCE_CLIENT_SECRET env var so it never lands in shell
-//! history.
+//! Operator CLI, run on the controller host with direct DB access:
+//!
+//! - `instance add` — bootstrap a GitLab instance before any admin can
+//!   log in (secret via FOUNDRY_INSTANCE_CLIENT_SECRET, never argv).
+//! - `admin add` / `admin set-password` — local operator accounts
+//!   (password via FOUNDRY_ADMIN_PASSWORD, or generated and printed).
 
 use std::collections::HashMap;
 
 use crate::config::Config;
 use crate::crypto::SecretBox;
-use crate::repos::instances;
+use crate::repos::{instances, local_admins};
 
 const USAGE: &str = "\
 usage: foundry-controller instance add \\
@@ -17,22 +17,52 @@ usage: foundry-controller instance add \\
          --base-url https://gitlab.example.com \\
          --registry-url https://registry.example.com
        (client id read from FOUNDRY_INSTANCE_CLIENT_ID or --client-id;
-        client secret read from FOUNDRY_INSTANCE_CLIENT_SECRET)";
+        client secret read from FOUNDRY_INSTANCE_CLIENT_SECRET)
 
-pub async fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
-    if args.len() < 2 || args[0] != "instance" || args[1] != "add" {
-        eprintln!("{USAGE}");
-        return Err("unknown command".into());
-    }
+       foundry-controller admin add --username <name> [--name <display>]
+       foundry-controller admin set-password --username <name>
+       (password read from FOUNDRY_ADMIN_PASSWORD; generated and
+        printed when unset)";
 
-    let mut flags: HashMap<String, String> = HashMap::new();
-    let mut it = args[2..].iter();
+fn parse_flags(args: &[String]) -> Result<HashMap<String, String>, String> {
+    let mut flags = HashMap::new();
+    let mut it = args.iter();
     while let Some(flag) = it.next() {
         let value = it
             .next()
             .ok_or_else(|| format!("missing value for {flag}"))?;
         flags.insert(flag.clone(), value.clone());
     }
+    Ok(flags)
+}
+
+async fn open_pool() -> Result<(Config, sqlx::MySqlPool), Box<dyn std::error::Error>> {
+    let config = Config::from_env()?;
+    let pool = sqlx::mysql::MySqlPoolOptions::new()
+        .max_connections(2)
+        .connect(&config.database_url)
+        .await?;
+    crate::MIGRATOR.run(&pool).await?;
+    Ok((config, pool))
+}
+
+pub async fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+    match (
+        args.first().map(String::as_str),
+        args.get(1).map(String::as_str),
+    ) {
+        (Some("instance"), Some("add")) => instance_add(&args[2..]).await,
+        (Some("admin"), Some("add")) => admin_add(&args[2..]).await,
+        (Some("admin"), Some("set-password")) => admin_set_password(&args[2..]).await,
+        _ => {
+            eprintln!("{USAGE}");
+            Err("unknown command".into())
+        }
+    }
+}
+
+async fn instance_add(rest: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let flags = parse_flags(rest)?;
     let get = |k: &str, env: &str| -> Result<String, String> {
         flags
             .get(k)
@@ -52,13 +82,8 @@ pub async fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
     let client_secret = std::env::var("FOUNDRY_INSTANCE_CLIENT_SECRET")
         .map_err(|_| "FOUNDRY_INSTANCE_CLIENT_SECRET is not set")?;
 
-    let config = Config::from_env()?;
+    let (config, pool) = open_pool().await?;
     let secrets = SecretBox::from_base64_key(&config.encryption_key)?;
-    let pool = sqlx::mysql::MySqlPoolOptions::new()
-        .max_connections(2)
-        .connect(&config.database_url)
-        .await?;
-    crate::MIGRATOR.run(&pool).await?;
 
     let id = instances::insert(
         &pool,
@@ -79,5 +104,59 @@ pub async fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
     println!("  Redirect URI : {}/auth/callback", config.public_url);
     println!("  Scopes       : openid profile email read_api read_registry");
     println!("  Confidential : yes");
+    Ok(())
+}
+
+/// FOUNDRY_ADMIN_PASSWORD, or a generated one (printed by the caller).
+fn password_from_env() -> (String, bool) {
+    match std::env::var("FOUNDRY_ADMIN_PASSWORD") {
+        Ok(p) if !p.trim().is_empty() => (p, false),
+        _ => (crate::crypto::random_token(), true),
+    }
+}
+
+async fn admin_add(rest: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let flags = parse_flags(rest)?;
+    let username = flags
+        .get("--username")
+        .ok_or(format!("missing --username\n{USAGE}"))?
+        .trim()
+        .to_string();
+    if username.is_empty() || username.len() > 64 {
+        return Err("username must be 1-64 characters".into());
+    }
+    let display = flags
+        .get("--name")
+        .cloned()
+        .unwrap_or_else(|| username.clone());
+
+    let (password, generated) = password_from_env();
+    let (_, pool) = open_pool().await?;
+    let user_id = local_admins::create(&pool, &username, &display, &password).await?;
+
+    println!("local admin created: {username} ({user_id})");
+    if generated {
+        println!("generated password: {password}");
+        println!("(rotate any time: foundry-controller admin set-password --username {username})");
+    }
+    Ok(())
+}
+
+async fn admin_set_password(rest: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let flags = parse_flags(rest)?;
+    let username = flags
+        .get("--username")
+        .ok_or(format!("missing --username\n{USAGE}"))?
+        .trim()
+        .to_string();
+
+    let (password, generated) = password_from_env();
+    let (_, pool) = open_pool().await?;
+    local_admins::set_password(&pool, &username, &password).await?;
+
+    println!("password updated for {username}");
+    if generated {
+        println!("generated password: {password}");
+    }
     Ok(())
 }

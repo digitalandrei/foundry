@@ -15,6 +15,12 @@ tree, admin instance onboarding (RHF+zod+Field); production deploy at
 https://foundry.cloudcraft.ro (nginx static SPA + API proxy,
 self-signed origin cert behind Cloudflare Full).
 
+Extension (user request, same day): **local operator accounts** —
+argon2id credentials, `POST /auth/local`, operator form on the login
+page, `admin add`/`admin set-password` CLI; first `admin` account live
+on production. Verified end-to-end through https (wrong-password 401,
+login, admin endpoint access, logout, audit rows).
+
 ## Goal
 
 Users log in via any onboarded GitLab instance and Foundry resolves their

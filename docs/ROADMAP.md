@@ -84,3 +84,10 @@ reflected in the affected docs in the same commit set:
 - **2026-06-11** (Phase 3) — First-instance bootstrap CLI:
   `foundry-controller instance add` (Settings UI requires an admin,
   who requires a login, which requires an instance).
+- **2026-06-11** (Phase 3) — **Local operator accounts** (user
+  request): username/argon2id-password logins (`local_credentials`,
+  21 tables now) for GitLab-independent administration. CLI-managed
+  (`admin add` / `admin set-password`), always `is_admin`, no GitLab
+  identity → no project/registry/deploy rights. `POST /auth/local` +
+  operator form on the login page. First account `admin` created on
+  production.

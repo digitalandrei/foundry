@@ -129,6 +129,18 @@ re-dispatch after agent crash is expected.
 One row per task execution report. Columns: `id`, `agent_task_id` FK,
 `success`, `detail` JSON, `logs_excerpt` TEXT null, `reported_at`.
 
+### `local_credentials`
+> Added in Phase 3 (amendment): local operator accounts.
+
+Non-GitLab operator logins — portal administration independent of any
+GitLab instance (bootstrap, onboarding, ops). One row per local
+account, joined to a `users` row created with `is_admin = 1`. Columns:
+`user_id` PK/FK, `username` (unique), `password_hash` (argon2id PHC
+string), timestamps. Local accounts have no GitLab identity → no
+projects/registry/deploy rights; GitLab authorization still comes only
+from `gitlab_accounts`. Managed via
+`foundry-controller admin add|set-password`.
+
 ## Sessions
 
 ### `sessions`
@@ -151,9 +163,10 @@ null, `created_at`. Never updated or deleted.
 
 ## Table Count Check
 
-18 spec tables + `gitlab_instances` + `sessions` (amendments) = 20
-tables total: users, gitlab_accounts, gitlab_instances, sessions,
-gitlab_projects, registry_repositories, registry_tags, servers,
-server_agents, gpus, gpu_slots, deployments, deployment_events,
-deployment_ports, deployment_env, deployment_volumes, agent_tasks,
-agent_task_results, audit_logs, enrollment_tokens.
+18 spec tables + `gitlab_instances` + `sessions` + `local_credentials`
+(amendments) = 21 tables total: users, gitlab_accounts,
+gitlab_instances, local_credentials, sessions, gitlab_projects,
+registry_repositories, registry_tags, servers, server_agents, gpus,
+gpu_slots, deployments, deployment_events, deployment_ports,
+deployment_env, deployment_volumes, agent_tasks, agent_task_results,
+audit_logs, enrollment_tokens.

@@ -36,6 +36,14 @@ protocol, tokens, or deployment execution.
   onboarding, enrollment tokens, token rotation) — never project/registry
   access. Bootstrap admins via `FOUNDRY_ADMIN_EMAILS` (granted at
   login, never auto-revoked).
+- **Local operator accounts** (amendment 2026-06-11): username +
+  argon2id-hashed password (`local_credentials`), created only via the
+  host CLI (`foundry-controller admin add`), always `is_admin`. They
+  carry no GitLab identity, so they can administer Foundry but can
+  never see projects/registries or deploy — GitLab remains the sole
+  authorization source for GitLab resources. Login failures are
+  uniform 401s; min password length 12; passwords rotate via
+  `admin set-password`.
 
 ## Agent Authentication
 

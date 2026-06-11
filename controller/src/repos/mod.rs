@@ -3,5 +3,6 @@
 //! (docs/RUST_RULES.md § sqlx / MySQL).
 
 pub mod instances;
+pub mod local_admins;
 pub mod mirror;
 pub mod users;

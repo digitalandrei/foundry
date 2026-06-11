@@ -25,6 +25,8 @@ aes-gcm = "0.10"
 sha2 = "0.10"
 rand = "0.9"
 base64 = "0.22"
+# Local operator account password hashing (docs/SECURITY.md).
+argon2 = { version = "0.5", features = ["std"] }
 # cookie max-age durations (the cookie crate's time type)
 time = "0.3"
 

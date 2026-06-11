@@ -6,6 +6,7 @@
 mod error;
 mod health;
 mod instance;
+mod local_login;
 mod me;
 mod project;
 mod registry;
@@ -13,6 +14,7 @@ mod registry;
 pub use error::*;
 pub use health::*;
 pub use instance::*;
+pub use local_login::*;
 pub use me::*;
 pub use project::*;
 pub use registry::*;

@@ -19,6 +19,7 @@ pub fn router(state: AppState) -> Router {
         // OAuth flow (docs/GITLAB-INTEGRATION.md § OAuth)
         .route("/auth/login/{instance_id}", get(auth::routes::login))
         .route("/auth/callback", get(auth::routes::callback))
+        .route("/auth/local", post(auth::routes::local_login))
         .route("/auth/logout", post(auth::routes::logout))
         // Frontend API — session-authenticated except the login picker.
         .route("/api/instances", get(instances::list_public))

@@ -42,7 +42,8 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
 - GitLab: OAuth/PKCE → `controller/src/gitlab/oauth.rs`; API client
   (pagination caps) → `gitlab/client.rs`; token refresh →
   `gitlab/tokens.rs`; response types → `gitlab/types.rs`
-- Data access → `controller/src/repos/{instances,users,mirror}.rs`
+- Data access → `controller/src/repos/{instances,users,mirror,local_admins}.rs`
+  (local_admins: argon2id local operator accounts)
 - Routes (one module per resource) → `controller/src/routes/{health,me,instances,projects,registry}.rs`
 - Bootstrap CLI (`instance add`) → `controller/src/cli.rs`
 - Embedded migrations → `controller/src/main.rs` (`MIGRATOR`) reading
@@ -54,7 +55,8 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
 - API client + query keys → `frontend/src/lib/api.ts`; hooks →
   `frontend/src/hooks/{use-auth,use-instances,use-projects}.ts`
 - Dashboard sidebar tree → `frontend/src/components/containers-panel.tsx`;
-  instance onboarding form → `components/instance-admin.tsx`; user menu
+  instance onboarding form → `components/instance-admin.tsx`; operator
+  sign-in → `components/local-login-form.tsx`; user menu
   → `components/user-menu.tsx`; shared blocks → `empty-state.tsx`,
   `slot-legend.tsx`, `mode-toggle.tsx`; shadcn primitives in
   `frontend/src/components/ui/` (generated, don't edit)

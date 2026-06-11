@@ -28,6 +28,11 @@ Foundry never duplicates permissions locally.
 - Admin bootstrap: emails listed in `FOUNDRY_ADMIN_EMAILS` get
   `is_admin` granted at login (never auto-revoked).
 
+> **Note:** local operator accounts (`docs/SECURITY.md`) exist for
+> portal administration without any GitLab instance — they have no
+> GitLab identity and therefore no project/registry visibility; this
+> section's authorization model is untouched by them.
+
 > **Decision (2026-06-11): OAuth over self-generated PATs.** Portal-
 > triggered OAuth was chosen as the only v1 login/link method — easier
 > for users (no token creation/rotation chores), short-lived tokens
