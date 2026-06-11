@@ -19,6 +19,8 @@ pub struct ServerSummary {
     /// GPUs with their slots (from the latest inventory snapshot) —
     /// the dashboard slot grid feeds from this.
     pub gpus: Vec<super::GpuSummary>,
+    /// `running` containers in the latest snapshot (System Status card).
+    pub containers_running: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

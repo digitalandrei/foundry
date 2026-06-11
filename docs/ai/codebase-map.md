@@ -57,7 +57,11 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   → `agent/src/register.rs`; NVML/Docker snapshot collection (incl.
   `nvidia-smi -L` MIG parse) → `agent/src/inventory.rs`
 - Inventory reconcile (two-phase OFFLINE/upsert, containers
-  replace-all) → `controller/src/repos/inventory.rs`
+  replace-all incl. ports) → `controller/src/repos/inventory.rs`
+- Telemetry: agent collector (sysinfo/NVML/docker-stats) →
+  `agent/src/metrics.rs`; series store + sweeper →
+  `controller/src/repos/metrics.rs`; UI page →
+  `frontend/src/pages/server-detail.tsx` + `components/metric-sparkline.tsx`
 - Frontend pages → `frontend/src/pages/{dashboard,deployments,servers,audit,settings,login,help-gitlab-oauth}.tsx`
 - Layout shell / nav / session guard → `frontend/src/components/layout/app-shell.tsx`
 - API client + query keys → `frontend/src/lib/api.ts`; hooks →

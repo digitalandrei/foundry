@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router"
 import { ServerOffIcon } from "lucide-react"
 
 import { EmptyState } from "@/components/empty-state"
@@ -50,7 +51,13 @@ function ServerRow({ server }: { server: ServerSummary }) {
     <div className={cn("rounded-lg border p-3", offline && "opacity-60")}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className={cn("size-2.5 shrink-0 rounded-full", meta.dotClass)} aria-hidden />
-        <span className="font-medium">{server.name}</span>
+        <Link
+          to="/servers/$serverId"
+          params={{ serverId: server.id }}
+          className="font-medium underline-offset-4 hover:underline"
+        >
+          {server.name}
+        </Link>
         {server.hostname ? (
           <span className="text-sm text-muted-foreground">{server.hostname}</span>
         ) : null}

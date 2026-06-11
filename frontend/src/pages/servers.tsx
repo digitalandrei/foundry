@@ -1,9 +1,9 @@
 import { useState } from "react"
+import { Link } from "@tanstack/react-router"
 import { ContainerIcon, KeyRoundIcon, ServerIcon } from "lucide-react"
 
 import { EmptyState } from "@/components/empty-state"
 import { EnrollServerDialog, RegistrationCommand } from "@/components/enroll-server-dialog"
-import { ServerDetailDialog } from "@/components/server-detail-dialog"
 import { useMe } from "@/hooks/use-auth"
 import { useRegenerateToken, useServers } from "@/hooks/use-servers"
 import { formatRelative } from "@/lib/format"
@@ -34,7 +34,6 @@ export function ServersPage() {
   const me = useMe()
   const regenerate = useRegenerateToken()
   const [tokenResult, setTokenResult] = useState<EnrollmentTokenResponse | null>(null)
-  const [detailId, setDetailId] = useState<string | null>(null)
   const isAdmin = me.data?.is_admin ?? false
 
   return (
@@ -100,9 +99,11 @@ export function ServersPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1.5">
-                        <Button variant="outline" size="sm" onClick={() => setDetailId(server.id)}>
-                          <ContainerIcon className="size-3.5" aria-hidden />
-                          Details
+                        <Button variant="outline" size="sm" asChild>
+                          <Link to="/servers/$serverId" params={{ serverId: server.id }}>
+                            <ContainerIcon className="size-3.5" aria-hidden />
+                            Details
+                          </Link>
                         </Button>
                         {isAdmin ? (
                           <Button
@@ -125,8 +126,6 @@ export function ServersPage() {
             </TableBody>
           </Table>
         )}
-
-        <ServerDetailDialog serverId={detailId} onClose={() => setDetailId(null)} />
 
         <Dialog open={tokenResult !== null} onOpenChange={(o) => !o && setTokenResult(null)}>
           <DialogContent>

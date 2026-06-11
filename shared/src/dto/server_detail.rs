@@ -37,6 +37,8 @@ pub struct ServerContainer {
     pub state: String,
     pub status: String,
     pub managed: bool,
+    #[serde(default)]
+    pub ports: Vec<super::PortMapping>,
     pub reported_at: DateTime<Utc>,
 }
 

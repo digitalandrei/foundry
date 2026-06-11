@@ -55,6 +55,23 @@ async fn collect_docker() -> (Option<String>, Vec<ContainerInfo>) {
                     .as_ref()
                     .and_then(|l| l.get("foundry.managed"))
                     .is_some_and(|v| v == "true");
+                let mut ports: Vec<foundry_shared::dto::PortMapping> = c
+                    .ports
+                    .iter()
+                    .flatten()
+                    .map(|p| foundry_shared::dto::PortMapping {
+                        container_port: p.private_port,
+                        host_port: p.public_port,
+                        protocol: p
+                            .typ
+                            .map(|t| format!("{t:?}").to_lowercase())
+                            .unwrap_or_else(|| "tcp".into()),
+                    })
+                    .collect();
+                // Docker repeats a mapping per host interface (0.0.0.0
+                // and ::) — dedup on (container_port, host_port, proto).
+                ports.sort_by_key(|p| (p.container_port, p.host_port, p.protocol.clone()));
+                ports.dedup_by_key(|p| (p.container_port, p.host_port, p.protocol.clone()));
                 ContainerInfo {
                     container_id: c.id.unwrap_or_default().chars().take(12).collect(),
                     name: c
@@ -70,6 +87,7 @@ async fn collect_docker() -> (Option<String>, Vec<ContainerInfo>) {
                         .unwrap_or_default(),
                     status: c.status.unwrap_or_default(),
                     managed,
+                    ports,
                 }
             })
             .collect(),

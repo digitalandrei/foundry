@@ -77,7 +77,18 @@ Observed containers per server — full snapshot per inventory upload
 (replace-all). Read-only visibility; Foundry only ever *manages*
 containers labeled `foundry.managed=true`. Columns: `id`, `server_id`
 FK, `container_id` (short), `name`, `image`, `state`, `status`,
-`managed`, `reported_at`.
+`managed`, `ports` (JSON list of `{container_port, host_port,
+protocol}` — a container may expose any number), `reported_at`.
+
+### `server_metrics`
+> Added in the telemetry build (0.5.0).
+
+Rolling telemetry series: `id`, `server_id` FK, `sampled_at`, `sample`
+JSON (shape = `foundry_shared::dto::MetricsSample`: host
+cpu/mem/disk/net, per-GPU util/mem/temp/power keyed by UUID,
+per-container cpu/mem keyed by short id). 30s cadence, 24h retention
+(hourly sweeper). The JSON payload is the contract — the schema does
+not decompose it.
 
 ### `gpus`
 Physical GPUs per server. Columns: `id`, `server_id` FK, `gpu_uuid` (NVML),
@@ -175,10 +186,12 @@ null, `created_at`. Never updated or deleted.
 ## Table Count Check
 
 18 spec tables + amendments (`gitlab_instances`, `sessions`,
-`local_credentials`, `server_containers`) = 22 tables total: users,
+`local_credentials`, `server_containers`, `server_metrics`) = 23
+tables total: users,
 gitlab_accounts, gitlab_instances, local_credentials, sessions,
 gitlab_projects, registry_repositories, registry_tags, servers,
-server_agents, server_containers, gpus, gpu_slots, deployments,
+server_agents, server_containers, server_metrics, gpus, gpu_slots,
+deployments,
 deployment_events, deployment_ports, deployment_env,
 deployment_volumes, agent_tasks, agent_task_results, audit_logs,
 enrollment_tokens.

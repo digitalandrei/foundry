@@ -17,6 +17,7 @@ import { DashboardPage } from "@/pages/dashboard"
 import { DeploymentsPage } from "@/pages/deployments"
 import { HelpGitlabOauthPage } from "@/pages/help-gitlab-oauth"
 import { LoginPage } from "@/pages/login"
+import { ServerDetailPage } from "@/pages/server-detail"
 import { ServersPage } from "@/pages/servers"
 import { SettingsPage } from "@/pages/settings"
 
@@ -50,6 +51,11 @@ const routeTree = rootRoute.addChildren([
       component: DeploymentsPage,
     }),
     createRoute({ getParentRoute: () => appLayout, path: "/servers", component: ServersPage }),
+    createRoute({
+      getParentRoute: () => appLayout,
+      path: "/servers/$serverId",
+      component: ServerDetailPage,
+    }),
     createRoute({ getParentRoute: () => appLayout, path: "/audit", component: AuditPage }),
     createRoute({ getParentRoute: () => appLayout, path: "/settings", component: SettingsPage }),
     createRoute({

@@ -113,11 +113,13 @@ mockup — final token mapping fixed when the palette lands in Phase 8).
   tokens), hostname/OS/agent version/last heartbeat; admin "Add
   server" dialog → names the server, shows the one-time registration
   command + binary download hint; "New token" re-mint per server.
-  Since 0.3.0: "Details" opens the docker-ps snapshot (name, image,
-  state, status, `foundry` badge for managed) + runtime versions; the
-  dashboard grid shows per-GPU slot chips from live inventory.
-  Planned 0.4.0: dedicated `/servers/{id}` **page** with host/GPU/
-  container metrics + port mappings (plans/phase-05.md § Telemetry).
+  Since 0.5.0: "Details" (and server names on the dashboard) navigate
+  to the dedicated **`/servers/{id}` page**: header (status, hostname,
+  OS/Docker/driver/agent versions), four host metric cards with
+  sparklines (CPU %, memory, disk /, network rates), one card per GPU
+  (utilization sparkline + current mem/temp/power), and the containers
+  table with per-container CPU/mem and **port mappings**
+  (`host→container/proto`). Series: 30s samples, 24h retention.
 - **Audit Logs**: filterable audit table (actor, action, subject, time).
 - **Settings**: GitLab instances (admin), enrollment tokens, theme, profile.
 - **Help**: `/help/gitlab-oauth` — GitLab OAuth app setup guide (steps,

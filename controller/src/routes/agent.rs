@@ -72,6 +72,19 @@ pub async fn heartbeat(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Telemetry sample (plans/phase-05.md § Telemetry extension).
+pub async fn metrics(
+    State(state): State<AppState>,
+    AuthenticatedAgent(ctx): AuthenticatedAgent,
+    Json(sample): Json<foundry_shared::dto::MetricsSample>,
+) -> Result<StatusCode, AppError> {
+    if sample.gpus.len() > 64 || sample.containers.len() > 1024 {
+        return Err(AppError::BadRequest("sample exceeds sane bounds".into()));
+    }
+    crate::repos::metrics::insert(&state.pool, ctx.server_id, &sample).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Full snapshot upload (docs/GPU-MIG.md). Bounds: an authenticated
 /// agent is not blindly trusted (docs/SECURITY.md § Input hygiene).
 pub async fn inventory(

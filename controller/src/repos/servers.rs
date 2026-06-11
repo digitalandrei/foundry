@@ -41,6 +41,7 @@ pub async fn list(pool: &MySqlPool) -> Result<Vec<ServerSummary>, AppError> {
             os_version: r.os_version,
             enrolled: r.agent_id.is_some(),
             gpus: super::inventory::gpus_for_server(pool, id).await?,
+            containers_running: super::inventory::running_count(pool, id).await?,
         });
     }
     Ok(out)

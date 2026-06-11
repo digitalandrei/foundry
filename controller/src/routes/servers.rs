@@ -21,6 +21,24 @@ pub async fn list(
     Ok(Json(servers::list(&state.pool).await?))
 }
 
+#[derive(serde::Deserialize)]
+pub struct MetricsQuery {
+    minutes: Option<i64>,
+}
+
+/// Telemetry series for the dedicated server page.
+pub async fn metrics(
+    State(state): State<AppState>,
+    _user: CurrentUser,
+    Path(server_id): Path<ServerId>,
+    axum::extract::Query(q): axum::extract::Query<MetricsQuery>,
+) -> Result<Json<Vec<foundry_shared::dto::MetricsPoint>>, AppError> {
+    let minutes = q.minutes.unwrap_or(60).clamp(5, 1440);
+    Ok(Json(
+        crate::repos::metrics::range(&state.pool, server_id, minutes).await?,
+    ))
+}
+
 /// Detail: GPUs/slots + the docker-ps snapshot (docs/API.md).
 pub async fn detail(
     State(state): State<AppState>,

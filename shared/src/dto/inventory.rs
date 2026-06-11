@@ -49,4 +49,16 @@ pub struct ContainerInfo {
     /// Human status line (`Up 3 hours`, …).
     pub status: String,
     pub managed: bool,
+    /// Exposed/mapped ports (a container may expose any number).
+    #[serde(default)]
+    pub ports: Vec<PortMapping>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortMapping {
+    pub container_port: u16,
+    /// Present when published on the host.
+    pub host_port: Option<u16>,
+    /// `tcp` / `udp`.
+    pub protocol: String,
 }

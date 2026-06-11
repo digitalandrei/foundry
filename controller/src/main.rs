@@ -50,6 +50,7 @@ async fn serve() -> Result<(), Box<dyn Error>> {
 
     auth::session::spawn_sweeper(pool.clone());
     repos::servers::spawn_offline_sweeper(pool.clone());
+    repos::metrics::spawn_sweeper(pool.clone());
 
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))

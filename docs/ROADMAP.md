@@ -11,7 +11,7 @@ in `docs/plans/`.
 | 2 | Workspace creation | [plans/phase-02.md](plans/phase-02.md) | ✅ Done (2026-06-11) |
 | 3 | Authentication (GitLab OAuth, multi-instance) | [plans/phase-03.md](plans/phase-03.md) | ✅ Done (2026-06-11) — E2E verified against g.protv.ro |
 | 4 | Agent enrollment | [plans/phase-04.md](plans/phase-04.md) | 🔶 Built & deployed (0.2.0) — awaiting first real GPU-server enrollment; rotation endpoint pending |
-| 5 | Inventory (GPU/MIG discovery & reconciliation) | [plans/phase-05.md](plans/phase-05.md) | 🔶 Built & deployed (0.3.0) — awaiting real GPU snapshots; telemetry extension next (0.4.0) |
+| 5 | Inventory (GPU/MIG discovery & reconciliation) | [plans/phase-05.md](plans/phase-05.md) | ✅ Done (2026-06-12) — inventory verified on real L40S servers (0.3/0.4); telemetry shipped (0.5.0) |
 | 6 | Deployments (lifecycle, replacement) | [plans/phase-06.md](plans/phase-06.md) | ⬜ Not started |
 | 7 | Logs | [plans/phase-07.md](plans/phase-07.md) | ⬜ Not started |
 | 8 | UI (full dashboard, dark+light themes) | [plans/phase-08.md](plans/phase-08.md) | ⬜ Not started |
@@ -100,10 +100,12 @@ reflected in the affected docs in the same commit set:
 - **2026-06-12** (Phase 5) — MIG device layout parsed from
   `nvidia-smi -L` (nvml-wrapper 0.11 gap); NVML authoritative for GPUs
   + MIG mode (GPU-MIG.md).
-- **2026-06-12** — **Telemetry scope added** (operator): host
-  CPU/mem/disk/network, GPU utilization, container stats + port
-  mappings; dedicated `/servers/{id}` page. Next build
-  (plans/phase-05.md § Telemetry extension).
+- **2026-06-12** (0.5.0) — **Telemetry shipped** (operator request):
+  host CPU/mem/disk/network + GPU util/mem/temp/power + container
+  CPU/mem with port mappings, 30s samples, 24h retention; dedicated
+  `/servers/{id}` page with sparklines (shadcn chart/recharts — new
+  frontend dep); live System Status card. Detail dialog replaced by
+  the page.
 - **2026-06-12** (0.4.0) — Deterministic GPU ordering (operator):
   `gpus.display_index` persists the NVML index; lists order by it and
   UI labels use it. Natural slot-name sort (LENGTH, name).

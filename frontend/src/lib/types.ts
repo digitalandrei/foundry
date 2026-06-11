@@ -98,6 +98,13 @@ export interface ServerSummary {
   os_version: string | null
   enrolled: boolean
   gpus: GpuSummary[]
+  containers_running: number
+}
+
+export interface PortMapping {
+  container_port: number
+  host_port: number | null
+  protocol: string
 }
 
 export interface ServerContainer {
@@ -107,7 +114,44 @@ export interface ServerContainer {
   state: string
   status: string
   managed: boolean
+  ports: PortMapping[]
   reported_at: string
+}
+
+export interface HostMetrics {
+  cpu_pct: number
+  mem_used_mb: number
+  mem_total_mb: number
+  disk_used_gb: number
+  disk_total_gb: number
+  net_rx_bps: number
+  net_tx_bps: number
+}
+
+export interface GpuMetrics {
+  uuid: string
+  util_pct: number
+  mem_used_mb: number
+  temperature_c: number
+  power_w: number
+}
+
+export interface ContainerMetrics {
+  container_id: string
+  cpu_pct: number
+  mem_used_mb: number
+  mem_limit_mb: number
+}
+
+export interface MetricsSample {
+  host: HostMetrics
+  gpus: GpuMetrics[]
+  containers: ContainerMetrics[]
+}
+
+export interface MetricsPoint {
+  sampled_at: string
+  sample: MetricsSample
 }
 
 export interface ServerDetail {

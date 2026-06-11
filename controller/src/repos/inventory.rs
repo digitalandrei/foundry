@@ -91,8 +91,8 @@ pub async fn apply_snapshot(
     for c in &snap.containers {
         sqlx::query!(
             r#"INSERT INTO server_containers
-               (id, server_id, container_id, name, image, state, status, managed, reported_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+               (id, server_id, container_id, name, image, state, status, managed, ports, reported_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
             Uuid::now_v7(),
             server_id.0,
             c.container_id,
@@ -101,6 +101,7 @@ pub async fn apply_snapshot(
             c.state.chars().take(32).collect::<String>(),
             c.status.chars().take(255).collect::<String>(),
             c.managed,
+            serde_json::to_string(&c.ports).map_err(AppError::internal)?,
             now,
         )
         .execute(&mut *tx)
@@ -298,7 +299,7 @@ pub async fn containers_for_server(
 ) -> Result<Vec<ServerContainer>, AppError> {
     let rows = sqlx::query!(
         r#"SELECT container_id, name, image, state, status, managed AS "managed: bool",
-                  reported_at
+                  ports, reported_at
            FROM server_containers WHERE server_id = ?
            ORDER BY managed DESC, name"#,
         server_id.0
@@ -314,7 +315,22 @@ pub async fn containers_for_server(
             state: r.state,
             status: r.status,
             managed: r.managed,
+            ports: r
+                .ports
+                .as_deref()
+                .and_then(|p| serde_json::from_slice(p).ok())
+                .unwrap_or_default(),
             reported_at: r.reported_at.and_utc(),
         })
         .collect())
+}
+
+/// `running` containers per the latest snapshot (System Status card).
+pub async fn running_count(pool: &MySqlPool, server_id: ServerId) -> Result<i64, AppError> {
+    Ok(sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM server_containers WHERE server_id = ? AND state = 'running'",
+        server_id.0
+    )
+    .fetch_one(pool)
+    .await?)
 }

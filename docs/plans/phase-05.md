@@ -7,7 +7,18 @@ binary). MIG-device enumeration via `nvidia-smi -L` (wrapper gap —
 slots FREE; MIG reshape → new MIG slots + old slot OFFLINE; vanished
 GPU → OFFLINE; containers replace-all.
 
-## Telemetry extension (operator request 2026-06-12 — next build)
+## Telemetry extension (operator request 2026-06-12 — ✅ shipped 0.5.0)
+
+Delivered as designed below: agent `metrics.rs` (sysinfo host stats,
+NVML GPU util/mem/temp/power, Docker stats CPU/mem per container, 30s
+cadence), `ports` on the container snapshot, `POST /agent/metrics` →
+`server_metrics` (24h sweeper), `GET /api/servers/{id}/metrics`,
+dedicated `/servers/{id}` page (host + per-GPU sparklines via shadcn
+chart/recharts, containers with CPU/mem/ports), live System Status
+card. Verified by simulated ingest/range; real numbers appear once
+agents update to 0.5.0.
+
+### Original design
 
 Beyond existence, we want usage, on the dashboard (summary) and on a
 **dedicated page per server**:

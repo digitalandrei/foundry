@@ -10,6 +10,7 @@
 
 mod config;
 mod inventory;
+mod metrics;
 mod register;
 
 use std::error::Error;
@@ -88,10 +89,30 @@ async fn heartbeat_loop(client: &reqwest::Client, config: &config::AgentConfig) 
     // Full snapshot at start, then every minute (docs/GPU-MIG.md).
     let mut inventory_interval = tokio::time::interval(Duration::from_secs(60));
     inventory_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // Telemetry every 30s (plans/phase-05.md § Telemetry extension).
+    let metrics_url = format!("{base}/agent/metrics");
+    let mut collector = metrics::MetricsCollector::new();
+    let mut metrics_interval = tokio::time::interval(Duration::from_secs(30));
+    metrics_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut healthy: Option<bool> = None;
 
     loop {
         tokio::select! {
+            _ = metrics_interval.tick() => {
+                let sample = collector.collect().await;
+                let result = client
+                    .post(&metrics_url)
+                    .header("x-foundry-agent-id", &config.agent_id)
+                    .bearer_auth(&config.agent_secret)
+                    .json(&sample)
+                    .send()
+                    .await;
+                match result {
+                    Ok(resp) if resp.status().is_success() => {}
+                    Ok(resp) => tracing::warn!(status = %resp.status(), "metrics upload rejected"),
+                    Err(err) => tracing::debug!(%err, "metrics upload failed (controller unreachable)"),
+                }
+            }
             _ = inventory_interval.tick() => {
                 let snapshot = inventory::collect().await;
                 tracing::debug!(

@@ -1,6 +1,7 @@
 import { ContainersPanel } from "@/components/containers-panel"
 import { ServerGrid } from "@/components/server-grid"
 import { SlotLegend } from "@/components/slot-legend"
+import { useServers } from "@/hooks/use-servers"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -12,6 +13,30 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { APP_VERSION } from "@/lib/version"
+
+function SystemStatus() {
+  const servers = useServers()
+  const online = (servers.data ?? []).filter((s) => s.status === "ONLINE").length
+  const gpus = (servers.data ?? []).reduce((n, s) => n + s.gpus.length, 0)
+  const running = (servers.data ?? []).reduce((n, s) => n + s.containers_running, 0)
+
+  return (
+    <>
+      <div className="flex justify-between">
+        <span className="text-muted-foreground">Servers</span>
+        <span className={online > 0 ? "text-slot-free" : undefined}>{online} online</span>
+      </div>
+      <div className="flex justify-between">
+        <span className="text-muted-foreground">GPUs</span>
+        <span>{gpus} total</span>
+      </div>
+      <div className="flex justify-between">
+        <span className="text-muted-foreground">Containers</span>
+        <span>{running} running</span>
+      </div>
+    </>
+  )
+}
 
 /** The core screen (docs/UI-DESIGN.md § Dashboard Layout): GitLab
  * sidebar, slot grid, running-deployments panel. Data wiring arrives
@@ -36,18 +61,7 @@ export function DashboardPage() {
             <CardTitle className="text-sm">System Status</CardTitle>
           </CardHeader>
           <CardContent className="space-y-1 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Servers</span>
-              <span>0 online</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">GPUs</span>
-              <span>0 total</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Containers</span>
-              <span>0 running</span>
-            </div>
+            <SystemStatus />
             <Separator className="my-2" />
             <p className="text-xs text-muted-foreground">Foundry v{APP_VERSION}</p>
           </CardContent>

@@ -2,7 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { api, ApiError, queryKeys } from "@/lib/api"
-import type { EnrollmentTokenResponse, ServerDetail, ServerSummary } from "@/lib/types"
+import type {
+  EnrollmentTokenResponse,
+  MetricsPoint,
+  ServerDetail,
+  ServerSummary,
+} from "@/lib/types"
 
 export function useServers() {
   return useQuery({
@@ -20,6 +25,15 @@ export function useServerDetail(serverId: string | null) {
     queryFn: () => api<ServerDetail>(`/api/servers/${serverId}`),
     enabled: serverId !== null,
     refetchInterval: 15_000,
+  })
+}
+
+/** Telemetry series for the server page (30s samples, 24h retention). */
+export function useServerMetrics(serverId: string, minutes = 60) {
+  return useQuery({
+    queryKey: queryKeys.serverMetrics(serverId, minutes),
+    queryFn: () => api<MetricsPoint[]>(`/api/servers/${serverId}/metrics?minutes=${minutes}`),
+    refetchInterval: 30_000,
   })
 }
 

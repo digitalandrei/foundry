@@ -5,6 +5,7 @@
 pub mod instances;
 pub mod inventory;
 pub mod local_admins;
+pub mod metrics;
 pub mod mirror;
 pub mod servers;
 pub mod users;
