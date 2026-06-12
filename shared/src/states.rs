@@ -166,6 +166,15 @@ impl PortKind {
     }
 }
 
+/// Matches the pre-`kind` wire behavior so task payloads queued by an
+/// older controller stay deserializable across an upgrade (review
+/// finding: `kind` is `#[serde(default)]` in PortBinding).
+impl Default for PortKind {
+    fn default() -> Self {
+        PortKind::Tcp
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

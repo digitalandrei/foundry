@@ -128,9 +128,10 @@ Port mappings — one row per published port (a container may expose any
 number). Columns: `id`, `deployment_id` FK, `container_port`,
 `host_port` (controller-allocated from the per-server pool),
 `protocol` (tcp/udp), `kind` (HTTP/HTTPS/TCP/UDP — proxy vs direct,
-plans/phase-06.md), `hostname` null (HTTP/S only: the published app
-hostname under the apps domain, e.g. `myapp.ai.protv.ro` — assigned at
-create, globally unique across active deployments; the agent renders
+plans/phase-06.md), `hostname` null + KEY (HTTP/S only: the published
+app hostname under the apps domain, e.g. `myapp.ai.protv.ro` — assigned
+at create, globally unique across active deployments except the one a
+replacement supersedes, so the URL survives swaps; the agent renders
 the per-server nginx vhost from it, ARCHITECTURE.md § App Publishing).
 
 ### `deployment_env`

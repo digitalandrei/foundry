@@ -138,6 +138,14 @@ reflected in the affected docs in the same commit set:
   pinned to their slot's device via `DeviceRequest` UUID (MIG or full
   GPU) — the API form of `docker run --gpus device=<uuid>`. Affects
   ARCHITECTURE, SECURITY, DEPLOYMENT, DATABASE, API, phase-06.
+- **2026-06-12** (0.9.0) — App-publishing hardening from adversarial
+  review: replacements are exempt from the hostname-uniqueness probe
+  (same name → same URL across swaps; the replace dialog now prefills
+  the outgoing name + ports), hostname labels validated against DNS
+  rules (LDH, ≤63 chars), `deployment_ports.hostname` indexed (lock
+  scope), `PortBinding.kind` serde-defaulted so pre-0.8 queued tasks
+  survive upgrades, deploy-dialog form-state fixes (reset on close,
+  subscribed dirty flag, host-port cleared on kind switch).
 - **2026-06-11** (Phase 3) — First-instance bootstrap CLI:
   `foundry-controller instance add` (Settings UI requires an admin,
   who requires a login, which requires an instance).

@@ -82,7 +82,14 @@ pub async fn create(
     };
 
     let mut allocated = allocate_ports(&mut tx, server_id, &req.ports).await?;
-    assign_hostnames(&mut tx, &mut allocated, &container_name, apps_domain).await?;
+    assign_hostnames(
+        &mut tx,
+        &mut allocated,
+        &container_name,
+        apps_domain,
+        replaces,
+    )
+    .await?;
 
     let id = DeploymentId::new();
     sqlx::query!(
@@ -415,12 +422,16 @@ async fn allocate_ports(
 /// `*.ai.protv.ro`, per-server nginx managed by the agent). Single
 /// HTTP/S port → `<name>.<domain>`; several → `<name>-<port>.<domain>`.
 /// Hostnames are globally unique across active deployments — the app
-/// URL must route to exactly one container.
+/// URL must route to exactly one container. The deployment being
+/// replaced is exempt (review finding): its successor may — should —
+/// keep the URL; the chain removes the old vhost before the new one
+/// is applied.
 async fn assign_hostnames(
     tx: &mut MySqlConnection,
     ports: &mut [DeploymentPort],
     container_name: &str,
     apps_domain: Option<&str>,
+    replaces: Option<DeploymentId>,
 ) -> Result<(), AppError> {
     let web_count = ports
         .iter()
@@ -432,25 +443,46 @@ async fn assign_hostnames(
     let domain = apps_domain
         .ok_or_else(|| AppError::BadRequest("FOUNDRY_APPS_DOMAIN is not configured".into()))?;
 
-    let slug = container_name.to_lowercase().replace('_', "-");
+    // DNS-safe slug (review finding): a label is LDH, ≤63 chars, and
+    // must not end in '-'.
+    let slug = container_name
+        .to_lowercase()
+        .replace('_', "-")
+        .trim_matches('-')
+        .to_string();
+    if slug.is_empty() {
+        return Err(AppError::BadRequest(
+            "name reduces to an empty app hostname — use letters or digits".into(),
+        ));
+    }
+    // Never matches a real row when this is not a replacement.
+    let exempt = replaces.map(|d| d.0).unwrap_or_else(Uuid::nil);
     for p in ports.iter_mut() {
         if !matches!(p.kind, PortKind::Http | PortKind::Https) {
             continue;
         }
-        let hostname = if web_count == 1 {
-            format!("{slug}.{domain}")
+        let label = if web_count == 1 {
+            slug.clone()
         } else {
-            format!("{slug}-{}.{domain}", p.container_port)
+            format!("{slug}-{}", p.container_port)
         };
+        if label.len() > 63 {
+            return Err(AppError::BadRequest(format!(
+                "app hostname label {label:?} exceeds 63 characters — pick a shorter name"
+            )));
+        }
+        let hostname = format!("{label}.{domain}");
         let taken = sqlx::query_scalar!(
             r#"SELECT COUNT(*) FROM deployment_ports dp
                JOIN deployments d ON d.id = dp.deployment_id
                WHERE dp.hostname = ?
+                 AND d.id <> ?
                  AND d.state IN ('PENDING','VALIDATING','PULLING_IMAGE','CREATING_CONTAINER',
                                  'STARTING','RUNNING','STOPPING','STOPPED','RESTARTING',
                                  'REMOVING','FAILED')
                FOR UPDATE"#,
-            hostname
+            hostname,
+            exempt,
         )
         .fetch_one(&mut *tx)
         .await?;

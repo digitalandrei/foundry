@@ -63,6 +63,9 @@ pub struct PortBinding {
     pub host_port: u16,
     /// `tcp` / `udp`.
     pub protocol: String,
+    /// Defaulted (TCP) so DEPLOY payloads queued by a pre-0.8 controller
+    /// survive an upgrade instead of poisoning the dispatch loop.
+    #[serde(default)]
     pub kind: crate::PortKind,
     /// HTTP/HTTPS only: the vhost the agent publishes
     /// (`<name>.ai.protv.ro`); the wildcard cert lives at

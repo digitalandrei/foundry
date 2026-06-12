@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react"
-import { useFieldArray, useForm } from "react-hook-form"
+import { useFieldArray, useForm, useFormState } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { PlusIcon, Trash2Icon } from "lucide-react"
 import { z } from "zod"
@@ -120,21 +120,44 @@ export function DeployDialog({
   const ports = useFieldArray({ control: form.control, name: "ports" })
   const env = useFieldArray({ control: form.control, name: "env" })
   const mounts = useFieldArray({ control: form.control, name: "volumes" })
+  // Render-level subscription — reading form.formState inside an effect
+  // is unsubscribed and goes stale (review finding).
+  const { isDirty } = useFormState({ control: form.control })
 
-  // Fresh target → reset and prefill ports from the image's EXPOSE
-  // list (once per open; never over the user's own edits).
+  // Fresh target → reset and prefill (once per open; never over the
+  // user's own edits). Replacements inherit the outgoing deployment's
+  // name + port layout so the app URL survives the swap; fresh deploys
+  // prefill from the image's EXPOSE list.
   const prefillKey = target ? `${target.slot.slotId}:${target.tag.registryTagId}` : null
   const prefilled = useRef<string | null>(null)
   useEffect(() => {
     if (!prefillKey) {
+      // Dialog closed — drop leftovers so a cancelled open can't leak
+      // values (incl. secrets) into the next one (review finding).
       prefilled.current = null
+      form.reset({ name: "", ports: [], env: [], volumes: [] })
       return
     }
-    if (prefilled.current === prefillKey || discovered.isPending) return
-    if (form.formState.isDirty) {
+    if (prefilled.current === prefillKey) return
+    if (isDirty) {
       prefilled.current = prefillKey
       return
     }
+    if (target?.replaces) {
+      form.reset({
+        name: target.replaces.name,
+        ports: target.replaces.ports.map((p) => ({
+          container_port: String(p.container_port),
+          kind: p.kind,
+          host_port: "",
+        })),
+        env: [],
+        volumes: [],
+      })
+      prefilled.current = prefillKey
+      return
+    }
+    if (discovered.isPending) return
     const rows = (discovered.data?.ports ?? []).map((p) => ({
       container_port: String(p.container_port),
       kind: defaultKind(p, appsDomain !== null),
@@ -142,7 +165,7 @@ export function DeployDialog({
     }))
     form.reset({ name: "", ports: rows, env: [], volumes: [] })
     prefilled.current = prefillKey
-  }, [prefillKey, discovered.isPending, discovered.data, appsDomain, form])
+  }, [prefillKey, target, discovered.isPending, discovered.data, appsDomain, isDirty, form])
 
   if (!target) return null
   const pending = create.isPending || replace.isPending
@@ -221,9 +244,13 @@ export function DeployDialog({
           <SectionHeader
             title="Ports"
             hint={[
-              discovered.data?.ports.length
-                ? `Prefilled from the image's EXPOSE list (${discovered.data.ports.length}).`
-                : "TCP/UDP map directly onto the server IP.",
+              target.replaces
+                ? "Prefilled from the deployment being replaced — keeping the name keeps the app URL."
+                : discovered.data?.ports.length
+                  ? `Prefilled from the image's EXPOSE list (${discovered.data.ports.length}).`
+                  : discovered.isSuccess
+                    ? "The image declares no EXPOSE ports — add the ports your app listens on manually."
+                    : "TCP/UDP map directly onto the server IP.",
               appsDomain
                 ? `HTTP/S ports publish at https://<name>.${appsDomain}.`
                 : "HTTP/S publishing is disabled (no apps domain configured).",
@@ -250,7 +277,15 @@ export function DeployDialog({
                   <FieldLabel>Kind</FieldLabel>
                   <Select
                     value={kind}
-                    onValueChange={(v) => form.setValue(`ports.${i}.kind`, v as PortKind)}
+                    onValueChange={(v) => {
+                      form.setValue(`ports.${i}.kind`, v as PortKind)
+                      // Web kinds hide the host field; a stale invalid
+                      // value would fail validation invisibly (review
+                      // finding) — clear it on the way in.
+                      if (v === "HTTP" || v === "HTTPS") {
+                        form.setValue(`ports.${i}.host_port`, "")
+                      }
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue />
