@@ -63,7 +63,12 @@ access control.
 ### `servers`
 Enrolled GPU servers. Columns: `id`, `name`, `hostname`, `ip_address`,
 `os_version`, `nvidia_driver_version`, `docker_version`, `status`
-(ONLINE/OFFLINE/DEGRADED), `last_heartbeat_at`, timestamps.
+(ONLINE/OFFLINE/DEGRADED), `last_heartbeat_at`,
+`app_publishing_ready` (BOOL null — HTTP/S publishing readiness from
+the latest inventory snapshot; 0.13.0), `nginx_status` (VARCHAR(32)
+null — granular reason: READY / NGINX_MISSING / NGINX_OUTDATED /
+NGINX_INACTIVE / NOT_CONFIGURED / TLS_MISSING; agent-reported, 0.16.0,
+values extended 0.17.0), timestamps.
 
 ### `server_agents`
 Agent identity and auth per server. Columns: `id`, `server_id` FK,

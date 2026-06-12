@@ -290,13 +290,20 @@ The deploy dialog pre-fills ports from the image's EXPOSE list
 (controller reads the registry config blob — API.md
 § `exposed-ports`); discovery is best-effort metadata, never a gate.
 
-Readiness is reported, not assumed (0.13.0; granular in 0.16.0): each
-inventory snapshot carries `nginx_status` — READY (installed, the
-service is active, and the Foundry include is present) /
-NGINX_MISSING / NGINX_INACTIVE / NOT_CONFIGURED — stored on the server
-row and surfaced per server with the exact fix. An HTTP/S deploy onto
-a not-ready server is **rejected at create** with that reason, rather
-than dispatched only to fail on the agent.
+Readiness is reported, not assumed (0.13.0; granular in 0.16.0;
+version + cert checks in 0.17.0): each inventory snapshot carries
+`nginx_status` — READY (nginx ≥ 1.25.1 installed, the service is
+active, the Foundry include and the wildcard TLS cert are present) /
+NGINX_MISSING / NGINX_OUTDATED / NGINX_INACTIVE / NOT_CONFIGURED /
+TLS_MISSING — stored on the server row and surfaced per server with
+the exact fix. The minimum nginx version is 1.25.1 because the vhost
+template uses the standalone `http2` directive (older nginx rejects it
+as unknown); the agent reads `nginx -v` live, so an upgrade flips the
+status without an agent restart, and `vhost::apply` re-validates
+version + cert as a preflight so a stale snapshot can't sneak a deploy
+into an opaque `nginx -t` emerg. An HTTP/S deploy onto a not-ready
+server is **rejected at create** with that reason, rather than
+dispatched only to fail on the agent.
 
 **External GPU containers (0.13.0):** the agent resolves the GPU/MIG
 UUIDs each *running* container is bound to (from its `--gpus` device

@@ -34,18 +34,33 @@ fn reload_enabled() -> bool {
 
 const FOUNDRY_INCLUDE: &str = "/etc/nginx/conf.d/foundry-apps.conf";
 
+/// Oldest nginx our vhost template works with: the standalone `http2`
+/// directive arrived in 1.25.1 — older nginx rejects it as an unknown
+/// directive (Ubuntu noble's stock 1.24.0 does).
+pub const MIN_NGINX_VERSION: (u64, u64, u64) = (1, 25, 1);
+
 /// Granular HTTP/S app-publishing status for the inventory snapshot, so
 /// the UI shows exactly what (if anything) is wrong rather than a vague
 /// "nginx missing":
-/// - `READY` — nginx installed, the service is active, and the Foundry
-///   include (`--setup-apps`) is in place.
+/// - `READY` — nginx ≥ 1.25.1 installed, the service is active, the
+///   Foundry include (`--setup-apps`) and the wildcard TLS certificate
+///   are in place.
 /// - `NGINX_MISSING` — the nginx binary isn't installed.
+/// - `NGINX_OUTDATED` — nginx is older than `MIN_NGINX_VERSION`.
 /// - `NGINX_INACTIVE` — installed but the service isn't running.
 /// - `NOT_CONFIGURED` — installed + running, but `--setup-apps` hasn't
 ///   written the Foundry include yet.
+/// - `TLS_MISSING` — set up, but the operator hasn't installed the
+///   wildcard certificate under /etc/foundry-agent/tls/ yet.
 pub fn app_publishing_status() -> &'static str {
     if !nginx_installed() {
         return "NGINX_MISSING";
+    }
+    // Unknown version (unrecognized `nginx -v` output) doesn't block —
+    // same philosophy as the systemctl check below: only flag what we
+    // positively know is wrong.
+    if nginx_version().is_some_and(|v| v < MIN_NGINX_VERSION) {
+        return "NGINX_OUTDATED";
     }
     // `systemctl is-active` is a read-only query (works as the service
     // user). Unknown (no systemctl) → don't claim it's down.
@@ -55,21 +70,58 @@ pub fn app_publishing_status() -> &'static str {
     if !std::path::Path::new(FOUNDRY_INCLUDE).exists() {
         return "NOT_CONFIGURED";
     }
+    if !tls_installed() {
+        return "TLS_MISSING";
+    }
     "READY"
 }
 
-/// nginx binary present at any of the usual locations (Ubuntu installs
-/// it at `/usr/sbin/nginx`, which is also what the reload sudoers rule
+/// First nginx binary found at the usual locations (Ubuntu installs it
+/// at `/usr/sbin/nginx`, which is also what the reload sudoers rule
 /// targets).
-fn nginx_installed() -> bool {
+fn nginx_bin_path() -> Option<&'static str> {
     [
         NGINX_BIN,
         "/usr/bin/nginx",
         "/usr/local/sbin/nginx",
         "/usr/local/bin/nginx",
     ]
-    .iter()
-    .any(|p| std::path::Path::new(p).exists())
+    .into_iter()
+    .find(|p| std::path::Path::new(p).exists())
+}
+
+fn nginx_installed() -> bool {
+    nginx_bin_path().is_some()
+}
+
+fn tls_installed() -> bool {
+    std::path::Path::new(TLS_CERT).exists() && std::path::Path::new(TLS_KEY).exists()
+}
+
+/// Installed nginx version via `nginx -v` (no root needed; prints to
+/// stderr as `nginx version: nginx/1.24.0 (Ubuntu)`). `None` when nginx
+/// is absent or the output is unrecognized. Queried live each time so
+/// an operator upgrade flips the status without an agent restart.
+fn nginx_version() -> Option<(u64, u64, u64)> {
+    let out = std::process::Command::new(nginx_bin_path()?)
+        .arg("-v")
+        .output()
+        .ok()?;
+    parse_nginx_version(&String::from_utf8_lossy(&out.stderr))
+        .or_else(|| parse_nginx_version(&String::from_utf8_lossy(&out.stdout)))
+}
+
+fn parse_nginx_version(text: &str) -> Option<(u64, u64, u64)> {
+    let rest = text.split("nginx/").nth(1)?;
+    let digits: String = rest
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    let mut parts = digits.split('.').map(|p| p.parse::<u64>().ok());
+    let major = parts.next()??;
+    let minor = parts.next()??;
+    let patch = parts.next().flatten().unwrap_or(0);
+    Some((major, minor, patch))
 }
 
 /// `systemctl is-active nginx` → Some(true/false); None when systemctl
@@ -102,6 +154,28 @@ pub async fn apply(deployment_id: &str, ports: &[&PortBinding]) -> Result<(), St
         let hostname = p.hostname.as_deref().unwrap_or_default();
         if !valid_hostname(hostname) {
             return Err(format!("refusing invalid vhost hostname {hostname:?}"));
+        }
+    }
+
+    // Preflight (skipped under the smoke/unit-test escape): catch the
+    // two environment problems `nginx -t` would otherwise report as
+    // opaque emerg lines — a pre-1.25.1 nginx (no `http2` directive)
+    // and a missing operator certificate.
+    if reload_enabled() {
+        if let Some(v) = nginx_version() {
+            if v < MIN_NGINX_VERSION {
+                return Err(format!(
+                    "nginx {}.{}.{} is too old for HTTP/S publishing — Foundry needs ≥ {}.{}.{} (the `http2` directive); upgrade nginx on this server",
+                    v.0, v.1, v.2, MIN_NGINX_VERSION.0, MIN_NGINX_VERSION.1, MIN_NGINX_VERSION.2
+                ));
+            }
+        }
+        for f in [TLS_CERT, TLS_KEY] {
+            if !std::path::Path::new(f).exists() {
+                return Err(format!(
+                    "TLS certificate missing: {f} — install this server's wildcard cert (fullchain.pem + privkey.pem) under /etc/foundry-agent/tls/"
+                ));
+            }
         }
     }
 
@@ -165,11 +239,16 @@ async fn nginx(args: &[&str]) -> Result<(), String> {
         return Ok(());
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
-    Err(format!(
-        "nginx {} failed: {} — is nginx installed and `--setup-apps` done?",
-        args.join(" "),
-        stderr.chars().take(400).collect::<String>().trim()
-    ))
+    let excerpt = stderr.chars().take(400).collect::<String>();
+    let excerpt = excerpt.trim();
+    // sudo refusals (missing rule) get the setup hint; real nginx
+    // errors (config-test failures) speak for themselves.
+    let hint = if excerpt.contains("password is required") || excerpt.contains("not allowed") {
+        " — sudo rule missing: run `sudo foundry-agent --setup-apps`"
+    } else {
+        ""
+    };
+    Err(format!("nginx {} failed: {excerpt}{hint}", args.join(" ")))
 }
 
 fn validate_id(deployment_id: &str) -> Result<(), String> {
@@ -297,6 +376,28 @@ mod tests {
         let conf = render("dep", &[&a, &b]);
         assert_eq!(conf.matches("listen 443 ssl;").count(), 2);
         assert_eq!(conf.matches("return 301").count(), 2);
+    }
+
+    #[test]
+    fn nginx_version_parsing_and_minimum() {
+        assert_eq!(
+            parse_nginx_version("nginx version: nginx/1.24.0 (Ubuntu)"),
+            Some((1, 24, 0))
+        );
+        assert_eq!(
+            parse_nginx_version("nginx version: nginx/1.28.0"),
+            Some((1, 28, 0))
+        );
+        assert_eq!(
+            parse_nginx_version("nginx version: nginx/1.27"),
+            Some((1, 27, 0))
+        );
+        assert_eq!(parse_nginx_version("no version here"), None);
+        assert_eq!(parse_nginx_version("nginx/x.y"), None);
+
+        assert!((1, 24, 0) < MIN_NGINX_VERSION); // Ubuntu noble stock — rejected
+        assert!((1, 25, 1) >= MIN_NGINX_VERSION); // first with `http2 on;`
+        assert!((1, 28, 0) >= MIN_NGINX_VERSION); // nginx.org stable
     }
 
     #[test]

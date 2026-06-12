@@ -19,8 +19,9 @@ pub struct ServerSummary {
     /// `nginx_status` for why), `None` → unknown / no recent snapshot.
     pub app_publishing_ready: Option<bool>,
     /// Granular nginx/publishing status for display (`READY` /
-    /// `NGINX_MISSING` / `NGINX_INACTIVE` / `NOT_CONFIGURED`); `None`
-    /// when not reported (pre-0.16 agent or no snapshot).
+    /// `NGINX_MISSING` / `NGINX_OUTDATED` / `NGINX_INACTIVE` /
+    /// `NOT_CONFIGURED` / `TLS_MISSING`); `None` when not reported
+    /// (pre-0.16 agent or no snapshot).
     pub nginx_status: Option<String>,
     /// Whether an agent has ever enrolled for this server.
     pub enrolled: bool,

@@ -337,6 +337,10 @@ function NginxStatus({ status, ready }: { status: string | null; ready: boolean 
       label: "nginx not installed — HTTP/S off",
       title: "Install nginx, then run `sudo foundry-agent --setup-apps`.",
     },
+    NGINX_OUTDATED: {
+      label: "nginx too old — HTTP/S off",
+      title: "nginx is older than 1.25.1 (no `http2` directive). Upgrade nginx on the server.",
+    },
     NGINX_INACTIVE: {
       label: "nginx stopped — HTTP/S off",
       title: "nginx is installed but not running. `sudo systemctl enable --now nginx`.",
@@ -344,6 +348,10 @@ function NginxStatus({ status, ready }: { status: string | null; ready: boolean 
     NOT_CONFIGURED: {
       label: "nginx up · not configured — HTTP/S off",
       title: "nginx is running but not set up for Foundry. Run `sudo foundry-agent --setup-apps`.",
+    },
+    TLS_MISSING: {
+      label: "TLS cert missing — HTTP/S off",
+      title: "nginx is ready but the wildcard certificate is missing. Install fullchain.pem + privkey.pem under /etc/foundry-agent/tls/.",
     },
   }
   const w = (status && warn[status]) || {

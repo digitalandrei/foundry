@@ -174,7 +174,10 @@ Publishing), prepares `/storage/containers` for persistent volumes
 the systemd unit, and restarts the service.
 
 **HTTP/S app publishing prerequisites per GPU server** (operator,
-once, **per server**): install nginx, point wildcard DNS
+once, **per server**): install nginx **≥ 1.25.1** (the vhost template
+uses the `http2` directive; Ubuntu noble's stock 1.24 is too old — use
+the ondrej/nginx PPA or the nginx.org repo; the agent reports
+`NGINX_OUTDATED` otherwise), point wildcard DNS
 `*.<server>.ai.protv.ro` (e.g. `*.protv-ai-04-02.ai.protv.ro`) at that
 GPU server, and place/renew a wildcard certificate for
 `*.<server>.ai.protv.ro` at `/etc/foundry-agent/tls/fullchain.pem` +

@@ -119,6 +119,12 @@ pub fn setup_apps_standalone() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         println!("not enrolled yet — run --register next");
     }
+    let status = crate::vhost::app_publishing_status();
+    println!("app publishing: {status}");
+    if status == "NGINX_OUTDATED" {
+        let (maj, min, pat) = crate::vhost::MIN_NGINX_VERSION;
+        println!("  → upgrade nginx to ≥ {maj}.{min}.{pat} — the vhost template uses the `http2` directive");
+    }
     Ok(())
 }
 

@@ -189,6 +189,16 @@ reflected in the affected docs in the same commit set:
   freed but name/ports stayed claimed → "in use" on same-name
   redeploy). Deploy dialog shows a loader while it inspects the image
   for exposed ports.
+- **2026-06-12** (0.17.0) — **Minimum nginx version enforced**
+  (operator hit `unknown directive "http2"` on Ubuntu's nginx 1.24):
+  the vhost template's `http2 on;` needs nginx ≥ 1.25.1, so the agent
+  now parses `nginx -v` and reports NGINX_OUTDATED below that (decision:
+  validate the version, keep one modern template — no compat rendering).
+  New TLS_MISSING status when the operator wildcard cert isn't at
+  /etc/foundry-agent/tls/ yet; `vhost::apply` preflights version + cert
+  with precise errors instead of `nginx -t` emerg output; `--setup-apps`
+  prints the publishing status; the misleading "is nginx installed?"
+  hint now only appears on sudo refusals.
 - **2026-06-12** (0.16.0) — **Granular nginx/app-publishing status**
   (operator: server has nginx but UI said "missing"): the agent now
   reports READY / NGINX_MISSING / NGINX_INACTIVE / NOT_CONFIGURED

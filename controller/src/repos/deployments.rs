@@ -283,11 +283,17 @@ fn nginx_status_hint(status: Option<&str>) -> &'static str {
         Some("NGINX_MISSING") => {
             "nginx is not installed — install it and run `sudo foundry-agent --setup-apps`"
         }
+        Some("NGINX_OUTDATED") => {
+            "nginx on the server is too old — Foundry needs ≥ 1.25.1 (the `http2` directive); upgrade nginx"
+        }
         Some("NGINX_INACTIVE") => {
             "nginx is installed but not running — start it (`sudo systemctl enable --now nginx`)"
         }
         Some("NOT_CONFIGURED") => {
             "nginx is running but not set up for Foundry — run `sudo foundry-agent --setup-apps`"
+        }
+        Some("TLS_MISSING") => {
+            "the server's wildcard TLS certificate is missing — install fullchain.pem + privkey.pem under /etc/foundry-agent/tls/"
         }
         _ => "the agent reports app publishing is unavailable",
     }
