@@ -69,6 +69,8 @@ pub struct DeploymentPort {
     pub host_port: u16,
     pub protocol: String,
     pub kind: PortKind,
+    /// HTTP/HTTPS: the published app hostname (`https://{hostname}`).
+    pub hostname: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

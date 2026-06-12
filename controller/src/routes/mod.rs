@@ -31,6 +31,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/me", get(me::me))
         .route("/api/projects", get(projects::list))
         .route("/api/registry/{project_id}", get(registry::browse))
+        .route(
+            "/api/registry/tags/{tag_id}/exposed-ports",
+            get(registry::exposed_ports),
+        )
         .route("/api/servers", get(servers::list))
         .route("/api/servers", post(servers::create))
         .route("/api/servers/{server_id}", get(servers::detail))

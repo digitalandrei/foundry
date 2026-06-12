@@ -22,19 +22,20 @@ user's GitLab account on the instance that owns the resource.
 
 | Endpoint | Purpose | Status |
 |---|---|---|
-| `GET /api/me` | Current user, linked GitLab account(s), admin flag | ✅ live |
+| `GET /api/me` | Current user, linked GitLab account(s), admin flag, `apps_domain` (set → HTTP/S publishing enabled) | ✅ live |
 | `GET /api/instances` | Minimal instance list `{id, name}` for the login picker — **the one unauthenticated `/api` endpoint, by design** | ✅ live |
 | `GET /api/instances/full` | Full instance list (no secrets) — admin | ✅ live |
 | `POST /api/instances` | Onboard a GitLab instance — admin | ✅ live |
 | `GET /api/projects` | GitLab projects visible to the user, resolved live per instance (degrades per account when an instance is unreachable) | ✅ live |
 | `GET /api/registry/{project_id}` | Registry browse for one project: repositories + tags (size/pushed_at via per-tag detail, capped at 50/repo) — fetched lazily as the sidebar tree expands | ✅ live |
+| `GET /api/registry/tags/{tag_id}/exposed-ports` | EXPOSE'd ports read from the image config blob (Registry v2: manifest → config; linux/amd64 picked from multi-arch indexes) — deploy-dialog prefill. Best-effort: failures return an empty list | ✅ live |
 | `GET /api/servers` | Servers with status/heartbeat/agent version + GPUs and slots (dashboard grid) | ✅ live |
 | `GET /api/servers/{id}` | Detail: runtime versions, GPUs/slots, docker-ps container snapshot (incl. port mappings) | ✅ live |
 | `GET /api/servers/{id}/metrics?minutes=N` | Telemetry series (30s samples, 24h retention; N clamped 5–1440) | ✅ live |
 | `POST /api/servers` | Create a **named** server (GitLab-agent style) — returns the one-time registration command — admin | ✅ live |
 | `POST /api/servers/{id}/enrollment-token` | Re-mint the token (revokes unused older ones) — admin | ✅ live |
-| `GET /api/deployments` | Deployments with ports/state/uptime (REMOVED filtered out; latest 200) | ✅ live |
-| `POST /api/deployments` | Create from drag-drop: slot (FREE, locked) + tag + ports (per-port kind, pool-allocated) + env (secrets encrypted) + persistent volumes; returns it VALIDATING | ✅ live |
+| `GET /api/deployments` | Deployments with ports/state/uptime (REMOVED filtered out; latest 200); HTTP/S ports carry their published `hostname` | ✅ live |
+| `POST /api/deployments` | Create from drag-drop: slot (FREE, locked) + tag + ports (per-port kind, pool-allocated; HTTP/S get a unique `<name>.apps-domain` hostname) + env (secrets encrypted) + persistent volumes; returns it VALIDATING | ✅ live |
 | `POST /api/deployments/{id}/replace` | Replacement chain: stop old → remove old → REPLACED → deploy successor on the same slot | ✅ live |
 | `POST /api/deployments/{id}/stop` · `/restart` | Lifecycle actions (legality enforced by the transition table) | ✅ live |
 | `DELETE /api/deployments/{id}` | Remove a stopped/failed deployment (container removed; volumes survive) | ✅ live |

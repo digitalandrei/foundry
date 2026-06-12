@@ -21,5 +21,6 @@ pub async fn me(
         avatar_url: user.avatar_url,
         is_admin: user.is_admin,
         accounts,
+        apps_domain: state.apps_domain.as_deref().map(str::to_string),
     }))
 }

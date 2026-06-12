@@ -40,6 +40,8 @@ export interface MeResponse {
   avatar_url: string | null
   is_admin: boolean
   accounts: GitlabAccountSummary[]
+  /** Wildcard apps domain when HTTP/S publishing is enabled. */
+  apps_domain: string | null
 }
 
 export interface ProjectSummary {
@@ -66,6 +68,16 @@ export interface RegistryRepository {
 
 export interface RegistryBrowseResponse {
   repositories: RegistryRepository[]
+}
+
+/** EXPOSE'd ports read from the image config (deploy-dialog prefill). */
+export interface ExposedPort {
+  container_port: number
+  protocol: string
+}
+
+export interface ExposedPortsResponse {
+  ports: ExposedPort[]
 }
 
 export type ServerStatus = "ONLINE" | "OFFLINE" | "DEGRADED"
@@ -189,6 +201,8 @@ export interface DeploymentPort {
   host_port: number
   protocol: string
   kind: PortKind
+  /** HTTP/HTTPS: the published app hostname (open `https://{hostname}`). */
+  hostname: string | null
 }
 
 export interface DeploymentSummary {

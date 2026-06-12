@@ -93,7 +93,13 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   enrichment (env decrypt + pull-token mint) →
   `controller/src/routes/agent.rs`
 - Agent executors (bollard deploy/stop/restart/remove/volume) + task
-  poll loop → `agent/src/tasks.rs`
+  poll loop → `agent/src/tasks.rs`; nginx vhost manager (HTTP/S app
+  publishing: render/apply/remove, sudo-scoped reload, rollback) →
+  `agent/src/vhost.rs`; host setup for it (`--setup-apps`: include +
+  sudoers + TLS dir + unit) → `agent/src/register.rs`
+- Registry image-config read (EXPOSE discovery, manifest→config blob)
+  → `controller/src/gitlab/registry.rs`; route →
+  `controller/src/routes/registry.rs` (`exposed_ports`)
 - Frontend deployments: hooks → `hooks/use-deployments.ts`; deploy/
   replace dialog → `components/deploy-dialog.tsx`; drag sources in
   `containers-panel.tsx`, drop targets in `server-grid.tsx`,

@@ -1,11 +1,24 @@
+import { useEffect, useRef } from "react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { PlusIcon, Trash2Icon } from "lucide-react"
 import { z } from "zod"
 
-import { useCreateDeployment, useReplaceDeployment, useServerVolumes } from "@/hooks/use-deployments"
+import { useMe } from "@/hooks/use-auth"
+import {
+  useCreateDeployment,
+  useExposedPorts,
+  useReplaceDeployment,
+  useServerVolumes,
+} from "@/hooks/use-deployments"
 import { formatSize } from "@/lib/format"
-import type { DeploymentSummary, DragTagData, DropSlotData } from "@/lib/types"
+import type {
+  DeploymentSummary,
+  DragTagData,
+  DropSlotData,
+  ExposedPort,
+  PortKind,
+} from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -33,7 +46,7 @@ const portRow = z.object({
     .string()
     .regex(/^\d+$/, "number required")
     .refine((v) => +v >= 1 && +v <= 65535, "1–65535"),
-  kind: z.enum(["TCP", "UDP"]),
+  kind: z.enum(["HTTP", "HTTPS", "TCP", "UDP"]),
   host_port: z
     .string()
     .regex(/^\d*$/, "number")
@@ -73,6 +86,16 @@ export interface DeployTarget {
   replaces: DeploymentSummary | null
 }
 
+/** Default port kind for discovered EXPOSE entries: web-looking TCP
+ * ports become HTTP/S vhosts when the apps domain is configured. */
+const WEB_PORTS = new Set([80, 3000, 5000, 7860, 8000, 8080, 8081, 8501, 8888])
+function defaultKind(p: ExposedPort, appsEnabled: boolean): PortKind {
+  if (p.protocol === "udp") return "UDP"
+  if (!appsEnabled) return "TCP"
+  if (p.container_port === 443 || p.container_port === 8443) return "HTTPS"
+  return WEB_PORTS.has(p.container_port) ? "HTTP" : "TCP"
+}
+
 /** Drag-drop deployment dialog (docs/UI-DESIGN.md; plans/phase-06.md):
  * per-port kind (HTTP/S arrives with the proxy build), env with
  * secrets, persistent volumes (per-user, reusable). */
@@ -86,6 +109,9 @@ export function DeployDialog({
   const create = useCreateDeployment()
   const replace = useReplaceDeployment()
   const volumes = useServerVolumes(target?.slot.serverId ?? null)
+  const me = useMe()
+  const appsDomain = me.data?.apps_domain ?? null
+  const discovered = useExposedPorts(target?.tag.registryTagId ?? null)
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -94,6 +120,29 @@ export function DeployDialog({
   const ports = useFieldArray({ control: form.control, name: "ports" })
   const env = useFieldArray({ control: form.control, name: "env" })
   const mounts = useFieldArray({ control: form.control, name: "volumes" })
+
+  // Fresh target → reset and prefill ports from the image's EXPOSE
+  // list (once per open; never over the user's own edits).
+  const prefillKey = target ? `${target.slot.slotId}:${target.tag.registryTagId}` : null
+  const prefilled = useRef<string | null>(null)
+  useEffect(() => {
+    if (!prefillKey) {
+      prefilled.current = null
+      return
+    }
+    if (prefilled.current === prefillKey || discovered.isPending) return
+    if (form.formState.isDirty) {
+      prefilled.current = prefillKey
+      return
+    }
+    const rows = (discovered.data?.ports ?? []).map((p) => ({
+      container_port: String(p.container_port),
+      kind: defaultKind(p, appsDomain !== null),
+      host_port: "",
+    }))
+    form.reset({ name: "", ports: rows, env: [], volumes: [] })
+    prefilled.current = prefillKey
+  }, [prefillKey, discovered.isPending, discovered.data, appsDomain, form])
 
   if (!target) return null
   const pending = create.isPending || replace.isPending
@@ -106,7 +155,12 @@ export function DeployDialog({
       ports: values.ports.map((p) => ({
         container_port: Number(p.container_port),
         kind: p.kind,
-        host_port: p.host_port === "" ? null : Number(p.host_port),
+        // Web kinds are proxy-published — a pinned host port (possibly
+        // left over from a kind switch) must not reach the API.
+        host_port:
+          p.kind === "HTTP" || p.kind === "HTTPS" || p.host_port === ""
+            ? null
+            : Number(p.host_port),
       })),
       env: values.env,
       volumes: values.volumes,
@@ -166,52 +220,77 @@ export function DeployDialog({
           <Separator />
           <SectionHeader
             title="Ports"
-            hint="TCP/UDP map directly onto the server IP; HTTP/S proxying arrives with the apps domain."
+            hint={[
+              discovered.data?.ports.length
+                ? `Prefilled from the image's EXPOSE list (${discovered.data.ports.length}).`
+                : "TCP/UDP map directly onto the server IP.",
+              appsDomain
+                ? `HTTP/S ports publish at https://<name>.${appsDomain}.`
+                : "HTTP/S publishing is disabled (no apps domain configured).",
+            ].join(" ")}
             onAdd={() => ports.append({ container_port: "8080", kind: "TCP", host_port: "" })}
           />
-          {ports.fields.map((field, i) => (
-            <div key={field.id} className="flex items-start gap-2">
-              <Field className="flex-1">
-                <FieldLabel htmlFor={`port-c-${i}`}>Container</FieldLabel>
-                <Input
-                  id={`port-c-${i}`}
-                  inputMode="numeric"
-                  {...form.register(`ports.${i}.container_port`)}
-                />
-                {form.formState.errors.ports?.[i]?.container_port ? (
-                  <FieldError>invalid</FieldError>
-                ) : null}
-              </Field>
-              <Field className="w-24">
-                <FieldLabel>Kind</FieldLabel>
-                <Select
-                  value={form.watch(`ports.${i}.kind`)}
-                  onValueChange={(v) => form.setValue(`ports.${i}.kind`, v as "TCP" | "UDP")}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="TCP">TCP</SelectItem>
-                    <SelectItem value="UDP">UDP</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field className="flex-1">
-                <FieldLabel htmlFor={`port-h-${i}`}>Host (optional)</FieldLabel>
-                <Input
-                  id={`port-h-${i}`}
-                  inputMode="numeric"
-                  placeholder="auto"
-                  {...form.register(`ports.${i}.host_port`)}
-                />
-                {form.formState.errors.ports?.[i]?.host_port ? (
-                  <FieldError>20000–29999</FieldError>
-                ) : null}
-              </Field>
-              <RemoveRowButton onClick={() => ports.remove(i)} />
-            </div>
-          ))}
+          {ports.fields.map((field, i) => {
+            const kind = form.watch(`ports.${i}.kind`)
+            const isWeb = kind === "HTTP" || kind === "HTTPS"
+            return (
+              <div key={field.id} className="flex items-start gap-2">
+                <Field className="flex-1">
+                  <FieldLabel htmlFor={`port-c-${i}`}>Container</FieldLabel>
+                  <Input
+                    id={`port-c-${i}`}
+                    inputMode="numeric"
+                    {...form.register(`ports.${i}.container_port`)}
+                  />
+                  {form.formState.errors.ports?.[i]?.container_port ? (
+                    <FieldError>invalid</FieldError>
+                  ) : null}
+                </Field>
+                <Field className="w-28">
+                  <FieldLabel>Kind</FieldLabel>
+                  <Select
+                    value={kind}
+                    onValueChange={(v) => form.setValue(`ports.${i}.kind`, v as PortKind)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {appsDomain ? (
+                        <>
+                          <SelectItem value="HTTP">HTTP</SelectItem>
+                          <SelectItem value="HTTPS">HTTPS</SelectItem>
+                        </>
+                      ) : null}
+                      <SelectItem value="TCP">TCP</SelectItem>
+                      <SelectItem value="UDP">UDP</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field className="flex-1">
+                  <FieldLabel htmlFor={`port-h-${i}`}>
+                    {isWeb ? "Published" : "Host (optional)"}
+                  </FieldLabel>
+                  {isWeb ? (
+                    <p className="flex h-9 items-center truncate text-xs text-muted-foreground">
+                      https://…{appsDomain}
+                    </p>
+                  ) : (
+                    <Input
+                      id={`port-h-${i}`}
+                      inputMode="numeric"
+                      placeholder="auto"
+                      {...form.register(`ports.${i}.host_port`)}
+                    />
+                  )}
+                  {!isWeb && form.formState.errors.ports?.[i]?.host_port ? (
+                    <FieldError>20000–29999</FieldError>
+                  ) : null}
+                </Field>
+                <RemoveRowButton onClick={() => ports.remove(i)} />
+              </div>
+            )
+          })}
 
           <Separator />
           <SectionHeader

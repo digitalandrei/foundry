@@ -5,6 +5,7 @@
 
 pub mod client;
 pub mod oauth;
+pub mod registry;
 pub mod tokens;
 pub mod types;
 

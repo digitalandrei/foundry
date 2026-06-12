@@ -65,14 +65,30 @@ deployment, not a failure.
 8. Audit: port allocations and hostname claims are part of the
    deployment audit detail.
 
-**Open items to settle when implementation starts:**
-- the apps wildcard domain (e.g. `*.apps.cloudcraft.ro`, Cloudflare-
-  proxied → this host) — operator to choose;
-- mechanism for the controller (runs as `foundry`) to write
-  `/etc/nginx/foundry-apps/*.conf` and reload nginx — narrow sudoers
-  entry vs. a root-owned path/systemd unit watcher;
-- whether LAN-only deployments (no Cloudflare) need the proxy on the
-  GPU server itself instead — deferred until a real case appears.
+**Open items — resolved in 0.8.0 (HTTP/S publishing shipped):**
+- Apps wildcard domain: **`*.ai.protv.ro`** (operator choice), enabled
+  by `FOUNDRY_APPS_DOMAIN` on the controller.
+- The proxy lives **on each GPU server, managed by the agent** — not a
+  central nginx on the controller host. Operator wires DNS straight to
+  the GPU servers and places the reusable wildcard cert at
+  `/etc/foundry-agent/tls/`; no Cloudflare/DNS integration in Foundry.
+  The agent writes `/etc/nginx/foundry-apps/<deployment_id>.conf` and
+  reloads through a **narrow sudoers entry** (`nginx -t`/`-s reload`),
+  set up by `foundry-agent --setup-apps`.
+- Deviations from the conditions above, accepted with the per-server
+  model: hostnames come from the **container name slug**
+  (`<name>.ai.protv.ro`, multi-port `<name>-<port>...`) with global
+  uniqueness checked at create (condition 3 holds); the vhost lives
+  for the **deployment's whole life** (written at deploy, removed with
+  the container) rather than only-while-RUNNING — a stopped app 502s
+  because its upstream is down, never a stale upstream (condition 4's
+  intent holds); upstreams bind loopback-adjacent on the same host, so
+  condition 7's LAN-reachability concern disappears; body-size/timeout
+  are fixed defaults (100 MB / 300 s) for now, per-deployment knobs
+  deferred (condition 5 partially).
+- Port discovery (a) shipped: `GET /api/registry/tags/{id}/exposed-
+  ports` reads the image config blob and pre-fills the dialog;
+  post-pull verification (b) deferred.
 
 ## Goal
 

@@ -2,7 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { api, ApiError, queryKeys } from "@/lib/api"
-import type { CreateDeploymentRequest, DeploymentSummary, ServerVolume } from "@/lib/types"
+import type {
+  CreateDeploymentRequest,
+  DeploymentSummary,
+  ExposedPortsResponse,
+  ServerVolume,
+} from "@/lib/types"
 
 export function useDeployments() {
   return useQuery({
@@ -10,6 +15,17 @@ export function useDeployments() {
     queryFn: () => api<DeploymentSummary[]>("/api/deployments"),
     // Lifecycle moves fast (pull → run); keep the table close to live.
     refetchInterval: 5_000,
+  })
+}
+
+/** EXPOSE'd ports discovered from the image config — deploy-dialog
+ * prefill. The server degrades discovery failures to an empty list. */
+export function useExposedPorts(tagId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.exposedPorts(tagId ?? ""),
+    queryFn: () => api<ExposedPortsResponse>(`/api/registry/tags/${tagId}/exposed-ports`),
+    enabled: tagId !== null,
+    staleTime: 5 * 60_000, // image config is immutable per tag push
   })
 }
 

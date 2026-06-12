@@ -1,4 +1,11 @@
-import { CircleAlertIcon, RocketIcon, RotateCcwIcon, SquareIcon, Trash2Icon } from "lucide-react"
+import {
+  CircleAlertIcon,
+  ExternalLinkIcon,
+  RocketIcon,
+  RotateCcwIcon,
+  SquareIcon,
+  Trash2Icon,
+} from "lucide-react"
 
 import { EmptyState } from "@/components/empty-state"
 import {
@@ -99,11 +106,25 @@ function DeploymentRow({ deployment: d }: { deployment: DeploymentSummary }) {
       <TableCell className="font-mono text-xs">
         {d.ports.length === 0
           ? "—"
-          : d.ports.map((p) => (
-              <span key={`${p.container_port}/${p.protocol}`} className="mr-1.5">
-                {p.host_port}→{p.container_port}/{p.protocol}
-              </span>
-            ))}
+          : d.ports.map((p) =>
+              p.hostname ? (
+                <a
+                  key={`${p.container_port}/${p.protocol}`}
+                  href={`https://${p.hostname}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mr-1.5 inline-flex items-center gap-0.5 text-primary underline-offset-2 hover:underline"
+                  title={`https://${p.hostname} → :${p.container_port}`}
+                >
+                  {p.hostname}
+                  <ExternalLinkIcon className="size-3" aria-hidden />
+                </a>
+              ) : (
+                <span key={`${p.container_port}/${p.protocol}`} className="mr-1.5">
+                  {p.host_port}→{p.container_port}/{p.protocol}
+                </span>
+              ),
+            )}
       </TableCell>
       <TableCell>
         <span className={`flex items-center gap-1.5 ${meta.textClass}`}>

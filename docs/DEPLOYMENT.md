@@ -37,7 +37,8 @@ No rust-embed — frontend ships by copying `dist/`, no Rust rebuild.
 Controller binds `127.0.0.1:8400` (override `FOUNDRY_BIND`); Nginx is
 the sole public listener. Other controller env:
 `FOUNDRY_DB_MAX_CONNECTIONS` (default 10), `FOUNDRY_LOG_FORMAT=json`
-for journald, `RUST_LOG` filter.
+for journald, `RUST_LOG` filter, `FOUNDRY_APPS_DOMAIN=ai.protv.ro`
+(enables HTTP/S app publishing — unset rejects HTTP/S port kinds).
 
 **Migrations run automatically at controller startup** (embedded via
 `sqlx::migrate!`); a deployed binary is always schema-complete. Manual
@@ -135,18 +136,38 @@ Enrollment (GitLab-agent style):
    `--register` enrolls, installs the binary to `/usr/local/bin` if run
    from elsewhere, creates the `foundry-agent` system user (joining
    docker/video/render groups where present), writes
-   `/etc/foundry-agent/config.toml` (0600), writes the systemd unit if
-   missing, and `systemctl enable --now`s it. `--force` re-enrolls an
+   `/etc/foundry-agent/config.toml` (0600), runs the app-publishing
+   setup (below), writes the systemd unit, and
+   `systemctl enable --now`s it. `--force` re-enrolls an
    already-registered server with a fresh token (replaces the
    credential).
 3. Verify: server flips ONLINE in the UI within ~15 s (heartbeat).
 
+**Agent upgrade** (and app-publishing setup/repair) on an enrolled
+server — download the new binary as in step 2, then:
+
+```bash
+sudo ./foundry-agent --setup-apps
+```
+
+Installs the binary, ensures `/etc/nginx/foundry-apps/` (+ the conf.d
+include with the websocket map), `/etc/foundry-agent/tls/`, the
+sudoers rule scoped to `nginx -t`/`-s reload` (SECURITY.md § App
+Publishing), rewrites the systemd unit, and restarts the service.
+
+**HTTP/S app publishing prerequisites per GPU server** (operator,
+once): install nginx, point wildcard DNS `*.ai.protv.ro` records at
+the server(s), and place/renew the wildcard certificate at
+`/etc/foundry-agent/tls/fullchain.pem` + `privkey.pem`. Ports 80/443
+must be reachable. Apps then publish at `https://<name>.ai.protv.ro`
+(multi-port: `<name>-<container_port>...`).
+
 Agent ops: `systemctl status|stop|restart foundry-agent`,
 `journalctl -u foundry-agent -f` (JSON logs; state-transition lines
 only). The agent needs only outbound 443 (+ the registry port at deploy
-time, e.g. `g.protv.ro:5050`). The published binary lives at
-`/srv/foundry/downloads/foundry-agent` (served by the vhost, updated on
-every controller deploy).
+time, e.g. `g.protv.ro:5050`); inbound 80/443 once it publishes apps.
+The published binary lives at `/srv/foundry/downloads/foundry-agent`
+(served by the vhost, updated on every controller deploy).
 
 ## Observability
 

@@ -227,6 +227,41 @@ Results are reported to `/agent/tasks/result`; the controller advances the
 deployment state machine accordingly. Task execution must be idempotent —
 the agent may re-receive a task after a crash.
 
+## App Publishing (amendment, 0.8.0 — operator requirement)
+
+HTTP/S ports are published as per-app hostnames under a wildcard apps
+domain (`*.ai.protv.ro`) instead of raw host ports; TCP/UDP keep
+mapping directly onto the server IP.
+
+Division of labor (operator decision — no Cloudflare/DNS integration):
+
+- **Operator (once)**: wildcard DNS for `*.ai.protv.ro` pointing at the
+  GPU servers, and the wildcard certificate dropped at
+  `/etc/foundry-agent/tls/{fullchain.pem,privkey.pem}` on each server
+  (renewals too — private keys never travel through Foundry).
+- **Controller**: assigns hostnames at create time — one HTTP/S port →
+  `<name>.<domain>`, several → `<name>-<container_port>.<domain>` —
+  unique across all active deployments (`deployment_ports.hostname`),
+  and ships them in the DEPLOY payload. Enabled by
+  `FOUNDRY_APPS_DOMAIN`; unset rejects HTTP/S kinds.
+- **Agent**: owns `/etc/nginx/foundry-apps/<deployment_id>.conf` on its
+  server — written after the container starts (80→443 redirect + TLS
+  proxy_pass to `127.0.0.1:<host_port>`, websocket upgrade, streaming-
+  friendly), removed with the container. Reloads via a sudoers rule
+  scoped to `nginx -t` / `nginx -s reload`; a failing `nginx -t` rolls
+  the file back. A vhost that cannot be published fails the deploy and
+  tears the container down — the URL is part of the contract.
+
+Host prerequisites (`foundry-agent --setup-apps`, also run by
+`--register`): vhost dir + conf.d include + websocket map, TLS drop
+point, the sudoers rule, and the updated systemd unit. The same
+command is the agent **upgrade path** (reinstalls the binary,
+refreshes the unit, restarts the service).
+
+The deploy dialog pre-fills ports from the image's EXPOSE list
+(controller reads the registry config blob — API.md
+§ `exposed-ports`); discovery is best-effort metadata, never a gate.
+
 ## Server Enrollment
 
 1. Admin generates a single-use, expiring enrollment token in the UI.

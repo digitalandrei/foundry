@@ -12,6 +12,10 @@ pub struct MeResponse {
     pub avatar_url: Option<String>,
     pub is_admin: bool,
     pub accounts: Vec<GitlabAccountSummary>,
+    /// Wildcard apps domain (`ai.protv.ro`) when HTTP/S publishing is
+    /// enabled — the deploy dialog offers HTTP/HTTPS port kinds and
+    /// previews hostnames. None → kinds stay TCP/UDP.
+    pub apps_domain: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

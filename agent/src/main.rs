@@ -13,6 +13,7 @@ mod inventory;
 mod metrics;
 mod register;
 mod tasks;
+mod vhost;
 
 use std::error::Error;
 use std::time::Duration;
@@ -22,6 +23,7 @@ use foundry_shared::dto::HeartbeatRequest;
 const USAGE: &str = "\
 usage: foundry-agent                                   run (enrolled servers)
        foundry-agent --register --url <controller> --token <token> [--force]
+       foundry-agent --setup-apps                      (re)install binary + nginx app publishing
        foundry-agent --version";
 
 #[tokio::main]
@@ -50,6 +52,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             force: args.iter().any(|a| a == "--force"),
         })
         .await;
+    }
+    if args.iter().any(|a| a == "--setup-apps") {
+        return register::setup_apps_standalone();
     }
     if !args.is_empty() {
         eprintln!("{USAGE}");

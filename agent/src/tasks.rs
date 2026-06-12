@@ -169,6 +169,9 @@ async fn deploy(p: DeployPayload) -> Result<Option<String>, String> {
     // Idempotency: a previous attempt may have gotten partway.
     if let Some((existing, state)) = find_managed(&docker, &deployment_id).await? {
         if state == "running" {
+            // Re-delivery after a crash: make sure the vhosts exist too
+            // (no-op reload when the conf is already in place).
+            crate::vhost::apply(&deployment_id, &crate::vhost::web_ports(&p.ports)).await?;
             return Ok(Some(existing));
         }
         let _ = docker
@@ -313,6 +316,25 @@ async fn deploy(p: DeployPayload) -> Result<Option<String>, String> {
         .await
         .map_err(|e| format!("container start failed: {e}"))?;
 
+    // HTTP/S app publishing: the URL is part of the deployment contract
+    // — a container nobody can reach is a failed deploy, so tear it
+    // down rather than leave an orphan holding the slot and its ports.
+    let web = crate::vhost::web_ports(&p.ports);
+    if !web.is_empty() {
+        if let Err(err) = crate::vhost::apply(&deployment_id, &web).await {
+            let _ = docker
+                .remove_container(
+                    &created.id,
+                    Some(bollard::query_parameters::RemoveContainerOptions {
+                        force: true,
+                        ..Default::default()
+                    }),
+                )
+                .await;
+            return Err(format!("vhost publish failed: {err}"));
+        }
+    }
+
     Ok(Some(created.id))
 }
 
@@ -365,6 +387,9 @@ async fn restart(t: ContainerTarget) -> Result<(), String> {
 
 async fn remove(t: ContainerTarget) -> Result<(), String> {
     let docker = docker()?;
+    // Vhost first (drain traffic before the upstream disappears); also
+    // runs on re-delivery when the container is already gone.
+    crate::vhost::remove(&t.deployment_id.to_string()).await?;
     let Some((id, _)) = find_managed(&docker, &t.deployment_id.to_string()).await? else {
         return Ok(()); // already gone — idempotent success
     };

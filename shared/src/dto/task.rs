@@ -63,6 +63,11 @@ pub struct PortBinding {
     pub host_port: u16,
     /// `tcp` / `udp`.
     pub protocol: String,
+    pub kind: crate::PortKind,
+    /// HTTP/HTTPS only: the vhost the agent publishes
+    /// (`<name>.ai.protv.ro`); the wildcard cert lives at
+    /// /etc/foundry-agent/tls/ on the server (operator-managed).
+    pub hostname: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

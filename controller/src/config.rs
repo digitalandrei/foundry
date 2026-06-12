@@ -18,6 +18,9 @@ pub struct Config {
     pub encryption_key: String,
     /// Emails (lowercased) granted `is_admin` at login.
     pub admin_emails: Vec<String>,
+    /// Wildcard apps domain for HTTP/S publishing (`ai.protv.ro` →
+    /// apps at `<name>.ai.protv.ro`). Unset → HTTP/S kinds rejected.
+    pub apps_domain: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -55,6 +58,10 @@ impl Config {
             .to_string();
         let encryption_key = std::env::var("FOUNDRY_ENCRYPTION_KEY")
             .map_err(|_| ConfigError::Missing("FOUNDRY_ENCRYPTION_KEY"))?;
+        let apps_domain = std::env::var("FOUNDRY_APPS_DOMAIN")
+            .ok()
+            .map(|d| d.trim().trim_matches('.').to_lowercase())
+            .filter(|d| !d.is_empty());
         let admin_emails = std::env::var("FOUNDRY_ADMIN_EMAILS")
             .unwrap_or_default()
             .split(',')
@@ -69,6 +76,7 @@ impl Config {
             public_url,
             encryption_key,
             admin_emails,
+            apps_domain,
         })
     }
 }

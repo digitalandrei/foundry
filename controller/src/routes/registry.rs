@@ -4,13 +4,15 @@
 
 use axum::extract::{Path, State};
 use axum::Json;
-use foundry_shared::dto::{RegistryBrowseResponse, RegistryRepository, RegistryTag};
-use foundry_shared::GitlabProjectId;
+use foundry_shared::dto::{
+    ExposedPortsResponse, RegistryBrowseResponse, RegistryRepository, RegistryTag,
+};
+use foundry_shared::{GitlabProjectId, RegistryTagId};
 
 use crate::auth::session::CurrentUser;
 use crate::error::AppError;
 use crate::gitlab::client::GitlabApi;
-use crate::gitlab::tokens;
+use crate::gitlab::{registry, tokens};
 use crate::repos::{instances, mirror, users};
 use crate::state::AppState;
 
@@ -61,4 +63,52 @@ pub async fn browse(
     }
 
     Ok(Json(RegistryBrowseResponse { repositories }))
+}
+
+/// `GET /api/registry/tags/{tag_id}/exposed-ports` — read the image
+/// config's EXPOSE list for deploy-dialog prefill. Best-effort by
+/// contract: any upstream hiccup (missing manifest, anonymous pull
+/// denied, exotic media type) degrades to an empty list — the dialog
+/// just starts blank, exactly as before discovery existed.
+pub async fn exposed_ports(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(tag_id): Path<RegistryTagId>,
+) -> Result<Json<ExposedPortsResponse>, AppError> {
+    let tag = mirror::tag_ref(&state.pool, tag_id).await?;
+
+    // Same authorization shape as deployment create: an account on the
+    // image's instance, or an admin (who may inspect public images
+    // anonymously).
+    let accounts = users::account_tokens(&state.pool, &state.secrets, user.id).await?;
+    let account = accounts
+        .into_iter()
+        .find(|a| a.instance_id == tag.instance_id);
+    let pull_token = match account {
+        Some(account) => {
+            let instance =
+                instances::fetch_config(&state.pool, &state.secrets, tag.instance_id).await?;
+            let access = tokens::ensure_fresh(&state, &instance, &account).await?;
+            tokens::registry_pull_token(&state.http, &instance.base_url, &access, &tag.repo_path)
+                .await
+                .ok() // mint failure → try anonymous below
+        }
+        None if user.is_admin => None,
+        None => return Err(AppError::Forbidden),
+    };
+
+    let ports = registry::exposed_ports(
+        &state.http,
+        &tag.registry_url,
+        pull_token.as_deref(),
+        &tag.repo_path,
+        &tag.tag_name,
+    )
+    .await
+    .unwrap_or_else(|err| {
+        tracing::debug!(?err, repo = %tag.repo_path, tag = %tag.tag_name,
+            "exposed-port discovery failed (non-fatal)");
+        Vec::new()
+    });
+    Ok(Json(ExposedPortsResponse { ports }))
 }

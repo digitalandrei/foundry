@@ -63,6 +63,7 @@ async fn serve() -> Result<(), Box<dyn Error>> {
         http,
         public_url: Arc::from(config.public_url.as_str()),
         admin_emails: Arc::from(config.admin_emails.clone()),
+        apps_domain: config.apps_domain.as_deref().map(Arc::from),
     };
 
     let app = routes::router(state);

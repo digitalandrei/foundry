@@ -12,7 +12,7 @@ in `docs/plans/`.
 | 3 | Authentication (GitLab OAuth, multi-instance) | [plans/phase-03.md](plans/phase-03.md) | ✅ Done (2026-06-11) — E2E verified against g.protv.ro |
 | 4 | Agent enrollment | [plans/phase-04.md](plans/phase-04.md) | 🔶 Built & deployed (0.2.0) — awaiting first real GPU-server enrollment; rotation endpoint pending |
 | 5 | Inventory (GPU/MIG discovery & reconciliation) | [plans/phase-05.md](plans/phase-05.md) | ✅ Done (2026-06-12) — inventory verified on real L40S servers (0.3/0.4); telemetry shipped (0.5.0) |
-| 6 | Deployments (lifecycle, replacement) | [plans/phase-06.md](plans/phase-06.md) | 🔶 Built & deployed (0.7.0) — TCP/UDP publishing + volumes live; awaiting first real GPU deploy; HTTP/S proxy publishing pending apps-domain choice |
+| 6 | Deployments (lifecycle, replacement) | [plans/phase-06.md](plans/phase-06.md) | 🔶 Built & deployed (0.8.0) — TCP/UDP + volumes live; HTTP/S app publishing under `*.ai.protv.ro` (agent-managed vhosts) + EXPOSE port discovery built; awaiting first real GPU deploy |
 | 7 | Logs | [plans/phase-07.md](plans/phase-07.md) | ⬜ Not started |
 | 8 | UI (full dashboard, dark+light themes) | [plans/phase-08.md](plans/phase-08.md) | ⬜ Not started |
 | 9 | Security hardening | [plans/phase-09.md](plans/phase-09.md) | ⬜ Not started |
@@ -127,6 +127,17 @@ reflected in the affected docs in the same commit set:
   proxy + per-app hostname; TCP/UDP direct on server IP), controller-
   allocated non-overlapping pools, full conditions in
   plans/phase-06.md § Networking.
+- **2026-06-12** (0.8.0) — **HTTP/S app publishing shipped, per-server
+  model** (supersedes "central nginx" above): apps domain
+  `*.ai.protv.ro`; the **agent** manages nginx vhosts on its own GPU
+  server (sudoers-scoped reload, `--setup-apps`); operator wires DNS
+  and places the wildcard cert at `/etc/foundry-agent/tls/` — keys
+  never transit Foundry. Hostnames `<name>.ai.protv.ro` (multi-port
+  `<name>-<port>`), globally unique. Deploy dialog pre-fills ports
+  from the image's EXPOSE list (registry config-blob read). Containers
+  pinned to their slot's device via `DeviceRequest` UUID (MIG or full
+  GPU) — the API form of `docker run --gpus device=<uuid>`. Affects
+  ARCHITECTURE, SECURITY, DEPLOYMENT, DATABASE, API, phase-06.
 - **2026-06-11** (Phase 3) — First-instance bootstrap CLI:
   `foundry-controller instance add` (Settings UI requires an admin,
   who requires a login, which requires an instance).

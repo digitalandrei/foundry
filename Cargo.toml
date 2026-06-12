@@ -5,7 +5,7 @@ members = ["controller", "agent", "shared"]
 [workspace.package]
 # Bump the minor version on EVERY production deploy (operator rule:
 # 0.1 -> 0.2 -> 0.3) and keep frontend/package.json in sync.
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 
 [workspace.dependencies]
@@ -15,7 +15,10 @@ serde_json = "1"
 thiserror = "2"
 uuid = { version = "1", features = ["v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time"] }
+# `fs` + `process` drive the agent's vhost manager (conf writes + the
+# sudo-scoped nginx test/reload); listed here so the agent compiles
+# standalone instead of borrowing them via feature unification.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "fs", "process"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 axum = "0.8"

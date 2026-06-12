@@ -380,18 +380,23 @@ pub async fn enqueue_deploy(
     .ok_or(AppError::NotFound("deployment not found"))?;
 
     let ports = sqlx::query!(
-        "SELECT container_port, host_port, protocol FROM deployment_ports WHERE deployment_id = ?",
+        "SELECT container_port, host_port, protocol, kind, hostname FROM deployment_ports
+         WHERE deployment_id = ?",
         deployment_id.0
     )
     .fetch_all(&mut *tx)
     .await?
     .into_iter()
-    .map(|r| foundry_shared::dto::PortBinding {
-        container_port: r.container_port,
-        host_port: r.host_port,
-        protocol: r.protocol,
+    .map(|r| {
+        Ok(foundry_shared::dto::PortBinding {
+            container_port: r.container_port,
+            host_port: r.host_port,
+            protocol: r.protocol,
+            kind: r.kind.parse().map_err(AppError::internal)?,
+            hostname: r.hostname,
+        })
     })
-    .collect();
+    .collect::<Result<Vec<_>, AppError>>()?;
 
     let volumes = sqlx::query!(
         r#"SELECT host_path, container_path, read_only AS "read_only: bool"

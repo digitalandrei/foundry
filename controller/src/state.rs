@@ -14,4 +14,6 @@ pub struct AppState {
     pub http: reqwest::Client,
     pub public_url: Arc<str>,
     pub admin_emails: Arc<[String]>,
+    /// `ai.protv.ro` — None disables HTTP/S publishing.
+    pub apps_domain: Option<Arc<str>>,
 }

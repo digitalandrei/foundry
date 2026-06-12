@@ -126,6 +126,11 @@ daemon); the GitLab **API** is only ever called by the controller.
      the registry auth endpoint.
 - The agent holds the credential in memory for the one pull and
   discards it; never written to disk, never logged.
+- The same scoped pull token also backs **EXPOSE-port discovery**
+  (0.8.0): the controller fetches manifest + config blob from the
+  registry (`gitlab/registry.rs`) to pre-fill the deploy dialog's
+  ports. Read-only, best-effort — any failure degrades to an empty
+  list.
 
 ## Failure Modes to Handle
 

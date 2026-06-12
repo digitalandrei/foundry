@@ -7,7 +7,12 @@
 //! 3. create the foundry-agent system user (+ docker/video/render
 //!    groups where they exist),
 //! 4. write /etc/foundry-agent/config.toml (0600),
-//! 5. write the systemd unit if missing, daemon-reload, enable --now.
+//! 5. set up HTTP/S app publishing (nginx include + vhost dir, TLS
+//!    drop point, narrow sudoers rule — docs/SECURITY.md),
+//! 6. write the systemd unit, daemon-reload, enable --now.
+//!
+//! `foundry-agent --setup-apps` re-runs 2/3/5/6 on an already-enrolled
+//! server — the agent upgrade path.
 
 use std::path::Path;
 use std::process::Command;
@@ -17,6 +22,9 @@ use foundry_shared::dto::{AgentEnrollRequest, AgentEnrollResponse};
 pub const INSTALL_PATH: &str = "/usr/local/bin/foundry-agent";
 const UNIT_PATH: &str = "/etc/systemd/system/foundry-agent.service";
 const SERVICE_USER: &str = "foundry-agent";
+const TLS_DIR: &str = "/etc/foundry-agent/tls";
+const SUDOERS_PATH: &str = "/etc/sudoers.d/foundry-agent";
+const NGINX_BOOTSTRAP: &str = "/etc/nginx/conf.d/foundry-apps.conf";
 
 pub struct RegisterArgs {
     pub url: String,
@@ -76,7 +84,7 @@ pub async fn run(args: RegisterArgs) -> Result<(), Box<dyn std::error::Error>> {
         enrolled.server_name, enrolled.server_id
     );
 
-    // 2..5 — system integration.
+    // 2..6 — system integration.
     if system_mode {
         install_self()?;
         create_service_user()?;
@@ -84,10 +92,105 @@ pub async fn run(args: RegisterArgs) -> Result<(), Box<dyn std::error::Error>> {
     write_config(&config_path, &url, &enrolled, system_mode)?;
     println!("config written: {}", config_path.display());
     if system_mode {
-        write_unit_if_missing()?;
+        setup_apps()?;
+        write_unit()?;
         systemctl(&["daemon-reload"])?;
         systemctl(&["enable", "--now", "foundry-agent"])?;
         println!("service enabled and started: systemctl status foundry-agent");
+    }
+    Ok(())
+}
+
+/// `--setup-apps`: the upgrade/repair path for enrolled servers —
+/// installs this binary, refreshes the app-publishing host pieces and
+/// the systemd unit, and restarts the service.
+pub fn setup_apps_standalone() -> Result<(), Box<dyn std::error::Error>> {
+    if unsafe { libc_geteuid() } != 0 {
+        return Err("--setup-apps must run as root (sudo)".into());
+    }
+    install_self()?;
+    create_service_user()?;
+    setup_apps()?;
+    write_unit()?;
+    systemctl(&["daemon-reload"])?;
+    if crate::config::config_path().exists() {
+        systemctl(&["restart", "foundry-agent"])?;
+        println!("service restarted: systemctl status foundry-agent");
+    } else {
+        println!("not enrolled yet — run --register next");
+    }
+    Ok(())
+}
+
+/// HTTP/S app publishing prerequisites (docs/ARCHITECTURE.md § App
+/// Publishing; docs/SECURITY.md). All idempotent:
+///
+/// - /etc/nginx/foundry-apps/ — per-deployment vhosts, owned by the
+///   service user (the agent writes confs directly),
+/// - /etc/nginx/conf.d/foundry-apps.conf — include + websocket map,
+/// - /etc/foundry-agent/tls/ — operator drops the wildcard cert here
+///   (fullchain.pem + privkey.pem); keys never travel through Foundry,
+/// - /etc/sudoers.d/foundry-agent — exactly `nginx -t` + `nginx -s
+///   reload`, nothing else.
+fn setup_apps() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::PermissionsExt;
+
+    // Vhost dir is created even without nginx so the unit's
+    // ReadWritePaths never points at a missing path.
+    std::fs::create_dir_all(crate::vhost::VHOST_DIR)?;
+    let status = Command::new("chown")
+        .args([
+            &format!("{SERVICE_USER}:{SERVICE_USER}"),
+            crate::vhost::VHOST_DIR,
+        ])
+        .status()?;
+    if !status.success() {
+        return Err(format!("chown of {} failed", crate::vhost::VHOST_DIR).into());
+    }
+
+    std::fs::create_dir_all(TLS_DIR)?;
+    std::fs::set_permissions(TLS_DIR, std::fs::Permissions::from_mode(0o755))?;
+
+    let sudoers = format!(
+        "# Managed by foundry-agent --setup-apps: vhost reload only.\n\
+         {SERVICE_USER} ALL=(root) NOPASSWD: /usr/sbin/nginx -t, /usr/sbin/nginx -s reload\n"
+    );
+    std::fs::write(SUDOERS_PATH, &sudoers)?;
+    std::fs::set_permissions(SUDOERS_PATH, std::fs::Permissions::from_mode(0o440))?;
+    let visudo = Command::new("visudo").args(["-cf", SUDOERS_PATH]).status();
+    if let Ok(s) = visudo {
+        if !s.success() {
+            std::fs::remove_file(SUDOERS_PATH)?;
+            return Err("visudo rejected the foundry-agent sudoers rule".into());
+        }
+    }
+
+    if Path::new("/etc/nginx/conf.d").is_dir() {
+        // Ubuntu's nginx.conf includes /etc/nginx/conf.d/*.conf in the
+        // http block. The map feeds `Connection:` for websocket
+        // upgrades; the name is prefixed to avoid colliding with an
+        // operator-defined $connection_upgrade.
+        let bootstrap = format!(
+            "# Managed by foundry-agent --setup-apps (Foundry HTTP/S app publishing).\n\
+             map $http_upgrade $foundry_connection_upgrade {{\n\
+             \x20   default upgrade;\n\
+             \x20   ''      close;\n\
+             }}\n\
+             include {}/*.conf;\n",
+            crate::vhost::VHOST_DIR
+        );
+        std::fs::write(NGINX_BOOTSTRAP, bootstrap)?;
+        println!("nginx app-publishing include written: {NGINX_BOOTSTRAP}");
+        println!(
+            "wildcard certificate goes to {TLS_DIR}/fullchain.pem + privkey.pem \
+             (operator-managed; required before the first HTTP/S deploy)"
+        );
+    } else {
+        println!(
+            "WARNING: /etc/nginx/conf.d not found — nginx is not installed. \
+             HTTP/S app publishing stays disabled on this server; install nginx \
+             and re-run `sudo foundry-agent --setup-apps`."
+        );
     }
     Ok(())
 }
@@ -185,11 +288,7 @@ fn create_service_user() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn write_unit_if_missing() -> Result<(), Box<dyn std::error::Error>> {
-    if Path::new(UNIT_PATH).exists() {
-        println!("systemd unit already present: {UNIT_PATH}");
-        return Ok(());
-    }
+fn write_unit() -> Result<(), Box<dyn std::error::Error>> {
     // Only reference groups that exist on this host (systemd fails the
     // unit on unknown supplementary groups). docker → Engine API;
     // video/render → NVML device access.
@@ -203,8 +302,13 @@ fn write_unit_if_missing() -> Result<(), Box<dyn std::error::Error>> {
         format!("SupplementaryGroups={}\n", groups.join(" "))
     };
 
+    // Hardening notes (docs/SECURITY.md § App Publishing):
+    // - no NoNewPrivileges — it blocks the setuid transition the
+    //   sudoers-scoped `sudo nginx -s reload` needs;
+    // - ProtectSystem=full (not strict) — `nginx -t` runs inside this
+    //   unit's mount namespace and must write its logs/temp under /var.
     let unit = format!(
-        "# Written by `foundry-agent --register` (source of truth:\n\
+        "# Written by `foundry-agent --register` / `--setup-apps` (source of truth:\n\
          # deployment/systemd/foundry-agent.service in the foundry repo).\n\
          [Unit]\n\
          Description=Foundry GPU server agent\n\
@@ -221,11 +325,10 @@ fn write_unit_if_missing() -> Result<(), Box<dyn std::error::Error>> {
          Restart=on-failure\n\
          RestartSec=5\n\
          TimeoutStopSec=45\n\
-         NoNewPrivileges=yes\n\
-         ProtectSystem=strict\n\
+         ProtectSystem=full\n\
          ProtectHome=yes\n\
          PrivateTmp=yes\n\
-         ReadWritePaths=/etc/foundry-agent\n\
+         ReadWritePaths=/etc/foundry-agent /etc/nginx/foundry-apps\n\
          \n\
          [Install]\n\
          WantedBy=multi-user.target\n"

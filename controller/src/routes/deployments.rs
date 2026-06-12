@@ -59,6 +59,7 @@ pub async fn create(
         tag.instance_id,
         user.id,
         None,
+        state.apps_domain.as_deref(),
     )
     .await?;
 
@@ -205,6 +206,7 @@ pub async fn replace(
         tag.instance_id,
         user.id,
         Some(old_id),
+        state.apps_domain.as_deref(),
     )
     .await?;
 

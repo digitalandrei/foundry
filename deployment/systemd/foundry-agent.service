@@ -1,5 +1,7 @@
-# Foundry GPU-server agent — draft (install script lands with the
-# enrollment phase). Pull-only: outbound HTTPS, no listener.
+# Foundry GPU-server agent — reference copy; the installed unit is
+# written by `foundry-agent --register` / `--setup-apps` (which also
+# trims SupplementaryGroups to groups that exist on the host).
+# Pull-only: outbound HTTPS, no listener.
 # Docs: docs/DEPLOYMENT.md § GPU Server Runbook · skill: ubuntu-2404-systemd
 
 [Unit]
@@ -14,7 +16,7 @@ User=foundry-agent
 Group=foundry-agent
 # Docker socket access is the agent's privilege boundary — docker group,
 # not root.
-SupplementaryGroups=docker
+SupplementaryGroups=docker video render
 ExecStart=/usr/local/bin/foundry-agent
 Environment=FOUNDRY_LOG_FORMAT=json
 Restart=on-failure
@@ -23,15 +25,20 @@ RestartSec=5
 # flight finishes or is safely re-dispatched (tasks are idempotent).
 TimeoutStopSec=45
 
-# Hardening baseline; relaxations are required by function:
+# Hardening baseline; relaxations are required by function
+# (docs/SECURITY.md § App Publishing):
 #   - /etc/foundry-agent: identity config (read-only would break rotation)
+#   - /etc/nginx/foundry-apps: agent-managed HTTP/S vhosts
+#   - no NoNewPrivileges: the sudoers-scoped `sudo nginx -s reload`
+#     needs the setuid transition
+#   - ProtectSystem=full, not strict: `nginx -t` writes logs/temp
+#     under /var inside this unit's mount namespace
 #   - /var/run/docker.sock via SupplementaryGroups
 #   - /dev/nvidia*: NVML inventory
-NoNewPrivileges=yes
-ProtectSystem=strict
+ProtectSystem=full
 ProtectHome=yes
 PrivateTmp=yes
-ReadWritePaths=/etc/foundry-agent
+ReadWritePaths=/etc/foundry-agent /etc/nginx/foundry-apps
 
 [Install]
 WantedBy=multi-user.target

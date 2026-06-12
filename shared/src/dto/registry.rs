@@ -28,3 +28,19 @@ pub struct RegistryTag {
     pub size_bytes: Option<i64>,
     pub pushed_at: Option<DateTime<Utc>>,
 }
+
+/// `GET /api/registry/tags/{tag_id}/exposed-ports` — the image's
+/// EXPOSE'd ports read from its config blob (deploy-dialog prefill).
+/// Best-effort: discovery failures return an empty list, never an
+/// error — EXPOSE is metadata, not a contract.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExposedPortsResponse {
+    pub ports: Vec<ExposedPort>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExposedPort {
+    pub container_port: u16,
+    /// `tcp` / `udp`.
+    pub protocol: String,
+}

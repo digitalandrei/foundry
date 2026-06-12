@@ -36,8 +36,9 @@ pub async fn create(
     instance_id: foundry_shared::GitlabInstanceId,
     created_by: UserId,
     replaces: Option<DeploymentId>,
+    apps_domain: Option<&str>,
 ) -> Result<NewDeployment, AppError> {
-    validate_ports(&req.ports)?;
+    validate_ports(&req.ports, apps_domain)?;
     let owner_slug_in_create = &super::volumes::owner_slug(pool, created_by).await?;
     let now = chrono::Utc::now().naive_utc();
     let mut tx = pool.begin().await?;
@@ -80,7 +81,8 @@ pub async fn create(
         _ => generate_name(image_ref, &slot.slot_name),
     };
 
-    let allocated = allocate_ports(&mut tx, server_id, &req.ports).await?;
+    let mut allocated = allocate_ports(&mut tx, server_id, &req.ports).await?;
+    assign_hostnames(&mut tx, &mut allocated, &container_name, apps_domain).await?;
 
     let id = DeploymentId::new();
     sqlx::query!(
@@ -105,14 +107,15 @@ pub async fn create(
     for p in &allocated {
         sqlx::query!(
             r#"INSERT INTO deployment_ports
-               (id, deployment_id, container_port, host_port, protocol, kind, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)"#,
+               (id, deployment_id, container_port, host_port, protocol, kind, hostname, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
             Uuid::now_v7(),
             id.0,
             p.container_port,
             p.host_port,
             p.protocol,
             p.kind.as_str(),
+            p.hostname,
             now,
         )
         .execute(&mut *tx)
@@ -250,7 +253,7 @@ pub async fn create(
     Ok(NewDeployment { id, container_name })
 }
 
-fn validate_ports(specs: &[PortSpec]) -> Result<(), AppError> {
+fn validate_ports(specs: &[PortSpec], apps_domain: Option<&str>) -> Result<(), AppError> {
     if specs.len() > 32 {
         return Err(AppError::BadRequest("too many ports (max 32)".into()));
     }
@@ -279,9 +282,9 @@ fn validate_ports(specs: &[PortSpec]) -> Result<(), AppError> {
                 )));
             }
         }
-        if matches!(p.kind, PortKind::Http | PortKind::Https) {
+        if matches!(p.kind, PortKind::Http | PortKind::Https) && apps_domain.is_none() {
             return Err(AppError::BadRequest(
-                "HTTP/HTTPS publishing arrives with the proxy build — use TCP for now".into(),
+                "HTTP/HTTPS publishing is disabled: FOUNDRY_APPS_DOMAIN is not configured".into(),
             ));
         }
     }
@@ -402,9 +405,63 @@ async fn allocate_ports(
             host_port: host,
             protocol: spec.kind.protocol().to_string(),
             kind: spec.kind,
+            hostname: None,
         });
     }
     Ok(out)
+}
+
+/// Hostname per HTTP/S port under the apps domain (operator design:
+/// `*.ai.protv.ro`, per-server nginx managed by the agent). Single
+/// HTTP/S port → `<name>.<domain>`; several → `<name>-<port>.<domain>`.
+/// Hostnames are globally unique across active deployments — the app
+/// URL must route to exactly one container.
+async fn assign_hostnames(
+    tx: &mut MySqlConnection,
+    ports: &mut [DeploymentPort],
+    container_name: &str,
+    apps_domain: Option<&str>,
+) -> Result<(), AppError> {
+    let web_count = ports
+        .iter()
+        .filter(|p| matches!(p.kind, PortKind::Http | PortKind::Https))
+        .count();
+    if web_count == 0 {
+        return Ok(());
+    }
+    let domain = apps_domain
+        .ok_or_else(|| AppError::BadRequest("FOUNDRY_APPS_DOMAIN is not configured".into()))?;
+
+    let slug = container_name.to_lowercase().replace('_', "-");
+    for p in ports.iter_mut() {
+        if !matches!(p.kind, PortKind::Http | PortKind::Https) {
+            continue;
+        }
+        let hostname = if web_count == 1 {
+            format!("{slug}.{domain}")
+        } else {
+            format!("{slug}-{}.{domain}", p.container_port)
+        };
+        let taken = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) FROM deployment_ports dp
+               JOIN deployments d ON d.id = dp.deployment_id
+               WHERE dp.hostname = ?
+                 AND d.state IN ('PENDING','VALIDATING','PULLING_IMAGE','CREATING_CONTAINER',
+                                 'STARTING','RUNNING','STOPPING','STOPPED','RESTARTING',
+                                 'REMOVING','FAILED')
+               FOR UPDATE"#,
+            hostname
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        if taken > 0 {
+            return Err(AppError::BadRequest(format!(
+                "https://{hostname} is already published by another deployment — pick a different name"
+            )));
+        }
+        p.hostname = Some(hostname);
+    }
+    Ok(())
 }
 
 /// Decrypted env for the task payload (secrets in memory only).
@@ -489,7 +546,7 @@ pub async fn list(pool: &MySqlPool) -> Result<Vec<DeploymentSummary>, AppError> 
     for r in rows {
         let id: DeploymentId = r.id.into();
         let port_rows = sqlx::query!(
-            "SELECT container_port, host_port, protocol, kind FROM deployment_ports
+            "SELECT container_port, host_port, protocol, kind, hostname FROM deployment_ports
              WHERE deployment_id = ? ORDER BY container_port",
             id.0
         )
@@ -519,6 +576,7 @@ pub async fn list(pool: &MySqlPool) -> Result<Vec<DeploymentSummary>, AppError> 
                         host_port: p.host_port,
                         protocol: p.protocol,
                         kind: p.kind.parse().map_err(AppError::internal)?,
+                        hostname: p.hostname,
                     })
                 })
                 .collect::<Result<Vec<_>, AppError>>()?,

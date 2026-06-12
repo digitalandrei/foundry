@@ -64,6 +64,31 @@ protocol, tokens, or deployment execution.
 - Pull credentials are short-lived, scoped to a single repository pull, and
   delivered inside the task payload — never persisted on GPU servers, never
   logged (see `GITLAB-INTEGRATION.md`).
+- Exposed-port discovery reuses the same scoped pull token (read-only
+  registry fetch of manifest + config blob); failures degrade to an
+  empty list, never leak registry errors to other users.
+
+## App Publishing (agent nginx privilege)
+
+The agent writes per-deployment vhosts under `/etc/nginx/foundry-apps/`
+(it owns that directory and nothing else under `/etc/nginx`) and
+reloads nginx through `/etc/sudoers.d/foundry-agent`, which allows
+exactly two commands: `/usr/sbin/nginx -t` and `/usr/sbin/nginx -s
+reload` — no shell, no other arguments. Defense in depth around it:
+
+- Hostnames and deployment ids are charset-validated agent-side before
+  they reach a conf file (no injection via a compromised controller).
+- A failed `nginx -t` rolls the just-written file back, so a bad vhost
+  cannot brick reloads for the rest of the server.
+- The systemd unit trades two hardening knobs for this feature, by
+  design: `NoNewPrivileges` is off (sudo needs the setuid transition)
+  and `ProtectSystem` is `full` rather than `strict` (`nginx -t` writes
+  logs/temp under `/var` inside the unit's namespace).
+  `ReadWritePaths` stays limited to `/etc/foundry-agent` and
+  `/etc/nginx/foundry-apps`.
+- The wildcard TLS certificate + key are **operator-placed** at
+  `/etc/foundry-agent/tls/` on each GPU server. Private keys never
+  transit the controller, the database, or the task queue.
 
 ## Audit Logging
 
