@@ -5,7 +5,7 @@ members = ["controller", "agent", "shared"]
 [workspace.package]
 # Bump the minor version on EVERY production deploy (operator rule:
 # 0.1 -> 0.2 -> 0.3) and keep frontend/package.json in sync.
-version = "0.11.0"
+version = "0.12.0"
 edition = "2021"
 
 [workspace.dependencies]

@@ -1,5 +1,6 @@
-import { ExternalLinkIcon, HardDriveIcon, LockIcon, XCircleIcon } from "lucide-react"
+import { HardDriveIcon, LockIcon, XCircleIcon } from "lucide-react"
 
+import { DeploymentPorts } from "@/components/deployment-ports"
 import { useDeploymentDetail, useDismissDeployment, useLatestMetrics } from "@/hooks/use-deployments"
 import { formatRelative } from "@/lib/format"
 import { DEPLOYMENT_STATE_META } from "@/lib/states"
@@ -101,32 +102,7 @@ export function SlotDetailDialog({
 
             <Separator />
             <Section title="Ports">
-              {d.ports.length === 0 ? (
-                <p className="text-xs text-muted-foreground">None published.</p>
-              ) : (
-                <ul className="space-y-1 font-mono text-xs">
-                  {d.ports.map((p) => (
-                    <li key={`${p.container_port}/${p.protocol}`}>
-                      {p.hostname ? (
-                        <a
-                          href={`https://${p.hostname}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-primary underline-offset-2 hover:underline"
-                        >
-                          https://{p.hostname}
-                          <ExternalLinkIcon className="size-3" aria-hidden />
-                        </a>
-                      ) : (
-                        <span>
-                          {p.host_port}→{p.container_port}/{p.protocol}
-                        </span>
-                      )}
-                      <span className="ml-1.5 text-muted-foreground">({p.kind})</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <DeploymentPorts ports={d.ports} className="leading-6" />
             </Section>
 
             <Section title="Mounts">

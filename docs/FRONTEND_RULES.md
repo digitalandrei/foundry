@@ -18,9 +18,15 @@ frontend/src/
 - **No god files.** Pages compose; logic lives in hooks; presentation lives
   in small components. A component used twice moves to `components/`.
 - **Reuse styles**: one slot chip component, one state-color map, one status
-  badge — used everywhere a slot/deployment state appears. Never re-derive
-  state colors locally (single source: the state→color map in `lib/`,
-  matching `UI-DESIGN.md`).
+  badge, one `DeploymentPorts` renderer — used everywhere a slot/deployment
+  state or port list appears. Never re-derive state colors or re-implement
+  port/app-URL rendering locally (single sources in `lib/` + `components/`,
+  matching `UI-DESIGN.md`). Duplicated JSX is a refactor, not a copy-paste.
+- **Cross-cutting providers mount once at the root** (`main.tsx`):
+  `ThemeProvider`, `QueryClientProvider`, **`TooltipProvider`**, `Toaster`.
+  A bare Radix `<Tooltip>` (or any context consumer) throws without its
+  provider — and the throw only surfaces when that branch first renders, so
+  it is easy to miss in review. Wrap globally, not per-usage.
 - Types mirror the `shared` crate DTOs — one types module, kept in sync with
   the Rust contract (drift here is a bug).
 

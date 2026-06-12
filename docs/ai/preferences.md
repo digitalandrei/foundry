@@ -82,3 +82,9 @@ behavior every session. When you change behavior captured here, update the
 file in the same commit set — the Stop hook
 (`.claude/hooks/doc-drift-check.sh`) nudges when watched code paths change
 without a docs change. It informs; it does not block.
+
+- **Deploy with `scripts/deploy.sh`** (the one canonical path): it
+  gates on Cargo.toml ↔ frontend/package.json version parity, rebuilds
+  *both* backend and frontend on every deploy, and replaces the served
+  SPA wholesale so no stale hashed bundles accumulate. A version bump
+  always reships the GUI.

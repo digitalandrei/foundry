@@ -12,6 +12,7 @@ import { ThemeProvider } from "next-themes"
 
 import { AppShell } from "@/components/layout/app-shell"
 import { Toaster } from "@/components/ui/sonner"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { AuditPage } from "@/pages/audit"
 import { DashboardPage } from "@/pages/dashboard"
 import { DeploymentsPage } from "@/pages/deployments"
@@ -80,7 +81,11 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider attribute="class" defaultTheme="dark" storageKey="foundry-theme" enableSystem>
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
+        {/* One provider for every Radix tooltip in the app (a bare
+            <Tooltip> throws without it — docs/FRONTEND_RULES.md). */}
+        <TooltipProvider>
+          <RouterProvider router={router} />
+        </TooltipProvider>
         <Toaster />
       </QueryClientProvider>
     </ThemeProvider>

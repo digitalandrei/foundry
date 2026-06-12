@@ -1,6 +1,5 @@
 import {
   CircleAlertIcon,
-  ExternalLinkIcon,
   RocketIcon,
   RotateCcwIcon,
   SquareIcon,
@@ -8,6 +7,7 @@ import {
   XCircleIcon,
 } from "lucide-react"
 
+import { DeploymentPorts } from "@/components/deployment-ports"
 import { EmptyState } from "@/components/empty-state"
 import {
   useDeployments,
@@ -106,28 +106,8 @@ function DeploymentRow({ deployment: d }: { deployment: DeploymentSummary }) {
       <TableCell className="font-mono text-xs">
         {d.gpu_label} / {d.slot_name}
       </TableCell>
-      <TableCell className="font-mono text-xs">
-        {d.ports.length === 0
-          ? "—"
-          : d.ports.map((p) =>
-              p.hostname ? (
-                <a
-                  key={`${p.container_port}/${p.protocol}`}
-                  href={`https://${p.hostname}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mr-1.5 inline-flex items-center gap-0.5 text-primary underline-offset-2 hover:underline"
-                  title={`https://${p.hostname} → :${p.container_port}`}
-                >
-                  {p.hostname}
-                  <ExternalLinkIcon className="size-3" aria-hidden />
-                </a>
-              ) : (
-                <span key={`${p.container_port}/${p.protocol}`} className="mr-1.5">
-                  {p.host_port}→{p.container_port}/{p.protocol}
-                </span>
-              ),
-            )}
+      <TableCell>
+        <DeploymentPorts ports={d.ports} />
       </TableCell>
       <TableCell>
         <span className={`flex items-center gap-1.5 ${meta.textClass}`}>

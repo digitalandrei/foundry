@@ -81,20 +81,36 @@ and modest to stay within proxy limits.
 
 ## Deploy Flow (live)
 
+**One command — `scripts/deploy.sh`** (run from the repo root, needs
+sudo). It is the canonical path: it gates on Cargo.toml ↔
+frontend/package.json version parity, **rebuilds both the
+controller/agent and the frontend** (a version bump never ships a stale
+GUI), **replaces the SPA tree wholesale** (no leftover hashed bundles
+accumulating under `/srv/foundry/frontend/assets`), installs the
+controller + agent binaries, restarts the service, and verifies
+`/health` reports the new version.
+
 ```bash
 cd /opt/foundry
-# Backend
-cargo build --release -p foundry-controller
-sudo install -m 755 target/release/foundry-controller /srv/foundry/foundry-controller
-sudo systemctl restart foundry-controller
-systemctl is-active foundry-controller
-curl -fsS http://127.0.0.1:8400/health   # {"status":"ok",...,"database":"up"}
-# Frontend (independent of the binary — static serving)
-cd frontend && npm run build && cd ..
+# bump the workspace + frontend version together first (operator rule)
+./scripts/deploy.sh
+curl -fsS https://foundry.cloudcraft.ro/health   # end-to-end through Cloudflare
+```
+
+Equivalent manual steps (only when debugging the script) — note the
+**clean** before copying the SPA, which the old flow lacked and which
+let stale bundles pile up:
+
+```bash
+cargo build --release -p foundry-controller -p foundry-agent
+(cd frontend && npm run build)
+sudo find /srv/foundry/frontend -mindepth 1 -maxdepth 1 -exec \rm -rf {} +
 sudo \cp -rf frontend/dist/. /srv/foundry/frontend/
 sudo chown -R foundry:foundry /srv/foundry/frontend
-# End-to-end
-curl -fsS https://foundry.cloudcraft.ro/health
+sudo install -m 755 target/release/foundry-controller /srv/foundry/foundry-controller
+sudo install -m 755 target/release/foundry-agent /srv/foundry/downloads/foundry-agent
+sudo systemctl restart foundry-controller
+curl -fsS http://127.0.0.1:8400/health   # {"status":"ok","version":"X.Y.Z","database":"up"}
 ```
 
 Nginx config changes: edit in `deployment/nginx/`, then
