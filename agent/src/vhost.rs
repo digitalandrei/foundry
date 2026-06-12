@@ -32,6 +32,15 @@ fn reload_enabled() -> bool {
     std::env::var("FOUNDRY_VHOST_NO_RELOAD").is_err()
 }
 
+/// Whether HTTP/S app publishing can work on this host: nginx is
+/// installed and the Foundry include (`--setup-apps`) is in place.
+/// Reported in the inventory snapshot so the UI can flag a server where
+/// publishing would silently fail.
+pub fn publishing_ready() -> bool {
+    std::path::Path::new(NGINX_BIN).exists()
+        && std::path::Path::new("/etc/nginx/conf.d/foundry-apps.conf").exists()
+}
+
 /// The ports of a deploy payload that publish a vhost.
 pub fn web_ports(ports: &[PortBinding]) -> Vec<&PortBinding> {
     ports

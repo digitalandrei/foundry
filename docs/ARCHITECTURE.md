@@ -286,6 +286,19 @@ The deploy dialog pre-fills ports from the image's EXPOSE list
 (controller reads the registry config blob — API.md
 § `exposed-ports`); discovery is best-effort metadata, never a gate.
 
+Readiness is reported, not assumed (0.13.0): each inventory snapshot
+carries `app_publishing` (nginx + the Foundry include present), stored
+on the server row and surfaced in the UI — a server without nginx is
+flagged before a deploy fails on it.
+
+**External GPU containers (0.13.0):** the agent resolves the GPU/MIG
+UUIDs each *running* container is bound to (from its `--gpus` device
+requests and `NVIDIA_VISIBLE_DEVICES`, indices mapped to UUIDs via
+NVML) and reports them in inventory. The controller maps non-Foundry
+containers onto the slot whose device they occupy, so the dashboard
+shows externally-used GPUs (and does not offer them as deploy
+targets) — Foundry never touches those containers, only reflects them.
+
 ## Server Enrollment
 
 1. Admin generates a single-use, expiring enrollment token in the UI.

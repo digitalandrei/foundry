@@ -27,6 +27,18 @@ pub struct SlotSummary {
     pub mig_profile: Option<String>,
     pub capacity_mb: Option<u32>,
     pub state: SlotState,
+    /// A non-Foundry container occupying this slot's GPU/MIG device
+    /// (mapped from inventory). Present → the GPU is in external use;
+    /// the dashboard surfaces it and the slot is not a deploy target.
+    #[serde(default)]
+    pub external: Option<ExternalOccupant>,
+}
+
+/// A container Foundry did not create, running on a slot's device.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExternalOccupant {
+    pub name: String,
+    pub image: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

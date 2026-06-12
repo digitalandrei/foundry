@@ -23,10 +23,12 @@ pub async fn apply_snapshot(
     let mut tx = pool.begin().await?;
 
     sqlx::query!(
-        "UPDATE servers SET nvidia_driver_version = ?, docker_version = ?, updated_at = ?
+        "UPDATE servers SET nvidia_driver_version = ?, docker_version = ?,
+             app_publishing_ready = ?, updated_at = ?
          WHERE id = ?",
         snap.nvidia_driver_version,
         snap.docker_version,
+        snap.app_publishing,
         now,
         server_id.0,
     )
@@ -91,8 +93,9 @@ pub async fn apply_snapshot(
     for c in &snap.containers {
         sqlx::query!(
             r#"INSERT INTO server_containers
-               (id, server_id, container_id, name, image, state, status, managed, ports, reported_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+               (id, server_id, container_id, name, image, state, status, managed, ports,
+                gpu_uuids, reported_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
             Uuid::now_v7(),
             server_id.0,
             c.container_id,
@@ -102,6 +105,7 @@ pub async fn apply_snapshot(
             c.status.chars().take(255).collect::<String>(),
             c.managed,
             serde_json::to_string(&c.ports).map_err(AppError::internal)?,
+            serde_json::to_string(&c.gpu_uuids).map_err(AppError::internal)?,
             now,
         )
         .execute(&mut *tx)
@@ -326,11 +330,16 @@ async fn upsert_slot(
     Ok(())
 }
 
-/// GPUs + slots for a set of servers (the dashboard grid).
+/// GPUs + slots for a server (the dashboard grid). Each slot also
+/// carries any **external** (non-Foundry) container occupying its
+/// GPU/MIG device, mapped from the latest inventory.
 pub async fn gpus_for_server(
     pool: &MySqlPool,
     server_id: ServerId,
 ) -> Result<Vec<foundry_shared::dto::GpuSummary>, AppError> {
+    // device UUID → external occupant (unmanaged running containers).
+    let external = external_occupants(pool, server_id).await?;
+
     let gpu_rows = sqlx::query!(
         r#"SELECT id AS "id: Uuid", gpu_uuid, display_index, model, memory_mb,
                   mig_enabled AS "mig_enabled: bool"
@@ -346,7 +355,7 @@ pub async fn gpus_for_server(
         // LENGTH-first gives natural ordering for g:i names
         // ("0:5" < "0:10").
         let slot_rows = sqlx::query!(
-            r#"SELECT id AS "id: Uuid", name, slot_type, mig_profile, capacity_mb, state
+            r#"SELECT id AS "id: Uuid", name, slot_type, mig_uuid, mig_profile, capacity_mb, state
                FROM gpu_slots WHERE gpu_id = ? ORDER BY LENGTH(name), name"#,
             g.id
         )
@@ -355,6 +364,9 @@ pub async fn gpus_for_server(
         let slots = slot_rows
             .into_iter()
             .map(|s| {
+                // A slot's device is its MIG UUID, or the parent GPU's
+                // UUID for a full-GPU slot.
+                let device = s.mig_uuid.as_deref().unwrap_or(&g.gpu_uuid);
                 Ok(foundry_shared::dto::SlotSummary {
                     id: s.id.into(),
                     name: s.name,
@@ -362,6 +374,7 @@ pub async fn gpus_for_server(
                     mig_profile: s.mig_profile,
                     capacity_mb: s.capacity_mb,
                     state: s.state.parse().map_err(AppError::internal)?,
+                    external: external.get(device).cloned(),
                 })
             })
             .collect::<Result<Vec<_>, AppError>>()?;
@@ -376,6 +389,36 @@ pub async fn gpus_for_server(
         });
     }
     Ok(out)
+}
+
+/// device UUID → the non-Foundry container running on it (first wins).
+async fn external_occupants(
+    pool: &MySqlPool,
+    server_id: ServerId,
+) -> Result<std::collections::HashMap<String, foundry_shared::dto::ExternalOccupant>, AppError> {
+    let rows = sqlx::query!(
+        r#"SELECT name, image, gpu_uuids FROM server_containers
+           WHERE server_id = ? AND managed = 0 AND state = 'running'"#,
+        server_id.0
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut map = std::collections::HashMap::new();
+    for r in rows {
+        let uuids: Vec<String> = r
+            .gpu_uuids
+            .as_deref()
+            .and_then(|j| serde_json::from_str(j).ok())
+            .unwrap_or_default();
+        for u in uuids {
+            map.entry(u)
+                .or_insert_with(|| foundry_shared::dto::ExternalOccupant {
+                    name: r.name.clone(),
+                    image: r.image.clone(),
+                });
+        }
+    }
+    Ok(map)
 }
 
 pub async fn containers_for_server(

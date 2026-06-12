@@ -12,7 +12,7 @@ in `docs/plans/`.
 | 3 | Authentication (GitLab OAuth, multi-instance) | [plans/phase-03.md](plans/phase-03.md) | ✅ Done (2026-06-11) — E2E verified against g.protv.ro |
 | 4 | Agent enrollment | [plans/phase-04.md](plans/phase-04.md) | 🔶 Built & deployed (0.2.0) — awaiting first real GPU-server enrollment; rotation endpoint pending |
 | 5 | Inventory (GPU/MIG discovery & reconciliation) | [plans/phase-05.md](plans/phase-05.md) | ✅ Done (2026-06-12) — inventory verified on real L40S servers (0.3/0.4); telemetry shipped (0.5.0) |
-| 6 | Deployments (lifecycle, replacement) | [plans/phase-06.md](plans/phase-06.md) | 🔶 Built & deployed (0.11.0) — TCP/UDP + volumes live; HTTP/S publishing under per-server `*.<server>.ai.protv.ro` (agent vhosts) + EXPOSE discovery + live progress + slot auto-heal/dismiss; first real GPU deploy in progress |
+| 6 | Deployments (lifecycle, replacement) | [plans/phase-06.md](plans/phase-06.md) | 🔶 Built & deployed (0.13.0) — TCP/UDP + volumes + per-server HTTP/S publishing + EXPOSE discovery + live progress + slot auto-heal/dismiss + external-GPU visibility + nginx-readiness flag; first real GPU deploy in progress |
 | 7 | Logs | [plans/phase-07.md](plans/phase-07.md) | ⬜ Not started |
 | 8 | UI (full dashboard, dark+light themes) | [plans/phase-08.md](plans/phase-08.md) | ⬜ Not started |
 | 9 | Security hardening | [plans/phase-09.md](plans/phase-09.md) | ⬜ Not started |
@@ -172,6 +172,16 @@ reflected in the affected docs in the same commit set:
   and removable (guarded). Agent volume-create errors now point at
   `--setup-apps`; drag-drop snaps onto the slot (no fly-back). Affects
   ARCHITECTURE, API, DATABASE, DEPLOYMENT, GITLAB-INTEGRATION.
+- **2026-06-12** (0.13.0) — **Server capability + external-GPU
+  visibility + slot status** (operator feedback): inventory reports
+  nginx/app-publishing readiness (`servers.app_publishing_ready`) — the
+  UI flags a server where HTTP/S publishing would fail; the agent
+  resolves each running container's GPU/MIG UUIDs
+  (`server_containers.gpu_uuids`) so non-Foundry containers map onto the
+  slot whose GPU they occupy (dashboard shows them, not droppable);
+  slot labels follow the lifecycle vocabulary (Locked → Deploying →
+  Running → Freeing), and stop/remove mark the slot Freeing
+  immediately. Affects DATABASE, API, ARCHITECTURE.
 - **2026-06-11** (Phase 3) — First-instance bootstrap CLI:
   `foundry-controller instance add` (Settings UI requires an admin,
   who requires a login, which requires an instance).

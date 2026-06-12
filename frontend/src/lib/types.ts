@@ -92,6 +92,11 @@ export interface ExposedPortsResponse {
 
 export type ServerStatus = "ONLINE" | "OFFLINE" | "DEGRADED"
 
+export interface ExternalOccupant {
+  name: string
+  image: string
+}
+
 export interface SlotSummary {
   id: string
   name: string
@@ -99,6 +104,8 @@ export interface SlotSummary {
   mig_profile: string | null
   capacity_mb: number | null
   state: import("./states").SlotState
+  /** A non-Foundry container running on this slot's GPU/MIG device. */
+  external: ExternalOccupant | null
 }
 
 export interface GpuSummary {
@@ -119,6 +126,9 @@ export interface ServerSummary {
   last_heartbeat_at: string | null
   agent_version: string | null
   os_version: string | null
+  /** HTTP/S publishing readiness: false → nginx not installed, true →
+   * ready, null → unknown / no recent snapshot. */
+  app_publishing_ready: boolean | null
   enrolled: boolean
   gpus: GpuSummary[]
   containers_running: number

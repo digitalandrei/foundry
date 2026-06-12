@@ -78,7 +78,9 @@ Observed containers per server — full snapshot per inventory upload
 containers labeled `foundry.managed=true`. Columns: `id`, `server_id`
 FK, `container_id` (short), `name`, `image`, `state`, `status`,
 `managed`, `ports` (JSON list of `{container_port, host_port,
-protocol}` — a container may expose any number), `reported_at`.
+protocol}` — a container may expose any number), `gpu_uuids` (JSON
+array of GPU/MIG device UUIDs the container is bound to — resolved by
+the agent; maps even non-Foundry containers onto a slot), `reported_at`.
 
 ### `server_metrics`
 > Added in the telemetry build (0.5.0).

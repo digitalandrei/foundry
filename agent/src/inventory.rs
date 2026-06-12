@@ -13,18 +13,22 @@ use foundry_shared::dto::{ContainerInfo, GpuInfo, InventorySnapshot, MigDeviceIn
 use nvml_wrapper::Nvml;
 
 pub async fn collect() -> InventorySnapshot {
-    let (docker_version, containers) = collect_docker().await;
+    // GPUs first: their NVML index→UUID map resolves the device refs of
+    // running containers (so even non-Foundry containers map to a slot).
     let (nvidia_driver_version, gpus) = collect_gpus();
+    let gpu_index: HashMap<u32, String> = gpus.iter().map(|g| (g.index, g.uuid.clone())).collect();
+    let (docker_version, containers) = collect_docker(&gpu_index).await;
     InventorySnapshot {
         agent_version: env!("CARGO_PKG_VERSION").to_string(),
         docker_version,
         nvidia_driver_version,
+        app_publishing: Some(crate::vhost::publishing_ready()),
         gpus,
         containers,
     }
 }
 
-async fn collect_docker() -> (Option<String>, Vec<ContainerInfo>) {
+async fn collect_docker(gpu_index: &HashMap<u32, String>) -> (Option<String>, Vec<ContainerInfo>) {
     let docker = match Docker::connect_with_local_defaults() {
         Ok(d) => d,
         Err(err) => {
@@ -40,63 +44,163 @@ async fn collect_docker() -> (Option<String>, Vec<ContainerInfo>) {
         }
     };
 
-    let containers = match docker
+    let list = match docker
         .list_containers(Some(ListContainersOptions {
             all: true,
             ..Default::default()
         }))
         .await
     {
-        Ok(list) => list
-            .into_iter()
-            .map(|c| {
-                let managed = c
-                    .labels
-                    .as_ref()
-                    .and_then(|l| l.get("foundry.managed"))
-                    .is_some_and(|v| v == "true");
-                let mut ports: Vec<foundry_shared::dto::PortMapping> = c
-                    .ports
-                    .iter()
-                    .flatten()
-                    .map(|p| foundry_shared::dto::PortMapping {
-                        container_port: p.private_port,
-                        host_port: p.public_port,
-                        protocol: p
-                            .typ
-                            .map(|t| format!("{t:?}").to_lowercase())
-                            .unwrap_or_else(|| "tcp".into()),
-                    })
-                    .collect();
-                // Docker repeats a mapping per host interface (0.0.0.0
-                // and ::) — dedup on (container_port, host_port, proto).
-                ports.sort_by_key(|p| (p.container_port, p.host_port, p.protocol.clone()));
-                ports.dedup_by_key(|p| (p.container_port, p.host_port, p.protocol.clone()));
-                ContainerInfo {
-                    container_id: c.id.unwrap_or_default().chars().take(12).collect(),
-                    name: c
-                        .names
-                        .unwrap_or_default()
-                        .first()
-                        .map(|n| n.trim_start_matches('/').to_string())
-                        .unwrap_or_default(),
-                    image: c.image.unwrap_or_default(),
-                    state: c
-                        .state
-                        .map(|s| format!("{s:?}").to_lowercase())
-                        .unwrap_or_default(),
-                    status: c.status.unwrap_or_default(),
-                    managed,
-                    ports,
-                }
-            })
-            .collect(),
+        Ok(list) => list,
         Err(err) => {
             tracing::warn!(%err, "container listing failed");
-            Vec::new()
+            return (version, Vec::new());
         }
     };
+
+    let mut containers = Vec::with_capacity(list.len());
+    for c in list {
+        let managed = c
+            .labels
+            .as_ref()
+            .and_then(|l| l.get("foundry.managed"))
+            .is_some_and(|v| v == "true");
+        let mut ports: Vec<foundry_shared::dto::PortMapping> = c
+            .ports
+            .iter()
+            .flatten()
+            .map(|p| foundry_shared::dto::PortMapping {
+                container_port: p.private_port,
+                host_port: p.public_port,
+                protocol: p
+                    .typ
+                    .map(|t| format!("{t:?}").to_lowercase())
+                    .unwrap_or_else(|| "tcp".into()),
+            })
+            .collect();
+        // Docker repeats a mapping per host interface (0.0.0.0 and ::) —
+        // dedup on (container_port, host_port, proto).
+        ports.sort_by_key(|p| (p.container_port, p.host_port, p.protocol.clone()));
+        ports.dedup_by_key(|p| (p.container_port, p.host_port, p.protocol.clone()));
+
+        let id_full = c.id.unwrap_or_default();
+        let state = c
+            .state
+            .map(|s| format!("{s:?}").to_lowercase())
+            .unwrap_or_default();
+        // Only running containers occupy a GPU; inspecting is one API
+        // call each, so skip the rest.
+        let gpu_uuids = if state == "running" {
+            inspect_gpu_uuids(&docker, &id_full, gpu_index).await
+        } else {
+            Vec::new()
+        };
+
+        containers.push(ContainerInfo {
+            container_id: id_full.chars().take(12).collect(),
+            name: c
+                .names
+                .unwrap_or_default()
+                .first()
+                .map(|n| n.trim_start_matches('/').to_string())
+                .unwrap_or_default(),
+            image: c.image.unwrap_or_default(),
+            state,
+            status: c.status.unwrap_or_default(),
+            managed,
+            ports,
+            gpu_uuids,
+        });
+    }
     (version, containers)
+}
+
+/// Resolve a container's GPU/MIG device UUIDs from its inspect data:
+/// `--gpus` device requests and `NVIDIA_VISIBLE_DEVICES`. Numeric
+/// indices are mapped to UUIDs via the NVML index map; `GPU-…`/`MIG-…`
+/// refs pass through; `all`/`count=-1` expands to every GPU.
+async fn inspect_gpu_uuids(
+    docker: &Docker,
+    id: &str,
+    gpu_index: &HashMap<u32, String>,
+) -> Vec<String> {
+    let info = match docker
+        .inspect_container(
+            id,
+            None::<bollard::query_parameters::InspectContainerOptions>,
+        )
+        .await
+    {
+        Ok(i) => i,
+        Err(err) => {
+            tracing::debug!(%err, container = id, "container inspect failed");
+            return Vec::new();
+        }
+    };
+
+    // BTreeSet → deterministic, deduped.
+    let mut uuids = std::collections::BTreeSet::new();
+
+    if let Some(reqs) = info.host_config.and_then(|h| h.device_requests) {
+        for req in reqs {
+            let is_gpu = req.driver.as_deref() == Some("nvidia")
+                || req
+                    .capabilities
+                    .iter()
+                    .flatten()
+                    .any(|caps| caps.iter().any(|c| c == "gpu"));
+            if !is_gpu {
+                continue;
+            }
+            match req.device_ids {
+                Some(ids) if !ids.is_empty() => {
+                    for r in ids {
+                        if let Some(u) = resolve_device_ref(&r, gpu_index) {
+                            uuids.insert(u);
+                        }
+                    }
+                }
+                // No explicit ids + count -1 → all GPUs.
+                _ if req.count == Some(-1) => {
+                    uuids.extend(gpu_index.values().cloned());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if let Some(env) = info.config.and_then(|c| c.env) {
+        for e in env {
+            let Some(v) = e.strip_prefix("NVIDIA_VISIBLE_DEVICES=") else {
+                continue;
+            };
+            match v {
+                "all" => uuids.extend(gpu_index.values().cloned()),
+                "none" | "void" | "" => {}
+                list => {
+                    for r in list.split(',') {
+                        if let Some(u) = resolve_device_ref(r.trim(), gpu_index) {
+                            uuids.insert(u);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    uuids.into_iter().collect()
+}
+
+/// A device reference is a UUID (`GPU-…`/`MIG-…`, used as-is) or an NVML
+/// index resolved via the snapshot's index map.
+fn resolve_device_ref(r: &str, gpu_index: &HashMap<u32, String>) -> Option<String> {
+    if r.starts_with("GPU-") || r.starts_with("MIG-") {
+        Some(r.to_string())
+    } else {
+        r.parse::<u32>()
+            .ok()
+            .and_then(|i| gpu_index.get(&i).cloned())
+    }
 }
 
 fn collect_gpus() -> (Option<String>, Vec<GpuInfo>) {

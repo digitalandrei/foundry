@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useDroppable } from "@dnd-kit/core"
 import { Link } from "@tanstack/react-router"
-import { ServerOffIcon } from "lucide-react"
+import { ServerOffIcon, TriangleAlertIcon } from "lucide-react"
 
 import { EmptyState } from "@/components/empty-state"
 import { SlotDetailDialog } from "@/components/slot-detail-dialog"
@@ -128,6 +128,15 @@ function ServerRow({
         {server.os_version ? (
           <span className="text-xs text-muted-foreground">{server.os_version}</span>
         ) : null}
+        {server.app_publishing_ready === false ? (
+          <span
+            className="inline-flex items-center gap-1 text-xs text-slot-reserved"
+            title="nginx is not installed on this server — HTTP/S app publishing will fail. Install nginx and run `sudo foundry-agent --setup-apps`."
+          >
+            <TriangleAlertIcon className="size-3.5" aria-hidden />
+            nginx missing — HTTP/S publishing off
+          </span>
+        ) : null}
         <span className="ml-auto text-xs text-muted-foreground">
           {server.gpus.length} GPU{server.gpus.length === 1 ? "" : "s"}
         </span>
@@ -227,7 +236,13 @@ function SlotChip({
   onSelect: (deploymentId: string) => void
 }) {
   const meta = SLOT_STATE_META[slot.state]
-  const droppable = slot.state === "FREE" || slot.state === "RUNNING"
+  // A FREE slot shows nothing even if a now-dismissable FAILED
+  // deployment still references it (auto-heal: failures free the slot).
+  const shown = slot.state === "FREE" ? undefined : occupant
+  // External (non-Foundry) container on this device — only surfaced
+  // when Foundry has nothing here; it makes the GPU not a deploy target.
+  const external = !shown ? slot.external : null
+  const droppable = (slot.state === "FREE" || slot.state === "RUNNING") && !external
   const data: DropSlotData = {
     slotId: slot.id,
     slotName: slot.name,
@@ -243,9 +258,6 @@ function SlotChip({
   const capacity =
     slot.mig_profile ??
     (slot.capacity_mb != null ? `${Math.round(slot.capacity_mb / 1024)} GB` : "")
-  // A FREE slot shows nothing even if a now-dismissable FAILED
-  // deployment still references it (auto-heal: failures free the slot).
-  const shown = slot.state === "FREE" ? undefined : occupant
   const usage = containerMetrics(sample, shown?.container_id ?? null)
 
   return (
@@ -256,7 +268,8 @@ function SlotChip({
       className={cn(
         "flex min-w-32 flex-1 flex-col gap-0.5 rounded-md border px-3 py-2 transition-colors",
         shown && "cursor-pointer hover:bg-accent/40",
-        slot.state === "FREE" && "border-slot-free/50",
+        slot.state === "FREE" && !external && "border-slot-free/50",
+        external && "border-foreground/25 bg-muted/40",
         slot.state === "RUNNING" && "border-slot-running/60 bg-slot-running/10",
         slot.state === "OFFLINE" && "border-dashed opacity-60",
         (slot.state === "RESERVED" || slot.state === "DEPLOYING" || slot.state === "STOPPING") &&
@@ -267,13 +280,13 @@ function SlotChip({
           slot.state === "RUNNING" &&
           "border-2 border-dashed border-slot-reserved bg-slot-reserved/15",
       )}
-      title={`${meta.label} · ${slot.slot_type}${slot.state === "RUNNING" ? " — drop to replace, click for details" : occupant ? " — click for details" : ""}`}
+      title={`${meta.label} · ${slot.slot_type}${slot.state === "RUNNING" ? " — drop to replace, click for details" : occupant ? " — click for details" : external ? " — GPU in use by a non-Foundry container" : ""}`}
     >
       <span className="flex items-baseline justify-between gap-2">
         <span className="font-mono text-xs font-medium">{slot.name}</span>
-        <span className={cn("text-[10px]", meta.textClass)}>
+        <span className={cn("text-[10px]", external ? "text-muted-foreground" : meta.textClass)}>
           {capacity ? `${capacity} · ` : ""}
-          {meta.label}
+          {external ? "External" : meta.label}
         </span>
       </span>
       {shown ? (
@@ -289,6 +302,15 @@ function SlotChip({
                 : shown.state !== "RUNNING"
                   ? shown.state.toLowerCase().replace(/_/g, " ")
                   : "—"}
+          </span>
+        </>
+      ) : external ? (
+        <>
+          <span className="truncate text-xs font-medium" title={external.image}>
+            {external.name}
+          </span>
+          <span className="truncate font-mono text-[10px] text-muted-foreground" title={external.image}>
+            {external.image}
           </span>
         </>
       ) : null}

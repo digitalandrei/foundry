@@ -540,7 +540,13 @@ pub async fn enqueue_lifecycle(
     let mut tx = pool.begin().await?;
     lifecycle::transition_deployment(&mut tx, deployment.id, from_to.1, &Actor::user(user), None)
         .await?;
-    if task_type == TaskType::StopContainer {
+    // Stop and remove both put the slot in the transitional STOPPING
+    // state ("Freeing" in the UI) so the chip shows work in progress
+    // rather than sitting on its prior state until the agent reports.
+    if matches!(
+        task_type,
+        TaskType::StopContainer | TaskType::RemoveContainer
+    ) {
         lifecycle::transition_slot(&mut tx, deployment.slot_id, SlotState::Stopping).await?;
     }
     let payload = TaskPayload::Container(foundry_shared::dto::ContainerTarget {

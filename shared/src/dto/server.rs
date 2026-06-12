@@ -14,6 +14,10 @@ pub struct ServerSummary {
     pub last_heartbeat_at: Option<DateTime<Utc>>,
     pub agent_version: Option<String>,
     pub os_version: Option<String>,
+    /// HTTP/S app-publishing readiness from the latest snapshot:
+    /// `Some(false)` → nginx not installed (publishing unavailable),
+    /// `Some(true)` → ready, `None` → unknown / no recent snapshot.
+    pub app_publishing_ready: Option<bool>,
     /// Whether an agent has ever enrolled for this server.
     pub enrolled: bool,
     /// GPUs with their slots (from the latest inventory snapshot) —

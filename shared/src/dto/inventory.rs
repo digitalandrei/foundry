@@ -8,6 +8,11 @@ pub struct InventorySnapshot {
     pub agent_version: String,
     pub docker_version: Option<String>,
     pub nvidia_driver_version: Option<String>,
+    /// HTTP/S app-publishing readiness: `Some(true)` when nginx + the
+    /// Foundry include are in place, `Some(false)` when nginx is
+    /// missing, `None` when the agent could not determine it.
+    #[serde(default)]
+    pub app_publishing: Option<bool>,
     pub gpus: Vec<GpuInfo>,
     /// Every container on the host (docker ps -a); `managed` marks
     /// Foundry-created ones. Visibility only — unmanaged containers
@@ -52,6 +57,12 @@ pub struct ContainerInfo {
     /// Exposed/mapped ports (a container may expose any number).
     #[serde(default)]
     pub ports: Vec<PortMapping>,
+    /// GPU/MIG device UUIDs this container is bound to — resolved by the
+    /// agent from the container's device requests / NVIDIA_VISIBLE_DEVICES
+    /// (indices mapped to UUIDs via NVML). Lets the dashboard map even
+    /// non-Foundry containers onto the slot whose GPU they occupy.
+    #[serde(default)]
+    pub gpu_uuids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

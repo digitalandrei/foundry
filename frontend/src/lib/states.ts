@@ -40,13 +40,16 @@ interface StateMeta {
 
 // The single state→color map (docs/FRONTEND_RULES.md § Structure &
 // Reuse). Every chip, dot, badge, and status cell goes through this.
+// Labels follow the operator's lifecycle vocabulary: a slot is "Locked"
+// the moment a deploy claims it, "Deploying" while the agent works,
+// "Running" when live, "Freeing" while a stop/remove is in flight.
 export const SLOT_STATE_META: Record<SlotState, StateMeta> = {
   FREE: { label: "Free", dotClass: "bg-slot-free", textClass: "text-slot-free" },
-  RESERVED: { label: "Reserved", dotClass: "bg-slot-reserved", textClass: "text-slot-reserved" },
+  RESERVED: { label: "Locked", dotClass: "bg-slot-reserved", textClass: "text-slot-reserved" },
   DEPLOYING: { label: "Deploying", dotClass: "bg-slot-reserved", textClass: "text-slot-reserved" },
   RUNNING: { label: "Running", dotClass: "bg-slot-running", textClass: "text-slot-running" },
   FAILED: { label: "Failed", dotClass: "bg-slot-failed", textClass: "text-slot-failed" },
-  STOPPING: { label: "Stopping", dotClass: "bg-slot-reserved", textClass: "text-slot-reserved" },
+  STOPPING: { label: "Freeing", dotClass: "bg-slot-reserved", textClass: "text-slot-reserved" },
   OFFLINE: { label: "Offline", dotClass: "bg-slot-offline", textClass: "text-slot-offline" },
 }
 
