@@ -182,6 +182,13 @@ reflected in the affected docs in the same commit set:
   slot labels follow the lifecycle vocabulary (Locked → Deploying →
   Running → Freeing), and stop/remove mark the slot Freeing
   immediately. Affects DATABASE, API, ARCHITECTURE.
+- **2026-06-12** (0.14.0 / 0.15.0) — Slot occupants show a clear
+  running/stopped indicator (Foundry + external; stopped external
+  containers are surfaced and leave the slot droppable). Fix: a failed
+  deploy now releases its host ports + app hostname too (was: slot
+  freed but name/ports stayed claimed → "in use" on same-name
+  redeploy). Deploy dialog shows a loader while it inspects the image
+  for exposed ports.
 - **2026-06-11** (Phase 3) — First-instance bootstrap CLI:
   `foundry-controller instance add` (Settings UI requires an admin,
   who requires a login, which requires an instance).

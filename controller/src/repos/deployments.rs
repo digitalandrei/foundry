@@ -383,13 +383,16 @@ async fn allocate_ports(
     )
     .fetch_one(&mut *tx)
     .await?;
+    // A FAILED deploy that never created a container released its slot
+    // (auto-heal); it must release its host ports too, so it is excluded
+    // here. A FAILED deployment that still has a container keeps them.
     let rows = sqlx::query!(
         "SELECT dp.host_port FROM deployment_ports dp
          JOIN deployments d ON d.id = dp.deployment_id
          WHERE d.server_id = ?
-           AND d.state IN ('PENDING','VALIDATING','PULLING_IMAGE','CREATING_CONTAINER',
-                           'STARTING','RUNNING','STOPPING','STOPPED','RESTARTING',
-                           'REMOVING','FAILED')
+           AND (d.state IN ('PENDING','VALIDATING','PULLING_IMAGE','CREATING_CONTAINER',
+                            'STARTING','RUNNING','STOPPING','STOPPED','RESTARTING','REMOVING')
+                OR (d.state = 'FAILED' AND d.container_id IS NOT NULL))
          FOR UPDATE",
         server_id.0
     )
@@ -488,14 +491,16 @@ async fn assign_hostnames(
             )));
         }
         let hostname = format!("{label}.{server_slug}.{domain}");
+        // Same rule as port allocation: a FAILED deploy with no
+        // container freed its slot, so it no longer holds its hostname.
         let taken = sqlx::query_scalar!(
             r#"SELECT COUNT(*) FROM deployment_ports dp
                JOIN deployments d ON d.id = dp.deployment_id
                WHERE dp.hostname = ?
                  AND d.id <> ?
-                 AND d.state IN ('PENDING','VALIDATING','PULLING_IMAGE','CREATING_CONTAINER',
-                                 'STARTING','RUNNING','STOPPING','STOPPED','RESTARTING',
-                                 'REMOVING','FAILED')
+                 AND (d.state IN ('PENDING','VALIDATING','PULLING_IMAGE','CREATING_CONTAINER',
+                                  'STARTING','RUNNING','STOPPING','STOPPED','RESTARTING','REMOVING')
+                      OR (d.state = 'FAILED' AND d.container_id IS NOT NULL))
                FOR UPDATE"#,
             hostname,
             exempt,

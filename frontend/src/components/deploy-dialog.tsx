@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react"
 import { useFieldArray, useForm, useFormState } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { PlusIcon, Trash2Icon } from "lucide-react"
+import { Loader2Icon, PlusIcon, Trash2Icon } from "lucide-react"
 import { z } from "zod"
 
 import { useMe } from "@/hooks/use-auth"
@@ -233,6 +233,14 @@ export function DeployDialog({
           </div>
         ) : null}
 
+        {!target.replaces && discovered.isPending ? (
+          // Hold the form until the image is inspected, so ports
+          // prefill in one shot rather than popping in afterwards.
+          <div className="flex flex-col items-center gap-2 py-10 text-sm text-muted-foreground">
+            <Loader2Icon className="size-5 animate-spin" aria-hidden />
+            Inspecting image for exposed ports…
+          </div>
+        ) : (
         <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
           <Field data-invalid={!!form.formState.errors.name}>
             <FieldLabel htmlFor="dep-name">Name</FieldLabel>
@@ -446,6 +454,7 @@ export function DeployDialog({
             </Button>
           </DialogFooter>
         </form>
+        )}
       </DialogContent>
     </Dialog>
   )

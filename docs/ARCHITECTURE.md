@@ -170,7 +170,11 @@ actor, timestamp, detail) and is auditable end to end.
 **Slot auto-heal (0.11.0):** a failed *deploy* leaves nothing on the GPU
 (the agent's executor removes any container it created), so the slot is
 released to FREE rather than left stuck FAILED — the failure survives only
-as the deployment's FAILED log. Same for a container that vanishes from an
+as the deployment's FAILED log. Its **host ports and app hostname are
+released too** (0.15.0): a FAILED deployment with no container is excluded
+from the port-allocation and hostname-uniqueness checks, so the same name
+redeploys onto the freed slot. A FAILED deployment that still has a
+container keeps its claims. Same for a container that vanishes from an
 inventory snapshot. A STOP/REMOVE failure keeps the slot FAILED (a
 container may remain); the operator clears it with **dismiss** (`Failed →
 Removed`, controller-side, frees the slot). Failed deployments never hold a
