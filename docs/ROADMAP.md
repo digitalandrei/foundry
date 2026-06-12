@@ -189,6 +189,13 @@ reflected in the affected docs in the same commit set:
   freed but name/ports stayed claimed → "in use" on same-name
   redeploy). Deploy dialog shows a loader while it inspects the image
   for exposed ports.
+- **2026-06-12** (0.16.0) — **Granular nginx/app-publishing status**
+  (operator: server has nginx but UI said "missing"): the agent now
+  reports READY / NGINX_MISSING / NGINX_INACTIVE / NOT_CONFIGURED
+  (binary present + `systemctl is-active nginx` + Foundry include),
+  shown per server with the exact fix (and a green "nginx: active" when
+  healthy). HTTP/S deploys are rejected at create on a not-ready server
+  with that reason. `servers.nginx_status` column.
 - **2026-06-11** (Phase 3) — First-instance bootstrap CLI:
   `foundry-controller instance add` (Settings UI requires an admin,
   who requires a login, which requires an instance).

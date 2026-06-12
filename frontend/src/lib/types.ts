@@ -128,9 +128,12 @@ export interface ServerSummary {
   last_heartbeat_at: string | null
   agent_version: string | null
   os_version: string | null
-  /** HTTP/S publishing readiness: false → nginx not installed, true →
-   * ready, null → unknown / no recent snapshot. */
+  /** HTTP/S publishing readiness: true → ready, false → not ready (see
+   * nginx_status), null → unknown / no recent snapshot. */
   app_publishing_ready: boolean | null
+  /** Granular nginx status: READY | NGINX_MISSING | NGINX_INACTIVE |
+   * NOT_CONFIGURED, or null (pre-0.16 agent / no snapshot). */
+  nginx_status: string | null
   enrolled: boolean
   gpus: GpuSummary[]
   containers_running: number

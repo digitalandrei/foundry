@@ -8,11 +8,14 @@ pub struct InventorySnapshot {
     pub agent_version: String,
     pub docker_version: Option<String>,
     pub nvidia_driver_version: Option<String>,
-    /// HTTP/S app-publishing readiness: `Some(true)` when nginx + the
-    /// Foundry include are in place, `Some(false)` when nginx is
-    /// missing, `None` when the agent could not determine it.
+    /// HTTP/S app-publishing readiness: `Some(true)` only when nginx is
+    /// installed, running, AND the Foundry include is in place.
     #[serde(default)]
     pub app_publishing: Option<bool>,
+    /// Granular reason for the UI (`READY` / `NGINX_MISSING` /
+    /// `NGINX_INACTIVE` / `NOT_CONFIGURED`); `None` from pre-0.16 agents.
+    #[serde(default)]
+    pub nginx_status: Option<String>,
     pub gpus: Vec<GpuInfo>,
     /// Every container on the host (docker ps -a); `managed` marks
     /// Foundry-created ones. Visibility only — unmanaged containers

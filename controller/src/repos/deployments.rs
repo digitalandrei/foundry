@@ -47,7 +47,8 @@ pub async fn create(
     let slot = sqlx::query!(
         r#"SELECT gs.id AS "id: Uuid", gs.state, gs.name AS slot_name,
                   g.server_id AS "server_id: Uuid",
-                  s.status AS server_status, s.name AS server_name
+                  s.status AS server_status, s.name AS server_name,
+                  s.app_publishing_ready AS "app_publishing_ready: bool", s.nginx_status
            FROM gpu_slots gs
            JOIN gpus g ON g.id = gs.gpu_id
            JOIN servers s ON s.id = g.server_id
@@ -60,6 +61,21 @@ pub async fn create(
 
     if slot.server_status != "ONLINE" {
         return Err(AppError::BadRequest("server is not online".into()));
+    }
+    // HTTP/S deploys need app publishing on the target server. Fail fast
+    // with the agent-reported reason rather than dispatching a deploy
+    // that the agent can only fail on (operator request). Only blocks
+    // when the agent has explicitly reported not-ready.
+    let wants_web = req
+        .ports
+        .iter()
+        .any(|p| matches!(p.kind, PortKind::Http | PortKind::Https));
+    if wants_web && slot.app_publishing_ready == Some(false) {
+        return Err(AppError::BadRequest(format!(
+            "HTTP/S publishing isn't ready on {}: {}. Fix it on the server, then redeploy.",
+            slot.server_name,
+            nginx_status_hint(slot.nginx_status.as_deref()),
+        )));
     }
     let slot_state: SlotState = slot.state.parse().map_err(AppError::internal)?;
     // Replacements deploy onto a slot still occupied by the outgoing
@@ -259,6 +275,22 @@ pub async fn create(
 
     tx.commit().await?;
     Ok(NewDeployment { id, container_name })
+}
+
+/// Operator-readable reason behind a not-ready app-publishing server.
+fn nginx_status_hint(status: Option<&str>) -> &'static str {
+    match status {
+        Some("NGINX_MISSING") => {
+            "nginx is not installed — install it and run `sudo foundry-agent --setup-apps`"
+        }
+        Some("NGINX_INACTIVE") => {
+            "nginx is installed but not running — start it (`sudo systemctl enable --now nginx`)"
+        }
+        Some("NOT_CONFIGURED") => {
+            "nginx is running but not set up for Foundry — run `sudo foundry-agent --setup-apps`"
+        }
+        _ => "the agent reports app publishing is unavailable",
+    }
 }
 
 fn validate_ports(specs: &[PortSpec], apps_domain: Option<&str>) -> Result<(), AppError> {

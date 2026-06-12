@@ -18,11 +18,13 @@ pub async fn collect() -> InventorySnapshot {
     let (nvidia_driver_version, gpus) = collect_gpus();
     let gpu_index: HashMap<u32, String> = gpus.iter().map(|g| (g.index, g.uuid.clone())).collect();
     let (docker_version, containers) = collect_docker(&gpu_index).await;
+    let nginx = crate::vhost::app_publishing_status();
     InventorySnapshot {
         agent_version: env!("CARGO_PKG_VERSION").to_string(),
         docker_version,
         nvidia_driver_version,
-        app_publishing: Some(crate::vhost::publishing_ready()),
+        app_publishing: Some(nginx == "READY"),
+        nginx_status: Some(nginx.to_string()),
         gpus,
         containers,
     }

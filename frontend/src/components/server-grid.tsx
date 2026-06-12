@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useDroppable } from "@dnd-kit/core"
 import { Link } from "@tanstack/react-router"
-import { ServerOffIcon, TriangleAlertIcon } from "lucide-react"
+import { CheckCircle2Icon, ServerOffIcon, TriangleAlertIcon } from "lucide-react"
 
 import { EmptyState } from "@/components/empty-state"
 import { SlotDetailDialog } from "@/components/slot-detail-dialog"
@@ -128,15 +128,7 @@ function ServerRow({
         {server.os_version ? (
           <span className="text-xs text-muted-foreground">{server.os_version}</span>
         ) : null}
-        {server.app_publishing_ready === false ? (
-          <span
-            className="inline-flex items-center gap-1 text-xs text-slot-reserved"
-            title="nginx is not installed on this server — HTTP/S app publishing will fail. Install nginx and run `sudo foundry-agent --setup-apps`."
-          >
-            <TriangleAlertIcon className="size-3.5" aria-hidden />
-            nginx missing — HTTP/S publishing off
-          </span>
-        ) : null}
+        <NginxStatus status={server.nginx_status} ready={server.app_publishing_ready} />
         <span className="ml-auto text-xs text-muted-foreground">
           {server.gpus.length} GPU{server.gpus.length === 1 ? "" : "s"}
         </span>
@@ -322,6 +314,47 @@ function SlotChip({
         </>
       ) : null}
     </div>
+  )
+}
+
+/** Per-server nginx / HTTP-S-publishing health. Healthy → a quiet green
+ * "nginx: active"; otherwise a precise, actionable warning. */
+function NginxStatus({ status, ready }: { status: string | null; ready: boolean | null }) {
+  // No snapshot yet / pre-0.16 agent with unknown readiness → say nothing.
+  if (status === null && ready === null) return null
+
+  if (status === "READY" || (status === null && ready === true)) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-slot-free" title="nginx is active and configured — HTTP/S app publishing is ready.">
+        <CheckCircle2Icon className="size-3.5" aria-hidden />
+        nginx: active
+      </span>
+    )
+  }
+
+  const warn: Record<string, { label: string; title: string }> = {
+    NGINX_MISSING: {
+      label: "nginx not installed — HTTP/S off",
+      title: "Install nginx, then run `sudo foundry-agent --setup-apps`.",
+    },
+    NGINX_INACTIVE: {
+      label: "nginx stopped — HTTP/S off",
+      title: "nginx is installed but not running. `sudo systemctl enable --now nginx`.",
+    },
+    NOT_CONFIGURED: {
+      label: "nginx up · not configured — HTTP/S off",
+      title: "nginx is running but not set up for Foundry. Run `sudo foundry-agent --setup-apps`.",
+    },
+  }
+  const w = (status && warn[status]) || {
+    label: "HTTP/S publishing off",
+    title: "The agent reports HTTP/S app publishing is unavailable on this server.",
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-slot-reserved" title={w.title}>
+      <TriangleAlertIcon className="size-3.5" aria-hidden />
+      {w.label}
+    </span>
   )
 }
 

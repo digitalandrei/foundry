@@ -32,13 +32,54 @@ fn reload_enabled() -> bool {
     std::env::var("FOUNDRY_VHOST_NO_RELOAD").is_err()
 }
 
-/// Whether HTTP/S app publishing can work on this host: nginx is
-/// installed and the Foundry include (`--setup-apps`) is in place.
-/// Reported in the inventory snapshot so the UI can flag a server where
-/// publishing would silently fail.
-pub fn publishing_ready() -> bool {
-    std::path::Path::new(NGINX_BIN).exists()
-        && std::path::Path::new("/etc/nginx/conf.d/foundry-apps.conf").exists()
+const FOUNDRY_INCLUDE: &str = "/etc/nginx/conf.d/foundry-apps.conf";
+
+/// Granular HTTP/S app-publishing status for the inventory snapshot, so
+/// the UI shows exactly what (if anything) is wrong rather than a vague
+/// "nginx missing":
+/// - `READY` — nginx installed, the service is active, and the Foundry
+///   include (`--setup-apps`) is in place.
+/// - `NGINX_MISSING` — the nginx binary isn't installed.
+/// - `NGINX_INACTIVE` — installed but the service isn't running.
+/// - `NOT_CONFIGURED` — installed + running, but `--setup-apps` hasn't
+///   written the Foundry include yet.
+pub fn app_publishing_status() -> &'static str {
+    if !nginx_installed() {
+        return "NGINX_MISSING";
+    }
+    // `systemctl is-active` is a read-only query (works as the service
+    // user). Unknown (no systemctl) → don't claim it's down.
+    if nginx_active() == Some(false) {
+        return "NGINX_INACTIVE";
+    }
+    if !std::path::Path::new(FOUNDRY_INCLUDE).exists() {
+        return "NOT_CONFIGURED";
+    }
+    "READY"
+}
+
+/// nginx binary present at any of the usual locations (Ubuntu installs
+/// it at `/usr/sbin/nginx`, which is also what the reload sudoers rule
+/// targets).
+fn nginx_installed() -> bool {
+    [
+        NGINX_BIN,
+        "/usr/bin/nginx",
+        "/usr/local/sbin/nginx",
+        "/usr/local/bin/nginx",
+    ]
+    .iter()
+    .any(|p| std::path::Path::new(p).exists())
+}
+
+/// `systemctl is-active nginx` → Some(true/false); None when systemctl
+/// can't be queried (status then falls through as "not inactive").
+fn nginx_active() -> Option<bool> {
+    std::process::Command::new("systemctl")
+        .args(["is-active", "nginx"])
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "active")
 }
 
 /// The ports of a deploy payload that publish a vhost.

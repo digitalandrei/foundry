@@ -31,7 +31,7 @@ user's GitLab account on the instance that owns the resource.
 | `GET /api/projects` | GitLab projects visible to the user, resolved live per instance (degrades per account when an instance is unreachable) | ✅ live |
 | `GET /api/registry/{project_id}` | Registry browse for one project: repositories + tags (size/pushed_at via per-tag detail, capped at 50/repo) — fetched lazily as the sidebar tree expands | ✅ live |
 | `GET /api/registry/tags/{tag_id}/exposed-ports` | EXPOSE'd ports read from the image config blob (Registry v2: manifest → config; linux/amd64 picked from multi-arch indexes) — deploy-dialog prefill. Best-effort: failures return an empty list | ✅ live |
-| `GET /api/servers` | Servers with status/heartbeat/agent version + GPUs and slots (dashboard grid). Each server carries `app_publishing_ready` (false → nginx missing); each slot carries `external` (a non-Foundry container occupying its GPU/MIG device) | ✅ live |
+| `GET /api/servers` | Servers with status/heartbeat/agent version + GPUs and slots (dashboard grid). Each server carries `app_publishing_ready` + `nginx_status` (READY / NGINX_MISSING / NGINX_INACTIVE / NOT_CONFIGURED); each slot carries `external` (a non-Foundry container occupying its GPU/MIG device, with `running`) | ✅ live |
 | `GET /api/servers/{id}` | Detail: runtime versions, GPUs/slots, docker-ps container snapshot (incl. port mappings) | ✅ live |
 | `GET /api/servers/{id}/metrics?minutes=N` | Telemetry series (30s samples, 24h retention; N clamped 5–1440) | ✅ live |
 | `POST /api/servers` | Create a **named** server (GitLab-agent style) — returns the one-time registration command — admin | ✅ live |
@@ -39,7 +39,7 @@ user's GitLab account on the instance that owns the resource.
 | `GET /api/deployments` | Deployments with ports/state/uptime (REMOVED filtered out; latest 200); HTTP/S ports carry their published `hostname`; `status_detail` carries live deploy progress (in-memory overlay), `container_id` joins telemetry | ✅ live |
 | `GET /api/deployments/{id}` | Detail for the slot dialog: summary (flattened) + `mounts` (volume name/host path/container path/ro) + `env` **names** (`is_secret` flagged — values never returned) | ✅ live |
 | `GET /api/metrics/latest` | Newest telemetry sample per server — live GPU/container labels on the dashboard grid | ✅ live |
-| `POST /api/deployments` | Create from drag-drop: slot (FREE, locked) + tag + ports (per-port kind, pool-allocated; HTTP/S get a unique `<name>.apps-domain` hostname) + env (secrets encrypted) + persistent volumes; returns it VALIDATING | ✅ live |
+| `POST /api/deployments` | Create from drag-drop: slot (FREE, locked) + tag + ports (per-port kind, pool-allocated; HTTP/S get a unique `<name>.<server>.apps-domain` hostname) + env (secrets encrypted) + persistent volumes; returns it VALIDATING. HTTP/S deploys are **rejected fast** when the target server isn't publish-ready (with the nginx reason) | ✅ live |
 | `POST /api/deployments/{id}/replace` | Replacement chain: stop old → remove old → REPLACED → deploy successor on the same slot | ✅ live |
 | `POST /api/deployments/{id}/stop` · `/restart` | Lifecycle actions (legality enforced by the transition table) | ✅ live |
 | `POST /api/deployments/{id}/dismiss` | Clear a FAILED deployment (→ REMOVED) and free its stuck slot — controller-side, no agent; owner/admin | ✅ live |

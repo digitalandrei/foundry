@@ -290,10 +290,13 @@ The deploy dialog pre-fills ports from the image's EXPOSE list
 (controller reads the registry config blob — API.md
 § `exposed-ports`); discovery is best-effort metadata, never a gate.
 
-Readiness is reported, not assumed (0.13.0): each inventory snapshot
-carries `app_publishing` (nginx + the Foundry include present), stored
-on the server row and surfaced in the UI — a server without nginx is
-flagged before a deploy fails on it.
+Readiness is reported, not assumed (0.13.0; granular in 0.16.0): each
+inventory snapshot carries `nginx_status` — READY (installed, the
+service is active, and the Foundry include is present) /
+NGINX_MISSING / NGINX_INACTIVE / NOT_CONFIGURED — stored on the server
+row and surfaced per server with the exact fix. An HTTP/S deploy onto
+a not-ready server is **rejected at create** with that reason, rather
+than dispatched only to fail on the agent.
 
 **External GPU containers (0.13.0):** the agent resolves the GPU/MIG
 UUIDs each *running* container is bound to (from its `--gpus` device

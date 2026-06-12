@@ -19,7 +19,7 @@ pub async fn list(pool: &MySqlPool) -> Result<Vec<ServerSummary>, AppError> {
     let rows = sqlx::query!(
         r#"SELECT s.id AS "id: Uuid", s.name, s.hostname, s.status,
                   s.last_heartbeat_at, s.os_version,
-                  s.app_publishing_ready AS "app_publishing_ready: bool",
+                  s.app_publishing_ready AS "app_publishing_ready: bool", s.nginx_status,
                   a.agent_version, a.id AS "agent_id: Uuid"
            FROM servers s
            LEFT JOIN server_agents a ON a.server_id = s.id
@@ -41,6 +41,7 @@ pub async fn list(pool: &MySqlPool) -> Result<Vec<ServerSummary>, AppError> {
             agent_version: r.agent_version,
             os_version: r.os_version,
             app_publishing_ready: r.app_publishing_ready,
+            nginx_status: r.nginx_status,
             enrolled: r.agent_id.is_some(),
             gpus: super::inventory::gpus_for_server(pool, id).await?,
             containers_running: super::inventory::running_count(pool, id).await?,

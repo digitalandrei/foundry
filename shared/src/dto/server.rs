@@ -15,9 +15,13 @@ pub struct ServerSummary {
     pub agent_version: Option<String>,
     pub os_version: Option<String>,
     /// HTTP/S app-publishing readiness from the latest snapshot:
-    /// `Some(false)` → nginx not installed (publishing unavailable),
-    /// `Some(true)` → ready, `None` → unknown / no recent snapshot.
+    /// `Some(true)` → ready, `Some(false)` → not ready (see
+    /// `nginx_status` for why), `None` → unknown / no recent snapshot.
     pub app_publishing_ready: Option<bool>,
+    /// Granular nginx/publishing status for display (`READY` /
+    /// `NGINX_MISSING` / `NGINX_INACTIVE` / `NOT_CONFIGURED`); `None`
+    /// when not reported (pre-0.16 agent or no snapshot).
+    pub nginx_status: Option<String>,
     /// Whether an agent has ever enrolled for this server.
     pub enrolled: bool,
     /// GPUs with their slots (from the latest inventory snapshot) —
