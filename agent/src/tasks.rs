@@ -11,15 +11,123 @@ use bollard::auth::DockerCredentials;
 use bollard::models::{ContainerCreateBody, DeviceRequest, HostConfig, PortBinding};
 use bollard::Docker;
 use foundry_shared::dto::{
-    ContainerTarget, DeployPayload, RegistryAuth, TaskEnvelope, TaskPayload, TaskResultReport,
-    VolumeTarget,
+    ContainerTarget, DeployPayload, RegistryAuth, TaskEnvelope, TaskPayload, TaskProgressReport,
+    TaskResultReport, VolumeTarget,
 };
-use foundry_shared::TaskType;
+use foundry_shared::{DeploymentState, TaskId, TaskType};
 use futures_util::StreamExt;
 
 use crate::config::AgentConfig;
 
 const VOLUME_ROOT: &str = "/storage/containers/";
+
+/// Best-effort live progress for DEPLOY tasks (`/agent/tasks/progress`):
+/// state changes post immediately, detail refreshes are throttled. A
+/// failed post is logged and dropped — progress must never affect the
+/// task outcome.
+struct ProgressReporter<'a> {
+    client: &'a reqwest::Client,
+    config: &'a AgentConfig,
+    url: String,
+    task_id: TaskId,
+    last_sent: std::time::Instant,
+}
+
+impl<'a> ProgressReporter<'a> {
+    fn new(client: &'a reqwest::Client, config: &'a AgentConfig, task_id: TaskId) -> Self {
+        let base = config.controller_url.trim_end_matches('/');
+        Self {
+            client,
+            config,
+            url: format!("{base}/agent/tasks/progress"),
+            task_id,
+            last_sent: std::time::Instant::now() - Duration::from_secs(60),
+        }
+    }
+
+    /// Immediate post (state changes).
+    async fn stage(&mut self, state: DeploymentState, detail: &str) {
+        self.post(state, detail).await;
+    }
+
+    /// Throttled post (pull-progress refreshes, ≥2s apart).
+    async fn tick(&mut self, state: DeploymentState, detail: &str) {
+        if self.last_sent.elapsed() < Duration::from_secs(2) {
+            return;
+        }
+        self.post(state, detail).await;
+    }
+
+    async fn post(&mut self, state: DeploymentState, detail: &str) {
+        self.last_sent = std::time::Instant::now();
+        let report = TaskProgressReport {
+            task_id: self.task_id,
+            state,
+            detail: Some(detail.chars().take(256).collect()),
+        };
+        let result = self
+            .client
+            .post(&self.url)
+            .header("x-foundry-agent-id", &self.config.agent_id)
+            .bearer_auth(&self.config.agent_secret)
+            .timeout(Duration::from_secs(5))
+            .json(&report)
+            .send()
+            .await;
+        if let Err(err) = result {
+            tracing::debug!(%err, "progress post failed (non-fatal)");
+        }
+    }
+}
+
+/// Aggregates bollard's per-layer pull stream into one operator line:
+/// `pulling: 3/7 layers · 410 / 1208 MB`.
+#[derive(Default)]
+struct PullProgress {
+    layers: HashMap<String, (u64, u64)>,
+    done: std::collections::HashSet<String>,
+}
+
+impl PullProgress {
+    fn update(&mut self, info: &bollard::models::CreateImageInfo) {
+        let Some(id) = info.id.clone() else { return };
+        match info.status.as_deref().unwrap_or("") {
+            "Pull complete" | "Already exists" => {
+                self.layers.entry(id.clone()).or_insert((0, 0));
+                // A finished layer counts fully even when Docker never
+                // reported its size.
+                if let Some(l) = self.layers.get_mut(&id) {
+                    l.0 = l.1;
+                }
+                self.done.insert(id);
+            }
+            "Downloading" => {
+                if let Some(p) = &info.progress_detail {
+                    let entry = self.layers.entry(id).or_insert((0, 0));
+                    entry.0 = p.current.unwrap_or(0).max(0) as u64;
+                    entry.1 = p.total.unwrap_or(0).max(0) as u64;
+                }
+            }
+            _ => {
+                self.layers.entry(id).or_insert((0, 0));
+            }
+        }
+    }
+
+    fn line(&self) -> String {
+        let (cur, total) = self
+            .layers
+            .values()
+            .fold((0u64, 0u64), |acc, (c, t)| (acc.0 + c, acc.1 + t));
+        format!(
+            "pulling: {}/{} layers · {} / {} MB",
+            self.done.len(),
+            self.layers.len(),
+            cur / 1_048_576,
+            total / 1_048_576,
+        )
+    }
+}
 
 pub async fn run_loop(client: &reqwest::Client, config: &AgentConfig) {
     let base = config.controller_url.trim_end_matches('/');
@@ -33,7 +141,7 @@ pub async fn run_loop(client: &reqwest::Client, config: &AgentConfig) {
                 let Some(envelope) = envelope else { continue };
                 let task_id = envelope.id;
                 tracing::info!(task = %task_id, task_type = %envelope.task_type, "executing task");
-                let report = execute(envelope).await;
+                let report = execute(client, config, envelope).await;
                 tracing::info!(task = %task_id, success = report.success,
                     error = report.error.as_deref().unwrap_or(""), "task finished");
                 report_result(client, config, &result_url, &report).await;
@@ -103,10 +211,17 @@ async fn report_result(
     tracing::error!(task = %report.task_id, "giving up on result upload");
 }
 
-async fn execute(envelope: TaskEnvelope) -> TaskResultReport {
+async fn execute(
+    client: &reqwest::Client,
+    config: &AgentConfig,
+    envelope: TaskEnvelope,
+) -> TaskResultReport {
     let task_id = envelope.id;
     let outcome = match (envelope.task_type, envelope.payload) {
-        (TaskType::DeployContainer, TaskPayload::Deploy(p)) => deploy(*p).await,
+        (TaskType::DeployContainer, TaskPayload::Deploy(p)) => {
+            let mut progress = ProgressReporter::new(client, config, task_id);
+            deploy(*p, &mut progress).await
+        }
         (TaskType::StopContainer, TaskPayload::Container(t)) => stop(t).await.map(|_| None),
         (TaskType::RestartContainer, TaskPayload::Container(t)) => restart(t).await.map(|_| None),
         (TaskType::RemoveContainer, TaskPayload::Container(t)) => remove(t).await.map(|_| None),
@@ -162,7 +277,10 @@ async fn find_managed(
     }))
 }
 
-async fn deploy(p: DeployPayload) -> Result<Option<String>, String> {
+async fn deploy(
+    p: DeployPayload,
+    progress: &mut ProgressReporter<'_>,
+) -> Result<Option<String>, String> {
     let docker = docker()?;
     let deployment_id = p.deployment_id.to_string();
 
@@ -210,6 +328,12 @@ async fn deploy(p: DeployPayload) -> Result<Option<String>, String> {
             ..Default::default()
         },
     });
+    progress
+        .stage(
+            DeploymentState::PullingImage,
+            "pulling: contacting registry",
+        )
+        .await;
     let mut pull = docker.create_image(
         Some(bollard::query_parameters::CreateImageOptions {
             from_image: Some(p.image_ref.clone()),
@@ -218,6 +342,7 @@ async fn deploy(p: DeployPayload) -> Result<Option<String>, String> {
         None,
         credentials,
     );
+    let mut pull_stats = PullProgress::default();
     while let Some(msg) = pull.next().await {
         let info = msg.map_err(|e| format!("image pull failed: {e}"))?;
         // Auth/missing-tag failures arrive as 200-stream messages with
@@ -225,7 +350,14 @@ async fn deploy(p: DeployPayload) -> Result<Option<String>, String> {
         if let Some(error) = info.error {
             return Err(format!("image pull failed: {error}"));
         }
+        pull_stats.update(&info);
+        progress
+            .tick(DeploymentState::PullingImage, &pull_stats.line())
+            .await;
     }
+    progress
+        .stage(DeploymentState::CreatingContainer, "creating container")
+        .await;
 
     // Create with labels, GPU device, ports, env, mounts.
     // gpu_uuid + slot make GPU assignment visible host-side:
@@ -308,6 +440,9 @@ async fn deploy(p: DeployPayload) -> Result<Option<String>, String> {
             }
         })?;
 
+    progress
+        .stage(DeploymentState::Starting, "starting container")
+        .await;
     docker
         .start_container(
             &created.id,
@@ -321,6 +456,9 @@ async fn deploy(p: DeployPayload) -> Result<Option<String>, String> {
     // down rather than leave an orphan holding the slot and its ports.
     let web = crate::vhost::web_ports(&p.ports);
     if !web.is_empty() {
+        progress
+            .stage(DeploymentState::Starting, "publishing vhost (nginx)")
+            .await;
         if let Err(err) = crate::vhost::apply(&deployment_id, &web).await {
             let _ = docker
                 .remove_container(

@@ -100,10 +100,18 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
 - Registry image-config read (EXPOSE discovery, manifest→config blob)
   → `controller/src/gitlab/registry.rs`; route →
   `controller/src/routes/registry.rs` (`exposed_ports`)
-- Frontend deployments: hooks → `hooks/use-deployments.ts`; deploy/
-  replace dialog → `components/deploy-dialog.tsx`; drag sources in
-  `containers-panel.tsx`, drop targets in `server-grid.tsx`,
-  DndContext in `pages/dashboard.tsx`; table → `pages/deployments.tsx`
+- Frontend deployments: hooks → `hooks/use-deployments.ts` (incl.
+  useLatestMetrics + useDeploymentDetail); deploy/replace dialog →
+  `components/deploy-dialog.tsx`; drag sources in
+  `containers-panel.tsx`, drop targets + live slot chips in
+  `server-grid.tsx`; slot click-through detail (mounts/env names) →
+  `components/slot-detail-dialog.tsx`; DndContext in
+  `pages/dashboard.tsx`; table → `pages/deployments.tsx`
+- Live deploy progress: agent reporter + pull aggregation →
+  `agent/src/tasks.rs` (ProgressReporter/PullProgress); controller
+  intake → `controller/src/repos/tasks.rs::progress` +
+  `routes/agent.rs::tasks_progress` (detail text in
+  `AppState.progress`, in-memory)
 
 **Planned (later phases):**
 

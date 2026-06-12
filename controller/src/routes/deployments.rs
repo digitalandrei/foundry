@@ -96,11 +96,35 @@ async fn summary_of(state: &AppState, id: DeploymentId) -> Result<DeploymentSumm
         .ok_or(AppError::NotFound("deployment not found"))
 }
 
+/// Overlay the in-memory live-progress text (AppState.progress) onto
+/// summaries fresh from the DB.
+fn overlay_progress(state: &AppState, deployments: &mut [DeploymentSummary]) {
+    let map = state.progress.lock().expect("progress lock");
+    for d in deployments.iter_mut() {
+        d.status_detail = map.get(&d.id.0).cloned();
+    }
+}
+
 pub async fn list(
     State(state): State<AppState>,
     _user: CurrentUser,
 ) -> Result<Json<Vec<DeploymentSummary>>, AppError> {
-    Ok(Json(deployments::list(&state.pool).await?))
+    let mut out = deployments::list(&state.pool).await?;
+    overlay_progress(&state, &mut out);
+    Ok(Json(out))
+}
+
+/// Slot/deployment detail dialog: summary + mounts + env names.
+/// Org-visible like the list (docs/SECURITY.md — control stays
+/// owner/admin); env *values* never leave the server.
+pub async fn detail(
+    State(state): State<AppState>,
+    _user: CurrentUser,
+    Path(id): Path<DeploymentId>,
+) -> Result<Json<foundry_shared::dto::DeploymentDetail>, AppError> {
+    let mut detail = deployments::detail(&state.pool, id).await?;
+    overlay_progress(&state, std::slice::from_mut(&mut detail.summary));
+    Ok(Json(detail))
 }
 
 pub async fn stop(

@@ -153,7 +153,9 @@ sudo ./foundry-agent --setup-apps
 Installs the binary, ensures `/etc/nginx/foundry-apps/` (+ the conf.d
 include with the websocket map), `/etc/foundry-agent/tls/`, the
 sudoers rule scoped to `nginx -t`/`-s reload` (SECURITY.md § App
-Publishing), rewrites the systemd unit, and restarts the service.
+Publishing), prepares `/storage/containers` for persistent volumes
+(service-user-owned; listed in the unit's ReadWritePaths), rewrites
+the systemd unit, and restarts the service.
 
 **HTTP/S app publishing prerequisites per GPU server** (operator,
 once): install nginx, point wildcard DNS `*.ai.protv.ro` records at

@@ -88,16 +88,24 @@ pub async fn tasks_next(
             if let foundry_shared::dto::TaskPayload::Deploy(ref mut p) = task.payload {
                 enrich_deploy_payload(&state, p).await?;
                 // PULLING_IMAGE + slot DEPLOYING mark "an agent picked
-                // it up" (slot machine per docs/ARCHITECTURE.md).
+                // it up" (slot machine per docs/ARCHITECTURE.md). On a
+                // RE-claim (lost task past the 5-min timeout) the
+                // deployment already advanced — skip, don't poison the
+                // poll with an illegal-transition error.
                 let mut tx = state.pool.begin().await?;
-                crate::lifecycle::transition_deployment(
-                    &mut tx,
-                    p.deployment_id,
-                    foundry_shared::DeploymentState::PullingImage,
-                    &crate::lifecycle::Actor::controller(),
-                    None,
-                )
-                .await?;
+                let current = crate::repos::deployments::get(&state.pool, p.deployment_id)
+                    .await?
+                    .state;
+                if current == foundry_shared::DeploymentState::Validating {
+                    crate::lifecycle::transition_deployment(
+                        &mut tx,
+                        p.deployment_id,
+                        foundry_shared::DeploymentState::PullingImage,
+                        &crate::lifecycle::Actor::controller(),
+                        None,
+                    )
+                    .await?;
+                }
                 crate::lifecycle::transition_slot(
                     &mut tx,
                     p.slot_id,
@@ -185,7 +193,35 @@ pub async fn tasks_result(
     AuthenticatedAgent(ctx): AuthenticatedAgent,
     Json(report): Json<foundry_shared::dto::TaskResultReport>,
 ) -> Result<StatusCode, AppError> {
-    crate::repos::tasks::complete(&state.pool, ctx.server_id, &report).await?;
+    let deployment = crate::repos::tasks::complete(&state.pool, ctx.server_id, &report).await?;
+    if let Some(id) = deployment {
+        // The task is done either way — live progress text is stale.
+        state.progress.lock().expect("progress lock").remove(&id.0);
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Live DEPLOY progress (docs/API.md § Agent API): pull/create/start
+/// stage transitions + human detail, surfaced as `status_detail` in
+/// the deployment list. Detail text is in-memory only (transient by
+/// definition; the state machine is the durable truth).
+pub async fn tasks_progress(
+    State(state): State<AppState>,
+    AuthenticatedAgent(ctx): AuthenticatedAgent,
+    Json(report): Json<foundry_shared::dto::TaskProgressReport>,
+) -> Result<StatusCode, AppError> {
+    let deployment = crate::repos::tasks::progress(&state.pool, ctx.server_id, &report).await?;
+    if let Some(id) = deployment {
+        let mut map = state.progress.lock().expect("progress lock");
+        match &report.detail {
+            Some(d) => {
+                map.insert(id.0, d.chars().take(256).collect());
+            }
+            None => {
+                map.remove(&id.0);
+            }
+        }
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

@@ -2,7 +2,7 @@
 //! payload — the sample shape lives in foundry-shared, not the schema).
 
 use chrono::{Duration, Utc};
-use foundry_shared::dto::{MetricsPoint, MetricsSample};
+use foundry_shared::dto::{LatestServerMetrics, MetricsPoint, MetricsSample};
 use foundry_shared::ServerId;
 use sqlx::MySqlPool;
 use uuid::Uuid;
@@ -47,6 +47,33 @@ pub async fn range(
     rows.into_iter()
         .map(|r| {
             Ok(MetricsPoint {
+                sampled_at: r.sampled_at.and_utc(),
+                sample: serde_json::from_slice(&r.sample).map_err(AppError::internal)?,
+            })
+        })
+        .collect()
+}
+
+/// Newest sample per server (dashboard slot-grid labels). The MAX
+/// self-join can return two rows for a server only if two samples share
+/// the same microsecond timestamp — deduped here rather than trusted.
+pub async fn latest_per_server(pool: &MySqlPool) -> Result<Vec<LatestServerMetrics>, AppError> {
+    let rows = sqlx::query!(
+        r#"SELECT sm.server_id AS "server_id: Uuid", sm.sampled_at, sm.sample
+           FROM server_metrics sm
+           JOIN (SELECT server_id, MAX(sampled_at) AS max_at
+                 FROM server_metrics GROUP BY server_id) newest
+             ON newest.server_id = sm.server_id AND newest.max_at = sm.sampled_at"#
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut seen = std::collections::HashSet::new();
+    rows.into_iter()
+        .filter(|r| seen.insert(r.server_id))
+        .map(|r| {
+            Ok(LatestServerMetrics {
+                server_id: r.server_id.into(),
                 sampled_at: r.sampled_at.and_utc(),
                 sample: serde_json::from_slice(&r.sample).map_err(AppError::internal)?,
             })

@@ -13,6 +13,20 @@ pub struct MetricsSample {
     pub containers: Vec<ContainerMetrics>,
 }
 
+/// `GET /api/metrics/latest` — the newest sample per server, for live
+/// labels on the dashboard slot grid.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LatestMetricsResponse {
+    pub servers: Vec<LatestServerMetrics>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LatestServerMetrics {
+    pub server_id: crate::ServerId,
+    pub sampled_at: DateTime<Utc>,
+    pub sample: MetricsSample,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostMetrics {
     pub cpu_pct: f32,

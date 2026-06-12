@@ -555,9 +555,19 @@ pub async fn get(pool: &MySqlPool, id: DeploymentId) -> Result<DeploymentRow, Ap
 }
 
 pub async fn list(pool: &MySqlPool) -> Result<Vec<DeploymentSummary>, AppError> {
+    summaries(pool, None).await
+}
+
+/// One query serves both the list (recent, REMOVED filtered) and the
+/// detail lookup (any state — history stays inspectable).
+async fn summaries(
+    pool: &MySqlPool,
+    filter_id: Option<DeploymentId>,
+) -> Result<Vec<DeploymentSummary>, AppError> {
     let rows = sqlx::query!(
         r#"SELECT d.id AS "id: Uuid", d.container_name, d.image_ref, d.state,
-                  d.error_message, d.created_at, d.started_at,
+                  d.error_message, d.container_id,
+                  d.created_at, d.started_at,
                   d.server_id AS "server_id: Uuid", s.name AS server_name,
                   d.gpu_slot_id AS "slot_id: Uuid", gs.name AS slot_name,
                   g.display_index AS gpu_index, g.model AS gpu_model,
@@ -567,9 +577,11 @@ pub async fn list(pool: &MySqlPool) -> Result<Vec<DeploymentSummary>, AppError> 
            JOIN gpu_slots gs ON gs.id = d.gpu_slot_id
            JOIN gpus g ON g.id = gs.gpu_id
            JOIN users u ON u.id = d.created_by
-           WHERE d.state <> 'REMOVED'
+           WHERE (? IS NULL AND d.state <> 'REMOVED') OR d.id = ?
            ORDER BY d.created_at DESC
-           LIMIT 200"#
+           LIMIT 200"#,
+        filter_id.map(|i| i.0),
+        filter_id.map(|i| i.0),
     )
     .fetch_all(pool)
     .await?;
@@ -589,6 +601,10 @@ pub async fn list(pool: &MySqlPool) -> Result<Vec<DeploymentSummary>, AppError> 
             name: r.container_name.unwrap_or_default(),
             image_ref: r.image_ref,
             state: r.state.parse().map_err(AppError::internal)?,
+            // Transient text lives in AppState.progress; the route
+            // layer overlays it (in-memory by design).
+            status_detail: None,
+            container_id: r.container_id,
             error_message: r.error_message,
             server_id: r.server_id.into(),
             server_name: r.server_name,
@@ -617,4 +633,57 @@ pub async fn list(pool: &MySqlPool) -> Result<Vec<DeploymentSummary>, AppError> 
         });
     }
     Ok(out)
+}
+
+/// `GET /api/deployments/{id}` — summary + mounts + env *names* (values
+/// never leave the server; docs/SECURITY.md).
+pub async fn detail(
+    pool: &MySqlPool,
+    id: DeploymentId,
+) -> Result<foundry_shared::dto::DeploymentDetail, AppError> {
+    let summary = summaries(pool, Some(id))
+        .await?
+        .into_iter()
+        .next()
+        .ok_or(AppError::NotFound("deployment not found"))?;
+
+    let mounts = sqlx::query!(
+        r#"SELECT sv.name AS "volume_name?", dv.host_path, dv.container_path,
+                  dv.read_only AS "read_only: bool"
+           FROM deployment_volumes dv
+           LEFT JOIN server_volumes sv ON sv.id = dv.server_volume_id
+           WHERE dv.deployment_id = ?
+           ORDER BY dv.container_path"#,
+        id.0
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|r| foundry_shared::dto::DeploymentMount {
+        volume_name: r.volume_name,
+        host_path: r.host_path,
+        container_path: r.container_path,
+        read_only: r.read_only,
+    })
+    .collect();
+
+    let env = sqlx::query!(
+        r#"SELECT env_key, is_secret AS "is_secret: bool"
+           FROM deployment_env WHERE deployment_id = ? ORDER BY env_key"#,
+        id.0
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|r| foundry_shared::dto::DeploymentEnvKey {
+        key: r.env_key,
+        is_secret: r.is_secret,
+    })
+    .collect();
+
+    Ok(foundry_shared::dto::DeploymentDetail {
+        summary,
+        mounts,
+        env,
+    })
 }

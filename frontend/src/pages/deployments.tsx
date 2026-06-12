@@ -138,6 +138,11 @@ function DeploymentRow({ deployment: d }: { deployment: DeploymentSummary }) {
             </Tooltip>
           ) : null}
         </span>
+        {d.status_detail ? (
+          <span className="block max-w-52 truncate font-mono text-[10px] text-muted-foreground">
+            {d.status_detail}
+          </span>
+        ) : null}
       </TableCell>
       <TableCell className="text-muted-foreground">
         {d.state === "RUNNING" && d.started_at

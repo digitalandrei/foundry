@@ -37,6 +37,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/servers", get(servers::list))
         .route("/api/servers", post(servers::create))
+        .route("/api/metrics/latest", get(servers::metrics_latest))
         .route("/api/servers/{server_id}", get(servers::detail))
         .route("/api/servers/{server_id}/metrics", get(servers::metrics))
         .route(
@@ -49,6 +50,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/deployments", get(deployments::list))
         .route("/api/deployments", post(deployments::create))
+        .route("/api/deployments/{id}", get(deployments::detail))
         .route("/api/deployments/{id}/stop", post(deployments::stop))
         .route("/api/deployments/{id}/restart", post(deployments::restart))
         .route(
@@ -67,5 +69,6 @@ pub fn router(state: AppState) -> Router {
         .route("/agent/metrics", post(agent::metrics))
         .route("/agent/tasks/next", get(agent::tasks_next))
         .route("/agent/tasks/result", post(agent::tasks_result))
+        .route("/agent/tasks/progress", post(agent::tasks_progress))
         .with_state(state)
 }

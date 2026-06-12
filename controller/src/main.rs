@@ -64,6 +64,7 @@ async fn serve() -> Result<(), Box<dyn Error>> {
         public_url: Arc::from(config.public_url.as_str()),
         admin_emails: Arc::from(config.admin_emails.clone()),
         apps_domain: config.apps_domain.as_deref().map(Arc::from),
+        progress: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
     };
 
     let app = routes::router(state);

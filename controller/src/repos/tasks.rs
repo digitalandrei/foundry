@@ -3,7 +3,7 @@
 //! where deployment state advances and replacement chains continue.
 //! Agents report; the controller decides.
 
-use foundry_shared::dto::{TaskPayload, TaskResultReport};
+use foundry_shared::dto::{TaskPayload, TaskProgressReport, TaskResultReport};
 use foundry_shared::{
     DeploymentId, DeploymentState, ServerId, SlotState, TaskId, TaskType, UserId,
 };
@@ -102,13 +102,87 @@ struct TaskRow {
     server_id: ServerId,
 }
 
+/// Live DEPLOY progress (best-effort, agent-throttled): advance the
+/// deployment through PULLING_IMAGE → CREATING_CONTAINER → STARTING.
+/// Returns the deployment id when the report is current (the caller
+/// keeps the transient detail text in AppState — in-memory by design);
+/// None when stale (drop silently — never poison the agent loop).
+pub async fn progress(
+    pool: &MySqlPool,
+    reporting_server: ServerId,
+    report: &TaskProgressReport,
+) -> Result<Option<DeploymentId>, AppError> {
+    if !matches!(
+        report.state,
+        DeploymentState::PullingImage
+            | DeploymentState::CreatingContainer
+            | DeploymentState::Starting
+    ) {
+        return Err(AppError::BadRequest(
+            "progress may only report PULLING_IMAGE/CREATING_CONTAINER/STARTING".into(),
+        ));
+    }
+    let mut tx = pool.begin().await?;
+    let task = sqlx::query!(
+        r#"SELECT server_id AS "server_id: Uuid", deployment_id AS "deployment_id: Uuid", state
+           FROM agent_tasks WHERE id = ? FOR UPDATE"#,
+        report.task_id.0
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound("task not found"))?;
+    if task.server_id != reporting_server.0 {
+        return Err(AppError::Forbidden);
+    }
+    let Some(deployment_id) = task.deployment_id else {
+        return Err(AppError::BadRequest("task carries no deployment".into()));
+    };
+    if task.state != "DISPATCHED" {
+        // Completed/requeued in the meantime — stale report.
+        tx.commit().await?;
+        return Ok(None);
+    }
+
+    let current = sqlx::query!(
+        "SELECT state FROM deployments WHERE id = ? FOR UPDATE",
+        deployment_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound("deployment vanished"))?;
+    let current: DeploymentState = current.state.parse().map_err(AppError::internal)?;
+
+    if current != report.state {
+        if !lifecycle::is_legal(current, report.state) {
+            // Out-of-order/duplicate report (e.g. after re-dispatch).
+            tx.commit().await?;
+            return Ok(None);
+        }
+        lifecycle::transition_deployment(
+            &mut tx,
+            deployment_id.into(),
+            report.state,
+            &Actor::agent(),
+            report
+                .detail
+                .as_ref()
+                .map(|d| serde_json::json!({ "progress": d })),
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(Some(deployment_id.into()))
+}
+
 /// Apply an agent's result: mark the task, advance the deployment
 /// state machine, free/flag the slot, and continue replacement chains.
+/// Returns the task's deployment id (if any) so the caller can drop
+/// its transient progress entry.
 pub async fn complete(
     pool: &MySqlPool,
     reporting_server: ServerId,
     report: &TaskResultReport,
-) -> Result<(), AppError> {
+) -> Result<Option<DeploymentId>, AppError> {
     let now = chrono::Utc::now().naive_utc();
     let mut tx = pool.begin().await?;
 
@@ -129,7 +203,7 @@ pub async fn complete(
     if row.state == "SUCCEEDED" || row.state == "FAILED" {
         // Duplicate report after re-dispatch — idempotent no-op.
         tx.commit().await?;
-        return Ok(());
+        return Ok(row.deployment_id.map(Into::into));
     }
 
     sqlx::query!(
@@ -168,7 +242,7 @@ pub async fn complete(
     };
     advance_deployment(&mut tx, &task, report).await?;
     tx.commit().await?;
-    Ok(())
+    Ok(task.deployment_id)
 }
 
 /// Result → state-machine mapping, including the replacement chain

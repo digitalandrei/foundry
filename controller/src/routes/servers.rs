@@ -26,6 +26,16 @@ pub struct MetricsQuery {
     minutes: Option<i64>,
 }
 
+/// Newest sample per server — live labels on the dashboard slot grid.
+pub async fn metrics_latest(
+    State(state): State<AppState>,
+    _user: CurrentUser,
+) -> Result<Json<foundry_shared::dto::LatestMetricsResponse>, AppError> {
+    Ok(Json(foundry_shared::dto::LatestMetricsResponse {
+        servers: crate::repos::metrics::latest_per_server(&state.pool).await?,
+    }))
+}
+
 /// Telemetry series for the dedicated server page.
 pub async fn metrics(
     State(state): State<AppState>,

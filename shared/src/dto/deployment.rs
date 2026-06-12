@@ -79,6 +79,12 @@ pub struct DeploymentSummary {
     pub name: String,
     pub image_ref: String,
     pub state: DeploymentState,
+    /// Live progress while a DEPLOY task runs (`pulling: 3/7 layers …`);
+    /// cleared when the task reports its result.
+    pub status_detail: Option<String>,
+    /// Docker container id once the agent created it — joins the
+    /// telemetry sample's container metrics.
+    pub container_id: Option<String>,
     pub error_message: Option<String>,
     pub server_id: ServerId,
     pub server_name: String,
@@ -89,4 +95,30 @@ pub struct DeploymentSummary {
     pub ports: Vec<DeploymentPort>,
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
+}
+
+/// `GET /api/deployments/{id}` — the slot/deployment detail dialog:
+/// everything the summary has plus mounts and env *names* (values never
+/// leave the server; secrets are encrypted at rest — docs/SECURITY.md).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeploymentDetail {
+    #[serde(flatten)]
+    pub summary: DeploymentSummary,
+    pub mounts: Vec<DeploymentMount>,
+    pub env: Vec<DeploymentEnvKey>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeploymentMount {
+    /// None when the backing persistent volume was deleted later.
+    pub volume_name: Option<String>,
+    pub host_path: String,
+    pub container_path: String,
+    pub read_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeploymentEnvKey {
+    pub key: String,
+    pub is_secret: bool,
 }

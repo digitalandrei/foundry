@@ -135,6 +135,20 @@ pub fn setup_apps_standalone() -> Result<(), Box<dyn std::error::Error>> {
 fn setup_apps() -> Result<(), Box<dyn std::error::Error>> {
     use std::os::unix::fs::PermissionsExt;
 
+    // Persistent-volume root: the agent (service user) creates volume
+    // dirs under it at deploy time — a missing or root-owned
+    // /storage/containers was the first real-deploy failure (EROFS).
+    std::fs::create_dir_all("/storage/containers")?;
+    let status = Command::new("chown")
+        .args([
+            &format!("{SERVICE_USER}:{SERVICE_USER}"),
+            "/storage/containers",
+        ])
+        .status()?;
+    if !status.success() {
+        return Err("chown of /storage/containers failed".into());
+    }
+
     // Vhost dir is created even without nginx so the unit's
     // ReadWritePaths never points at a missing path.
     std::fs::create_dir_all(crate::vhost::VHOST_DIR)?;
@@ -328,7 +342,7 @@ fn write_unit() -> Result<(), Box<dyn std::error::Error>> {
          ProtectSystem=full\n\
          ProtectHome=yes\n\
          PrivateTmp=yes\n\
-         ReadWritePaths=/etc/foundry-agent /etc/nginx/foundry-apps\n\
+         ReadWritePaths=/etc/foundry-agent /etc/nginx/foundry-apps /storage/containers\n\
          \n\
          [Install]\n\
          WantedBy=multi-user.target\n"

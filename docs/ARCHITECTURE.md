@@ -227,6 +227,15 @@ Results are reported to `/agent/tasks/result`; the controller advances the
 deployment state machine accordingly. Task execution must be idempotent —
 the agent may re-receive a task after a crash.
 
+DEPLOY tasks additionally stream **live progress** to
+`/agent/tasks/progress` (0.10.0): stage transitions (PULLING_IMAGE →
+CREATING_CONTAINER → STARTING via the same transition table) plus a
+throttled human detail line aggregated from Docker's pull stream
+(`pulling: 3/7 layers · 410 / 1208 MB`). Progress is best-effort by
+contract: posts are fire-and-forget on the agent, stale/out-of-order
+reports are dropped by the controller, and the detail text lives in
+controller memory only — the durable truth stays the state machine.
+
 ## App Publishing (amendment, 0.8.0 — operator requirement)
 
 HTTP/S ports are published as per-app hostnames under a wildcard apps
@@ -254,9 +263,11 @@ Division of labor (operator decision — no Cloudflare/DNS integration):
 
 Host prerequisites (`foundry-agent --setup-apps`, also run by
 `--register`): vhost dir + conf.d include + websocket map, TLS drop
-point, the sudoers rule, and the updated systemd unit. The same
-command is the agent **upgrade path** (reinstalls the binary,
-refreshes the unit, restarts the service).
+point, the sudoers rule, the persistent-volume root
+(`/storage/containers`, owned by the service user — first real deploy
+failed without it), and the updated systemd unit (ReadWritePaths
+covers it). The same command is the agent **upgrade path** (reinstalls
+the binary, refreshes the unit, restarts the service).
 
 The deploy dialog pre-fills ports from the image's EXPOSE list
 (controller reads the registry config blob — API.md

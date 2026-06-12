@@ -210,6 +210,10 @@ export interface DeploymentSummary {
   name: string
   image_ref: string
   state: import("./states").DeploymentState
+  /** Live progress while a DEPLOY task runs (`pulling: 3/7 layers …`). */
+  status_detail: string | null
+  /** Docker container id — joins the telemetry sample's containers. */
+  container_id: string | null
   error_message: string | null
   server_id: string
   server_name: string
@@ -220,6 +224,36 @@ export interface DeploymentSummary {
   ports: DeploymentPort[]
   created_at: string
   started_at: string | null
+}
+
+export interface DeploymentMount {
+  /** null when the backing persistent volume was deleted later. */
+  volume_name: string | null
+  host_path: string
+  container_path: string
+  read_only: boolean
+}
+
+export interface DeploymentEnvKey {
+  key: string
+  is_secret: boolean
+}
+
+/** GET /api/deployments/{id} — summary fields are flattened in. */
+export interface DeploymentDetail extends DeploymentSummary {
+  mounts: DeploymentMount[]
+  env: DeploymentEnvKey[]
+}
+
+/** GET /api/metrics/latest — newest telemetry sample per server. */
+export interface LatestServerMetrics {
+  server_id: string
+  sampled_at: string
+  sample: MetricsSample
+}
+
+export interface LatestMetricsResponse {
+  servers: LatestServerMetrics[]
 }
 
 export interface ServerVolume {

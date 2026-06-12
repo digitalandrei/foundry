@@ -4,8 +4,10 @@ import { toast } from "sonner"
 import { api, ApiError, queryKeys } from "@/lib/api"
 import type {
   CreateDeploymentRequest,
+  DeploymentDetail,
   DeploymentSummary,
   ExposedPortsResponse,
+  LatestMetricsResponse,
   ServerVolume,
 } from "@/lib/types"
 
@@ -15,6 +17,25 @@ export function useDeployments() {
     queryFn: () => api<DeploymentSummary[]>("/api/deployments"),
     // Lifecycle moves fast (pull → run); keep the table close to live.
     refetchInterval: 5_000,
+  })
+}
+
+/** Mounts + env names for the slot detail dialog. */
+export function useDeploymentDetail(id: string | null) {
+  return useQuery({
+    queryKey: queryKeys.deploymentDetail(id ?? ""),
+    queryFn: () => api<DeploymentDetail>(`/api/deployments/${id}`),
+    enabled: id !== null,
+    refetchInterval: 5_000, // live state/progress while the dialog is open
+  })
+}
+
+/** Newest telemetry sample per server — live slot-grid labels. */
+export function useLatestMetrics() {
+  return useQuery({
+    queryKey: queryKeys.metricsLatest,
+    queryFn: () => api<LatestMetricsResponse>("/api/metrics/latest"),
+    refetchInterval: 15_000, // agents sample every 30s
   })
 }
 

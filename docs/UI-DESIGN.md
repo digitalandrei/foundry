@@ -20,11 +20,13 @@ persistent left sidebar rather than separate pages.
 
 Three regions:
 
-### Scroll model (operator feedback, 2026-06-11)
+### Scroll model (operator feedback, 2026-06-11; refined 0.10.0)
 
-The dashboard is app-like: the page itself never scrolls. The
-containers tree scrolls within its card (search box pinned), and the
-main column scrolls independently; System Status stays put.
+The dashboard is app-like: on wide screens the page itself never
+scrolls — every box scrolls inside itself (containers tree, servers
+grid, deployments table each in their own card; System Status stays
+put). Below the `lg` breakpoint the boxes stack vertically and the
+page scrolls normally — content is never trapped.
 
 ### 1. Left sidebar — "Available Containers (from GitLab)"
 
@@ -52,12 +54,26 @@ main column scrolls independently; System Status stays put.
 - Header with state legend: **Free / Running / Reserved / Offline**.
 - One row per server: status dot, name (`gpu-server-01`), IP, OS, GPU model,
   `MIG Mode: Enabled|Disabled`, totals (`8 GPUs | 64 MIG Slices`).
-- Per GPU (`GPU 0 (A100 80GB)`): a horizontal strip of **slot chips**.
-  - Chip anatomy: slot name `g:i` (GPU index : slice index — display only,
-    identity is the UUID), MIG profile (`1g.10gb`, `2g.20gb`, `3g.40gb`,
-    `7g.80gb`), and when occupied the workload name + version
-    (e.g. `1:1 · comfyui v0.3.29 · 1g.10gb`).
-  - Non-MIG GPUs show full-GPU cards (`GPU 0 · 80 GB · (No MIG)`).
+- GPUs render as **cells that split the full row width** (0.10.0,
+  operator feedback: chips were small with space to spare) —
+  `repeat(auto-fit, minmax(280px, 1fr))`, so 2 GPUs split 50/50.
+  - GPU cell header: index, model, MIG badge, and **live silicon
+    telemetry** (util % · mem GB · temp °C · power W) from
+    `GET /api/metrics/latest`. NVML cannot attribute per MIG slice, so
+    GPU-level stats live here, container stats on the chips.
+  - Slot chips stretch to fill their GPU cell (a full-GPU slot fills
+    it entirely). Chip anatomy: slot name `g:i` (display only —
+    identity is the UUID) + capacity/MIG profile + state label, then
+    when occupied the workload name and a small live-usage line
+    (`CPU 12% · MEM 3.4/16 GB`, or the in-flight progress text while
+    deploying — `pulling: 3/7 layers · 410 / 1208 MB`).
+  - **Clicking an occupied chip opens the slot detail dialog**
+    (`slot-detail-dialog.tsx`, backed by `GET /api/deployments/{id}`):
+    state + live progress/error, image, usage, ports incl. clickable
+    app URLs, **mounts** (volume name, container path, ro, host path),
+    env *names* (secrets shown as `•••` — values never leave the
+    server), uptime/creator. Presentational only — lifecycle actions
+    stay on the Deployments page.
 - **Drag interaction**: dragging a container card over a valid `FREE` slot
   shows a dashed highlighted drop target (mockup: dashed green outline with
   a floating card ghost showing image + version + size). Dropping opens the
@@ -65,13 +81,15 @@ main column scrolls independently; System Status stays put.
   replacement confirmation (see `ARCHITECTURE.md` § Replacement workflow).
 - Offline servers render gray with hollow status dot; their slots are inert.
 
-### 3. Bottom panel — "Running Deployments"
+### 3. Bottom panel — "Deployments"
 
-Table with count badge and "View All" link to the Deployments page.
-Columns: **Name** (generated, e.g. `comfyui-7f9d2`) · **Image**
-(`namespace/project`) · **Version** · **Server** · **GPU / Slice**
-(`GPU 1 / 1:1 (1g.10gb)`) · **Status** (colored) · **Uptime** · **Actions**
-(console/logs, metrics, delete).
+Table with running-count badge and "View All" link to the Deployments
+page. Shows everything alive on the fleet — including **in-flight
+deploys with live progress text** under the status label and FAILED
+rows with their error (REPLACED history stays on the Deployments
+page). Columns: **Name** · **Image** · **Server** · **GPU / Slice** ·
+**Status** (colored; progress/error sub-line) · **Uptime**. Actions
+live on the Deployments page.
 
 ## Slot State Colors
 

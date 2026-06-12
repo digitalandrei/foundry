@@ -80,14 +80,19 @@ export function DashboardPage() {
     setTarget({ tag, slot, replaces: current })
   }
 
+  // The dashboard table shows everything still alive on the fleet —
+  // including in-flight deploys (live progress) and failures. History
+  // (REPLACED) stays on the Deployments page.
+  const active = (deployments.data ?? []).filter((d) => d.state !== "REPLACED")
+
   return (
-    // App-like layout: the page itself never scrolls — the containers
-    // tree and the main column each scroll independently
-    // (header h-14 + main p-4 → 5.5rem of chrome).
+    // App-like layout: on wide screens the page never scrolls — every
+    // box scrolls inside itself (header h-14 + main p-4 → 5.5rem of
+    // chrome). Below lg the boxes stack and the page scrolls normally.
     <DndContext onDragStart={onDragStart} onDragEnd={onDragEnd}>
-    <div className="flex h-[calc(100svh-5.5rem)] gap-4">
-      <aside className="flex w-72 shrink-0 flex-col gap-4">
-        <Card className="flex min-h-0 flex-1 flex-col">
+    <div className="flex h-auto flex-col gap-4 lg:h-[calc(100svh-5.5rem)] lg:flex-row">
+      <aside className="flex w-full shrink-0 flex-col gap-4 lg:w-72">
+        <Card className="flex max-h-[60svh] min-h-0 flex-1 flex-col lg:max-h-none">
           <CardHeader className="shrink-0">
             <CardTitle className="text-sm">Available Containers (from GitLab)</CardTitle>
           </CardHeader>
@@ -107,24 +112,24 @@ export function DashboardPage() {
         </Card>
       </aside>
 
-      <section className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
-        <Card className="shrink-0">
-          <CardHeader className="flex-row items-center justify-between">
+      <section className="flex min-w-0 flex-1 flex-col gap-4">
+        <Card className="flex min-h-0 flex-col lg:flex-[3]">
+          <CardHeader className="shrink-0 flex-row items-center justify-between">
             <CardTitle className="text-base">Servers &amp; GPU Slots (NVIDIA MIG)</CardTitle>
             <SlotLegend />
           </CardHeader>
-          <CardContent>
+          <CardContent className="min-h-0 flex-1 lg:overflow-y-auto">
             <ServerGrid />
           </CardContent>
         </Card>
 
-        <Card className="shrink-0">
-          <CardHeader className="flex-row items-center justify-between">
+        <Card className="flex min-h-0 flex-col lg:flex-[2]">
+          <CardHeader className="shrink-0 flex-row items-center justify-between">
             <CardTitle className="text-base">
-              Running Deployments
+              Deployments
               {deployments.data ? (
                 <Badge variant="secondary" className="ml-2">
-                  {deployments.data.filter((d) => d.state === "RUNNING").length}
+                  {deployments.data.filter((d) => d.state === "RUNNING").length} running
                 </Badge>
               ) : null}
             </CardTitle>
@@ -132,7 +137,7 @@ export function DashboardPage() {
               View All
             </Link>
           </CardHeader>
-          <CardContent>
+          <CardContent className="min-h-0 flex-1 lg:overflow-y-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -145,36 +150,51 @@ export function DashboardPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(deployments.data ?? []).filter((d) => d.state === "RUNNING").length === 0 ? (
+                {active.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
-                      No running deployments.
+                      No deployments yet — drag an image onto a free slot.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  (deployments.data ?? [])
-                    .filter((d) => d.state === "RUNNING")
-                    .map((d) => (
-                      <TableRow key={d.id}>
-                        <TableCell className="font-medium">{d.name}</TableCell>
-                        <TableCell
-                          className="max-w-56 truncate font-mono text-xs text-muted-foreground"
-                          title={d.image_ref}
-                        >
-                          {d.image_ref}
-                        </TableCell>
-                        <TableCell>{d.server_name}</TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {d.gpu_label} / {d.slot_name}
-                        </TableCell>
-                        <TableCell className={DEPLOYMENT_STATE_META[d.state].textClass}>
+                  active.map((d) => (
+                    <TableRow key={d.id}>
+                      <TableCell className="font-medium">{d.name}</TableCell>
+                      <TableCell
+                        className="max-w-56 truncate font-mono text-xs text-muted-foreground"
+                        title={d.image_ref}
+                      >
+                        {d.image_ref}
+                      </TableCell>
+                      <TableCell>{d.server_name}</TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {d.gpu_label} / {d.slot_name}
+                      </TableCell>
+                      <TableCell>
+                        <span className={DEPLOYMENT_STATE_META[d.state].textClass}>
                           {DEPLOYMENT_STATE_META[d.state].label}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {d.started_at ? formatRelative(d.started_at).replace(" ago", "") : "—"}
-                        </TableCell>
-                      </TableRow>
-                    ))
+                        </span>
+                        {d.status_detail ? (
+                          <span className="block max-w-52 truncate font-mono text-[10px] text-muted-foreground">
+                            {d.status_detail}
+                          </span>
+                        ) : null}
+                        {d.state === "FAILED" && d.error_message ? (
+                          <span
+                            className="block max-w-52 truncate text-[10px] text-muted-foreground"
+                            title={d.error_message}
+                          >
+                            {d.error_message}
+                          </span>
+                        ) : null}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {d.state === "RUNNING" && d.started_at
+                          ? formatRelative(d.started_at).replace(" ago", "")
+                          : "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))
                 )}
               </TableBody>
             </Table>

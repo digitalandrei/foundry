@@ -146,6 +146,20 @@ reflected in the affected docs in the same commit set:
   scope), `PortBinding.kind` serde-defaulted so pre-0.8 queued tasks
   survive upgrades, deploy-dialog form-state fixes (reset on close,
   subscribed dirty flag, host-port cleared on kind switch).
+- **2026-06-12** (0.10.0) — **Live deploy progress + dashboard rework**
+  (operator requests from first real deploy): agent streams pull/
+  create/start progress to `POST /agent/tasks/progress` (state machine
+  advances through the fine-grained states; detail text in controller
+  memory — transient by design); dashboard fits the viewport with
+  self-scrolling boxes (stacking below `lg`), GPU cells split the full
+  row width with live silicon telemetry, slot chips carry occupant +
+  live CPU/MEM (or progress while deploying) and click through to a
+  detail dialog (mounts, env names, app URLs) via
+  `GET /api/deployments/{id}` + `GET /api/metrics/latest`; deploy
+  dialog previews the real `<name>.ai.protv.ro` hostname. Fixes from
+  the failed first deploy: `--setup-apps` prepares service-user-owned
+  `/storage/containers` (EROFS under the old strict unit) and re-claim
+  dispatch tolerates already-advanced deployments.
 - **2026-06-11** (Phase 3) — First-instance bootstrap CLI:
   `foundry-controller instance add` (Settings UI requires an admin,
   who requires a login, which requires an instance).

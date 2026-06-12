@@ -106,3 +106,16 @@ pub struct TaskResultReport {
     /// Operator-readable failure summary (no secrets).
     pub error: Option<String>,
 }
+
+/// `POST /agent/tasks/progress` — best-effort live status while a
+/// DEPLOY executes (docs/API.md § Agent API). `state` is one of
+/// PULLING_IMAGE / CREATING_CONTAINER / STARTING; the controller
+/// advances the deployment state machine and stores `detail` as the
+/// transient `status_detail` shown in the UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskProgressReport {
+    pub task_id: TaskId,
+    pub state: crate::DeploymentState,
+    /// e.g. `pulling: 3/7 layers · 410 MB / 1.2 GB` (no secrets).
+    pub detail: Option<String>,
+}

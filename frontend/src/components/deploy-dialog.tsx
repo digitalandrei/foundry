@@ -260,6 +260,21 @@ export function DeployDialog({
           {ports.fields.map((field, i) => {
             const kind = form.watch(`ports.${i}.kind`)
             const isWeb = kind === "HTTP" || kind === "HTTPS"
+            // Mirror of the controller's hostname rule: <name>.<domain>,
+            // or <name>-<container_port>.<domain> with several web ports.
+            const slug =
+              form
+                .watch("name")
+                .trim()
+                .toLowerCase()
+                .replace(/_/g, "-")
+                .replace(/^-+|-+$/g, "") || "<name>"
+            const webCount = form
+              .watch("ports")
+              .filter((p) => p.kind === "HTTP" || p.kind === "HTTPS").length
+            const previewHost = `${slug}${
+              webCount > 1 ? `-${form.watch(`ports.${i}.container_port`)}` : ""
+            }.${appsDomain}`
             return (
               <div key={field.id} className="flex items-start gap-2">
                 <Field className="flex-1">
@@ -307,8 +322,11 @@ export function DeployDialog({
                     {isWeb ? "Published" : "Host (optional)"}
                   </FieldLabel>
                   {isWeb ? (
-                    <p className="flex h-9 items-center truncate text-xs text-muted-foreground">
-                      https://…{appsDomain}
+                    <p
+                      className="flex h-9 max-w-44 items-center truncate font-mono text-xs text-muted-foreground"
+                      title={`https://${previewHost}`}
+                    >
+                      {previewHost}
                     </p>
                   ) : (
                     <Input

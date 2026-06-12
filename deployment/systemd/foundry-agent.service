@@ -29,6 +29,7 @@ TimeoutStopSec=45
 # (docs/SECURITY.md § App Publishing):
 #   - /etc/foundry-agent: identity config (read-only would break rotation)
 #   - /etc/nginx/foundry-apps: agent-managed HTTP/S vhosts
+#   - /storage/containers: persistent volume dirs created at deploy
 #   - no NoNewPrivileges: the sudoers-scoped `sudo nginx -s reload`
 #     needs the setuid transition
 #   - ProtectSystem=full, not strict: `nginx -t` writes logs/temp
@@ -38,7 +39,7 @@ TimeoutStopSec=45
 ProtectSystem=full
 ProtectHome=yes
 PrivateTmp=yes
-ReadWritePaths=/etc/foundry-agent /etc/nginx/foundry-apps
+ReadWritePaths=/etc/foundry-agent /etc/nginx/foundry-apps /storage/containers
 
 [Install]
 WantedBy=multi-user.target

@@ -26,6 +26,9 @@ const DEPLOYMENT_TRANSITIONS: &[(D, D)] = &[
     (D::PullingImage, D::Failed),
     (D::CreatingContainer, D::Starting),
     (D::CreatingContainer, D::Failed),
+    // Progress reports are best-effort: a lost STARTING report must not
+    // wedge the success result.
+    (D::CreatingContainer, D::Running),
     (D::Starting, D::Running),
     (D::Starting, D::Failed),
     (D::Running, D::Stopping),
