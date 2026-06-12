@@ -187,6 +187,38 @@ pub async fn remove(
     summary_of(&state, id).await.map(Json)
 }
 
+/// Dismiss a FAILED deployment — clears the error and frees a stuck
+/// slot (controller-side; no agent needed). Owner/admin.
+pub async fn dismiss(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    headers: HeaderMap,
+    Path(id): Path<DeploymentId>,
+) -> Result<axum::http::StatusCode, AppError> {
+    let d = deployments::get(&state.pool, id).await?;
+    if d.created_by != user.id && !user.is_admin {
+        return Err(AppError::Forbidden);
+    }
+    deployments::dismiss(&state.pool, id).await?;
+    state.progress.lock().expect("progress lock").remove(&id.0);
+
+    audit::record(
+        &state.pool,
+        AuditEntry {
+            actor_type: ActorType::User,
+            actor_id: Some(user.id),
+            action: "DEPLOYMENT_DISMISSED",
+            subject_type: Some("deployment"),
+            subject_id: Some(id.0),
+            detail: None,
+            ip_address: client_ip(&headers).as_deref(),
+        },
+    )
+    .await?;
+    // The deployment is REMOVED now (gone from the active list).
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
 /// Replace the deployment occupying a slot: create the successor, link
 /// it, and start the stop→remove→deploy chain
 /// (docs/ARCHITECTURE.md § Replacement workflow).

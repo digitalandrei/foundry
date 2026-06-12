@@ -28,6 +28,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/instances", get(instances::list_public))
         .route("/api/instances/full", get(instances::list_admin))
         .route("/api/instances", post(instances::create))
+        .route("/api/instances/{id}", axum::routing::put(instances::update))
+        .route(
+            "/api/instances/{id}",
+            axum::routing::delete(instances::delete),
+        )
         .route("/api/me", get(me::me))
         .route("/api/projects", get(projects::list))
         .route("/api/registry/{project_id}", get(registry::browse))
@@ -53,6 +58,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/deployments/{id}", get(deployments::detail))
         .route("/api/deployments/{id}/stop", post(deployments::stop))
         .route("/api/deployments/{id}/restart", post(deployments::restart))
+        .route("/api/deployments/{id}/dismiss", post(deployments::dismiss))
         .route(
             "/api/deployments/{id}",
             axum::routing::delete(deployments::remove),

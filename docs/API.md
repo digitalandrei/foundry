@@ -26,6 +26,8 @@ user's GitLab account on the instance that owns the resource.
 | `GET /api/instances` | Minimal instance list `{id, name}` for the login picker — **the one unauthenticated `/api` endpoint, by design** | ✅ live |
 | `GET /api/instances/full` | Full instance list (no secrets) — admin | ✅ live |
 | `POST /api/instances` | Onboard a GitLab instance — admin | ✅ live |
+| `PUT /api/instances/{id}` | Edit an instance (URLs, client id, optional secret rotation, enable/disable) — admin | ✅ live |
+| `DELETE /api/instances/{id}` | Remove an instance — admin; refused while it has linked accounts/projects/deployments (disable instead) | ✅ live |
 | `GET /api/projects` | GitLab projects visible to the user, resolved live per instance (degrades per account when an instance is unreachable) | ✅ live |
 | `GET /api/registry/{project_id}` | Registry browse for one project: repositories + tags (size/pushed_at via per-tag detail, capped at 50/repo) — fetched lazily as the sidebar tree expands | ✅ live |
 | `GET /api/registry/tags/{tag_id}/exposed-ports` | EXPOSE'd ports read from the image config blob (Registry v2: manifest → config; linux/amd64 picked from multi-arch indexes) — deploy-dialog prefill. Best-effort: failures return an empty list | ✅ live |
@@ -40,6 +42,7 @@ user's GitLab account on the instance that owns the resource.
 | `POST /api/deployments` | Create from drag-drop: slot (FREE, locked) + tag + ports (per-port kind, pool-allocated; HTTP/S get a unique `<name>.apps-domain` hostname) + env (secrets encrypted) + persistent volumes; returns it VALIDATING | ✅ live |
 | `POST /api/deployments/{id}/replace` | Replacement chain: stop old → remove old → REPLACED → deploy successor on the same slot | ✅ live |
 | `POST /api/deployments/{id}/stop` · `/restart` | Lifecycle actions (legality enforced by the transition table) | ✅ live |
+| `POST /api/deployments/{id}/dismiss` | Clear a FAILED deployment (→ REMOVED) and free its stuck slot — controller-side, no agent; owner/admin | ✅ live |
 | `DELETE /api/deployments/{id}` | Remove a stopped/failed deployment (container removed; volumes survive) | ✅ live |
 | `GET /api/servers/{id}/volumes` | Persistent volumes (own; admins see all) with attached-to info | ✅ live |
 | `DELETE /api/volumes/{id}` | Delete volume + data (creator/admin; refused while mounted) | ✅ live |

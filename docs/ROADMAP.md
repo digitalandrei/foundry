@@ -12,7 +12,7 @@ in `docs/plans/`.
 | 3 | Authentication (GitLab OAuth, multi-instance) | [plans/phase-03.md](plans/phase-03.md) | ✅ Done (2026-06-11) — E2E verified against g.protv.ro |
 | 4 | Agent enrollment | [plans/phase-04.md](plans/phase-04.md) | 🔶 Built & deployed (0.2.0) — awaiting first real GPU-server enrollment; rotation endpoint pending |
 | 5 | Inventory (GPU/MIG discovery & reconciliation) | [plans/phase-05.md](plans/phase-05.md) | ✅ Done (2026-06-12) — inventory verified on real L40S servers (0.3/0.4); telemetry shipped (0.5.0) |
-| 6 | Deployments (lifecycle, replacement) | [plans/phase-06.md](plans/phase-06.md) | 🔶 Built & deployed (0.8.0) — TCP/UDP + volumes live; HTTP/S app publishing under `*.ai.protv.ro` (agent-managed vhosts) + EXPOSE port discovery built; awaiting first real GPU deploy |
+| 6 | Deployments (lifecycle, replacement) | [plans/phase-06.md](plans/phase-06.md) | 🔶 Built & deployed (0.11.0) — TCP/UDP + volumes live; HTTP/S publishing under per-server `*.<server>.ai.protv.ro` (agent vhosts) + EXPOSE discovery + live progress + slot auto-heal/dismiss; first real GPU deploy in progress |
 | 7 | Logs | [plans/phase-07.md](plans/phase-07.md) | ⬜ Not started |
 | 8 | UI (full dashboard, dark+light themes) | [plans/phase-08.md](plans/phase-08.md) | ⬜ Not started |
 | 9 | Security hardening | [plans/phase-09.md](plans/phase-09.md) | ⬜ Not started |
@@ -160,6 +160,18 @@ reflected in the affected docs in the same commit set:
   the failed first deploy: `--setup-apps` prepares service-user-owned
   `/storage/containers` (EROFS under the old strict unit) and re-claim
   dispatch tolerates already-advanced deployments.
+- **2026-06-12** (0.11.0) — **Per-server app subdomains + slot
+  auto-heal + instance management** (operator feedback): app hostnames
+  are now `<name>.<server>.ai.protv.ro` (per-server wildcard DNS/cert,
+  predictable routing); a *failed deploy* releases its slot to FREE
+  (the agent removes any container it created; nothing is left on the
+  GPU) and survives only as a FAILED deployment log — no more stuck
+  slots — with `POST /api/deployments/{id}/dismiss` to clear failures
+  controller-side and free a slot stuck by a stop/remove failure;
+  GitLab instances are editable (URLs, secret rotation, enable/disable)
+  and removable (guarded). Agent volume-create errors now point at
+  `--setup-apps`; drag-drop snaps onto the slot (no fly-back). Affects
+  ARCHITECTURE, API, DATABASE, DEPLOYMENT, GITLAB-INTEGRATION.
 - **2026-06-11** (Phase 3) — First-instance bootstrap CLI:
   `foundry-controller instance add` (Settings UI requires an admin,
   who requires a login, which requires an instance).

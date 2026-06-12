@@ -5,11 +5,13 @@ import {
   RotateCcwIcon,
   SquareIcon,
   Trash2Icon,
+  XCircleIcon,
 } from "lucide-react"
 
 import { EmptyState } from "@/components/empty-state"
 import {
   useDeployments,
+  useDismissDeployment,
   useRemoveDeployment,
   useRestartDeployment,
   useStopDeployment,
@@ -87,8 +89,9 @@ function DeploymentRow({ deployment: d }: { deployment: DeploymentSummary }) {
   const stop = useStopDeployment()
   const restart = useRestartDeployment()
   const remove = useRemoveDeployment()
+  const dismiss = useDismissDeployment()
   const meta = DEPLOYMENT_STATE_META[d.state]
-  const busy = stop.isPending || restart.isPending || remove.isPending
+  const busy = stop.isPending || restart.isPending || remove.isPending || dismiss.isPending
 
   return (
     <TableRow>
@@ -165,7 +168,7 @@ function DeploymentRow({ deployment: d }: { deployment: DeploymentSummary }) {
               <SquareIcon className="size-3.5" />
             </Button>
           ) : null}
-          {d.state === "STOPPED" || d.state === "FAILED" ? (
+          {d.state === "STOPPED" ? (
             <>
               <Button
                 variant="outline"
@@ -190,6 +193,19 @@ function DeploymentRow({ deployment: d }: { deployment: DeploymentSummary }) {
                 <Trash2Icon className="size-3.5" />
               </Button>
             </>
+          ) : null}
+          {d.state === "FAILED" ? (
+            <Button
+              variant="outline"
+              size="icon"
+              className="size-8 text-slot-failed"
+              disabled={busy}
+              onClick={() => dismiss.mutate(d.id)}
+              aria-label="Dismiss"
+              title="Clear this failed deployment (the slot is already free)"
+            >
+              <XCircleIcon className="size-3.5" />
+            </Button>
           ) : null}
         </div>
       </TableCell>

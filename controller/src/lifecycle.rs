@@ -44,6 +44,9 @@ const DEPLOYMENT_TRANSITIONS: &[(D, D)] = &[
     (D::Restarting, D::Failed),
     (D::Failed, D::Removing),
     (D::Failed, D::Restarting),
+    // Dismiss: clear a failed deployment controller-side (no container
+    // to remove — the slot already auto-healed). 0.11.0.
+    (D::Failed, D::Removed),
     (D::Removing, D::Removed),
     (D::Removing, D::Failed),
 ];

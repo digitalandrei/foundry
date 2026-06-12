@@ -115,6 +115,110 @@ pub async fn insert(
     Ok(id.into())
 }
 
+pub struct InstanceUpdate<'a> {
+    pub name: &'a str,
+    pub base_url: &'a str,
+    pub registry_url: &'a str,
+    pub oauth_client_id: &'a str,
+    /// None keeps the stored secret; Some re-encrypts a new one.
+    pub oauth_client_secret: Option<&'a str>,
+    pub enabled: bool,
+}
+
+pub async fn update(
+    pool: &MySqlPool,
+    secrets: &SecretBox,
+    id: GitlabInstanceId,
+    upd: InstanceUpdate<'_>,
+) -> Result<(), AppError> {
+    let now = chrono::Utc::now().naive_utc();
+    let result = match upd.oauth_client_secret {
+        Some(secret) => {
+            sqlx::query!(
+                r#"UPDATE gitlab_instances
+                   SET name = ?, base_url = ?, registry_url = ?, oauth_client_id = ?,
+                       oauth_client_secret = ?, enabled = ?, updated_at = ?
+                   WHERE id = ?"#,
+                upd.name,
+                upd.base_url,
+                upd.registry_url,
+                upd.oauth_client_id,
+                secrets.encrypt_str(secret),
+                upd.enabled,
+                now,
+                id.0,
+            )
+            .execute(pool)
+            .await
+        }
+        None => {
+            sqlx::query!(
+                r#"UPDATE gitlab_instances
+                   SET name = ?, base_url = ?, registry_url = ?, oauth_client_id = ?,
+                       enabled = ?, updated_at = ?
+                   WHERE id = ?"#,
+                upd.name,
+                upd.base_url,
+                upd.registry_url,
+                upd.oauth_client_id,
+                upd.enabled,
+                now,
+                id.0,
+            )
+            .execute(pool)
+            .await
+        }
+    }
+    .map_err(|e| match &e {
+        sqlx::Error::Database(db) if db.is_unique_violation() => {
+            AppError::BadRequest("an instance with this name already exists".into())
+        }
+        _ => AppError::Db(e),
+    })?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound("GitLab instance not found"));
+    }
+    Ok(())
+}
+
+/// Delete an onboarded instance — refused while anything references it
+/// (linked accounts, mirrored projects, deployments). The admin
+/// disables it instead in that case (disabled hides it from login and
+/// blocks new use without losing history).
+pub async fn delete(pool: &MySqlPool, id: GitlabInstanceId) -> Result<(), AppError> {
+    let accounts = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM gitlab_accounts WHERE gitlab_instance_id = ?",
+        id.0
+    )
+    .fetch_one(pool)
+    .await?;
+    let projects = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM gitlab_projects WHERE gitlab_instance_id = ?",
+        id.0
+    )
+    .fetch_one(pool)
+    .await?;
+    let deployments = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM deployments WHERE gitlab_instance_id = ?",
+        id.0
+    )
+    .fetch_one(pool)
+    .await?;
+    if accounts + projects + deployments > 0 {
+        return Err(AppError::BadRequest(format!(
+            "instance still has {accounts} linked account(s), {projects} mirrored project(s), \
+             and {deployments} deployment(s) — disable it instead of deleting"
+        )));
+    }
+    let result = sqlx::query!("DELETE FROM gitlab_instances WHERE id = ?", id.0)
+        .execute(pool)
+        .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound("GitLab instance not found"));
+    }
+    Ok(())
+}
+
 /// Normalize and sanity-check an instance URL (https, no trailing /).
 pub fn normalize_url(raw: &str, field: &'static str) -> Result<String, AppError> {
     let url = raw.trim().trim_end_matches('/').to_string();

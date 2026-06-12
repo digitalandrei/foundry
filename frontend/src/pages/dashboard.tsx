@@ -1,5 +1,8 @@
 import { useState } from "react"
 import { DndContext, DragOverlay, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core"
+// No drop animation: the card snaps to the slot (opening the dialog)
+// instead of flying back to the sidebar on release (operator request).
+const NO_DROP_ANIMATION = null
 import { Link } from "@tanstack/react-router"
 import { PackageIcon } from "lucide-react"
 import { toast } from "sonner"
@@ -203,7 +206,7 @@ export function DashboardPage() {
       </section>
     </div>
 
-    <DragOverlay>
+    <DragOverlay dropAnimation={NO_DROP_ANIMATION}>
       {dragging ? (
         <div className="flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm shadow-lg">
           <PackageIcon className="size-4 text-muted-foreground" aria-hidden />

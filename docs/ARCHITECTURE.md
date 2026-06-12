@@ -167,6 +167,15 @@ RUNNING → REPLACED   (superseded by a replacement deployment)
 Every transition writes a `deployment_events` row (old state, new state,
 actor, timestamp, detail) and is auditable end to end.
 
+**Slot auto-heal (0.11.0):** a failed *deploy* leaves nothing on the GPU
+(the agent's executor removes any container it created), so the slot is
+released to FREE rather than left stuck FAILED — the failure survives only
+as the deployment's FAILED log. Same for a container that vanishes from an
+inventory snapshot. A STOP/REMOVE failure keeps the slot FAILED (a
+container may remain); the operator clears it with **dismiss** (`Failed →
+Removed`, controller-side, frees the slot). Failed deployments never hold a
+slot through inventory reconciliation.
+
 ### Replacement workflow
 
 When a user drags an image onto an **occupied** slot:
@@ -244,15 +253,19 @@ mapping directly onto the server IP.
 
 Division of labor (operator decision — no Cloudflare/DNS integration):
 
-- **Operator (once)**: wildcard DNS for `*.ai.protv.ro` pointing at the
-  GPU servers, and the wildcard certificate dropped at
-  `/etc/foundry-agent/tls/{fullchain.pem,privkey.pem}` on each server
-  (renewals too — private keys never travel through Foundry).
-- **Controller**: assigns hostnames at create time — one HTTP/S port →
-  `<name>.<domain>`, several → `<name>-<container_port>.<domain>` —
-  unique across all active deployments (`deployment_ports.hostname`),
-  and ships them in the DEPLOY payload. Enabled by
-  `FOUNDRY_APPS_DOMAIN`; unset rejects HTTP/S kinds.
+- **Operator (once, per server)**: wildcard DNS `*.<server>.ai.protv.ro`
+  pointing at that GPU server, and a wildcard certificate for
+  `*.<server>.ai.protv.ro` dropped at
+  `/etc/foundry-agent/tls/{fullchain.pem,privkey.pem}` on it (renewals
+  too — private keys never travel through Foundry).
+- **Controller**: assigns hostnames at create time as a **per-server
+  subdomain** — `<name>.<server>.<domain>`, or
+  `<name>-<port>.<server>.<domain>` for several web ports — unique across
+  all active deployments (`deployment_ports.hostname`), and ships them in
+  the DEPLOY payload. The per-server subdomain gives predictable DNS and
+  lets the operator issue one wildcard cert per server
+  (`*.<server>.<domain>`). Enabled by `FOUNDRY_APPS_DOMAIN`; unset rejects
+  HTTP/S kinds. A replacement keeps its predecessor's hostname.
 - **Agent**: owns `/etc/nginx/foundry-apps/<deployment_id>.conf` on its
   server — written after the container starts (80→443 redirect + TLS
   proxy_pass to `127.0.0.1:<host_port>`, websocket upgrade, streaming-

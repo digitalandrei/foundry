@@ -129,3 +129,17 @@ export function useRemoveDeployment() {
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Remove failed"),
   })
 }
+
+/** Clear a FAILED deployment and free its stuck slot (no agent). */
+export function useDismissDeployment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      api<void>(`/api/deployments/${id}/dismiss`, { method: "POST" }),
+    onSuccess: () => {
+      toast.success("Failed deployment cleared — slot released")
+      invalidateAll(queryClient)
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Dismiss failed"),
+  })
+}

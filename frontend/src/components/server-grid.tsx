@@ -243,16 +243,19 @@ function SlotChip({
   const capacity =
     slot.mig_profile ??
     (slot.capacity_mb != null ? `${Math.round(slot.capacity_mb / 1024)} GB` : "")
-  const usage = containerMetrics(sample, occupant?.container_id ?? null)
+  // A FREE slot shows nothing even if a now-dismissable FAILED
+  // deployment still references it (auto-heal: failures free the slot).
+  const shown = slot.state === "FREE" ? undefined : occupant
+  const usage = containerMetrics(sample, shown?.container_id ?? null)
 
   return (
     <div
       ref={setNodeRef}
-      onClick={occupant ? () => onSelect(occupant.id) : undefined}
-      role={occupant ? "button" : undefined}
+      onClick={shown ? () => onSelect(shown.id) : undefined}
+      role={shown ? "button" : undefined}
       className={cn(
         "flex min-w-32 flex-1 flex-col gap-0.5 rounded-md border px-3 py-2 transition-colors",
-        occupant && "cursor-pointer hover:bg-accent/40",
+        shown && "cursor-pointer hover:bg-accent/40",
         slot.state === "FREE" && "border-slot-free/50",
         slot.state === "RUNNING" && "border-slot-running/60 bg-slot-running/10",
         slot.state === "OFFLINE" && "border-dashed opacity-60",
@@ -273,18 +276,18 @@ function SlotChip({
           {meta.label}
         </span>
       </span>
-      {occupant ? (
+      {shown ? (
         <>
-          <span className="truncate text-xs font-medium" title={occupant.image_ref}>
-            {occupant.name}
+          <span className="truncate text-xs font-medium" title={shown.image_ref}>
+            {shown.name}
           </span>
           <span className="truncate font-mono text-[10px] text-muted-foreground tabular-nums">
-            {occupant.status_detail
-              ? occupant.status_detail
+            {shown.status_detail
+              ? shown.status_detail
               : usage
                 ? `CPU ${usage.cpu_pct.toFixed(0)}% · MEM ${(usage.mem_used_mb / 1024).toFixed(1)}/${(usage.mem_limit_mb / 1024).toFixed(0)} GB`
-                : occupant.state !== "RUNNING"
-                  ? occupant.state.toLowerCase().replace(/_/g, " ")
+                : shown.state !== "RUNNING"
+                  ? shown.state.toLowerCase().replace(/_/g, " ")
                   : "—"}
           </span>
         </>

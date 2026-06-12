@@ -30,3 +30,16 @@ pub struct CreateInstanceRequest {
     pub oauth_client_id: String,
     pub oauth_client_secret: String,
 }
+
+/// Edit an onboarded instance. The secret is optional — omitted/empty
+/// keeps the stored one (it is never sent back to the client).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateInstanceRequest {
+    pub name: String,
+    pub base_url: String,
+    pub registry_url: String,
+    pub oauth_client_id: String,
+    #[serde(default)]
+    pub oauth_client_secret: Option<String>,
+    pub enabled: bool,
+}

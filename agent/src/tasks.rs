@@ -303,7 +303,10 @@ async fn deploy(
             .await;
     }
 
-    // Persistent volume directories (hard-scoped).
+    // Persistent volume directories (hard-scoped). create_dir_all builds
+    // the full per-user/per-volume path; the only realistic failure is
+    // the systemd sandbox (the volume root must exist, be owned by the
+    // service user, and sit in the unit's ReadWritePaths) — point there.
     for v in &p.volumes {
         if !v.host_path.starts_with(VOLUME_ROOT) || v.host_path.contains("..") {
             return Err(format!(
@@ -311,9 +314,19 @@ async fn deploy(
                 v.host_path
             ));
         }
-        tokio::fs::create_dir_all(&v.host_path)
-            .await
-            .map_err(|e| format!("creating {} failed: {e}", v.host_path))?;
+        tokio::fs::create_dir_all(&v.host_path).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::ReadOnlyFilesystem
+                || e.kind() == std::io::ErrorKind::PermissionDenied
+            {
+                format!(
+                    "creating {} failed: {e} — the volume root {VOLUME_ROOT} is not writable by \
+                     the agent; run `sudo foundry-agent --setup-apps` on this server",
+                    v.host_path
+                )
+            } else {
+                format!("creating {} failed: {e}", v.host_path)
+            }
+        })?;
     }
 
     // Pull (credential stays in memory; never logged).
@@ -443,13 +456,27 @@ async fn deploy(
     progress
         .stage(DeploymentState::Starting, "starting container")
         .await;
-    docker
+    if let Err(e) = docker
         .start_container(
             &created.id,
             None::<bollard::query_parameters::StartContainerOptions>,
         )
         .await
-        .map_err(|e| format!("container start failed: {e}"))?;
+    {
+        // A created-but-unstarted container would otherwise hold the
+        // name and clutter the host; the deploy is failing anyway, so
+        // remove it — a failed deploy leaves nothing behind.
+        let _ = docker
+            .remove_container(
+                &created.id,
+                Some(bollard::query_parameters::RemoveContainerOptions {
+                    force: true,
+                    ..Default::default()
+                }),
+            )
+            .await;
+        return Err(format!("container start failed: {e}"));
+    }
 
     // HTTP/S app publishing: the URL is part of the deployment contract
     // — a container nobody can reach is a failed deploy, so tear it

@@ -294,7 +294,8 @@ async fn advance_deployment(
             lifecycle::transition_slot(tx, slot_id, SlotState::Running).await?;
         }
         (TaskType::DeployContainer, false) => {
-            fail_deployment(tx, deployment_id, slot_id, report, &actor).await?;
+            // Nothing got deployed — free the slot so it auto-heals.
+            fail_deployment(tx, deployment_id, slot_id, report, &actor, true).await?;
         }
         (TaskType::StopContainer, true) => {
             lifecycle::transition_deployment(
@@ -324,7 +325,8 @@ async fn advance_deployment(
             }
         }
         (TaskType::StopContainer, false) => {
-            fail_deployment(tx, deployment_id, slot_id, report, &actor).await?;
+            // The container may still be running — keep the slot FAILED.
+            fail_deployment(tx, deployment_id, slot_id, report, &actor, false).await?;
         }
         (TaskType::RestartContainer, success) => {
             let to = if success {
@@ -374,7 +376,8 @@ async fn advance_deployment(
             }
         }
         (TaskType::RemoveContainer, false) => {
-            fail_deployment(tx, deployment_id, slot_id, report, &actor).await?;
+            // The container may still be present — keep the slot FAILED.
+            fail_deployment(tx, deployment_id, slot_id, report, &actor, false).await?;
             // Replacement chain: don't leave the successor wedged in
             // VALIDATING forever (review finding) — fail it too with a
             // clear, actionable error.
@@ -403,12 +406,20 @@ async fn advance_deployment(
     Ok(())
 }
 
+/// Mark a deployment FAILED with its error logged. `free_slot` releases
+/// the slot to FREE — used when nothing is actually deployed on it (a
+/// DEPLOY failure: the agent's executor guarantees no leftover
+/// container), so the slot auto-heals and stays usable instead of
+/// getting stuck (operator requirement, 0.11.0). STOP/REMOVE failures
+/// keep the slot FAILED — a container may still be present; the admin
+/// clears it explicitly (dismiss).
 async fn fail_deployment(
     tx: &mut MySqlConnection,
     deployment_id: DeploymentId,
     slot_id: foundry_shared::SlotId,
     report: &TaskResultReport,
     actor: &Actor,
+    free_slot: bool,
 ) -> Result<(), AppError> {
     let error = report.error.clone().unwrap_or_else(|| "task failed".into());
     sqlx::query!(
@@ -427,7 +438,16 @@ async fn fail_deployment(
         Some(serde_json::json!({ "error": error })),
     )
     .await?;
-    lifecycle::transition_slot(tx, slot_id, SlotState::Failed).await?;
+    lifecycle::transition_slot(
+        tx,
+        slot_id,
+        if free_slot {
+            SlotState::Free
+        } else {
+            SlotState::Failed
+        },
+    )
+    .await?;
     Ok(())
 }
 

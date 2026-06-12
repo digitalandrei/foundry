@@ -1,13 +1,15 @@
-import { ExternalLinkIcon, HardDriveIcon, LockIcon } from "lucide-react"
+import { ExternalLinkIcon, HardDriveIcon, LockIcon, XCircleIcon } from "lucide-react"
 
-import { useDeploymentDetail, useLatestMetrics } from "@/hooks/use-deployments"
+import { useDeploymentDetail, useDismissDeployment, useLatestMetrics } from "@/hooks/use-deployments"
 import { formatRelative } from "@/lib/format"
 import { DEPLOYMENT_STATE_META } from "@/lib/states"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -26,6 +28,7 @@ export function SlotDetailDialog({
 }) {
   const detail = useDeploymentDetail(deploymentId)
   const metrics = useLatestMetrics()
+  const dismiss = useDismissDeployment()
 
   if (!deploymentId) return null
   const d = detail.data
@@ -169,6 +172,22 @@ export function SlotDetailDialog({
                 </div>
               )}
             </Section>
+
+            {d.state === "FAILED" ? (
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  className="text-slot-failed"
+                  disabled={dismiss.isPending}
+                  onClick={() =>
+                    dismiss.mutate(d.id, { onSuccess: onClose })
+                  }
+                >
+                  <XCircleIcon className="size-3.5" aria-hidden />
+                  Clear failed deployment
+                </Button>
+              </DialogFooter>
+            ) : null}
           </>
         )}
       </DialogContent>

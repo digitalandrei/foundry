@@ -158,11 +158,15 @@ Publishing), prepares `/storage/containers` for persistent volumes
 the systemd unit, and restarts the service.
 
 **HTTP/S app publishing prerequisites per GPU server** (operator,
-once): install nginx, point wildcard DNS `*.ai.protv.ro` records at
-the server(s), and place/renew the wildcard certificate at
-`/etc/foundry-agent/tls/fullchain.pem` + `privkey.pem`. Ports 80/443
-must be reachable. Apps then publish at `https://<name>.ai.protv.ro`
-(multi-port: `<name>-<container_port>...`).
+once, **per server**): install nginx, point wildcard DNS
+`*.<server>.ai.protv.ro` (e.g. `*.protv-ai-04-02.ai.protv.ro`) at that
+GPU server, and place/renew a wildcard certificate for
+`*.<server>.ai.protv.ro` at `/etc/foundry-agent/tls/fullchain.pem` +
+`privkey.pem` on it. Ports 80/443 must be reachable. Apps then publish
+at `https://<name>.<server>.ai.protv.ro` (multi-port:
+`<name>-<container_port>.<server>...`). The per-server subdomain makes
+DNS and certs predictable: one wildcard per server covers every app on
+it.
 
 Agent ops: `systemctl status|stop|restart foundry-agent`,
 `journalctl -u foundry-agent -f` (JSON logs; state-transition lines

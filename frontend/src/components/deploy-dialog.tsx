@@ -169,6 +169,14 @@ export function DeployDialog({
 
   if (!target) return null
   const pending = create.isPending || replace.isPending
+  // Per-server subdomain label for the hostname preview (mirror of the
+  // controller's dns_label) — apps live at <name>.<server>.<domain>.
+  const serverSlug =
+    target.slot.serverName
+      .toLowerCase()
+      .replace(/_/g, "-")
+      .replace(/[^a-z0-9-]/g, "")
+      .replace(/^-+|-+$/g, "") || "<server>"
 
   const onSubmit = form.handleSubmit((values) => {
     const req = {
@@ -252,7 +260,7 @@ export function DeployDialog({
                     ? "The image declares no EXPOSE ports — add the ports your app listens on manually."
                     : "TCP/UDP map directly onto the server IP.",
               appsDomain
-                ? `HTTP/S ports publish at https://<name>.${appsDomain}.`
+                ? `HTTP/S ports publish at https://<name>.${serverSlug}.${appsDomain}.`
                 : "HTTP/S publishing is disabled (no apps domain configured).",
             ].join(" ")}
             onAdd={() => ports.append({ container_port: "8080", kind: "TCP", host_port: "" })}
@@ -260,8 +268,9 @@ export function DeployDialog({
           {ports.fields.map((field, i) => {
             const kind = form.watch(`ports.${i}.kind`)
             const isWeb = kind === "HTTP" || kind === "HTTPS"
-            // Mirror of the controller's hostname rule: <name>.<domain>,
-            // or <name>-<container_port>.<domain> with several web ports.
+            // Mirror of the controller's hostname rule:
+            // <name>.<server>.<domain>, or <name>-<port>.<server>.<domain>
+            // with several web ports.
             const slug =
               form
                 .watch("name")
@@ -274,7 +283,7 @@ export function DeployDialog({
               .filter((p) => p.kind === "HTTP" || p.kind === "HTTPS").length
             const previewHost = `${slug}${
               webCount > 1 ? `-${form.watch(`ports.${i}.container_port`)}` : ""
-            }.${appsDomain}`
+            }.${serverSlug}.${appsDomain}`
             return (
               <div key={field.id} className="flex items-start gap-2">
                 <Field className="flex-1">

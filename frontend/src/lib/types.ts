@@ -27,6 +27,16 @@ export interface CreateInstanceRequest {
   oauth_client_secret: string
 }
 
+export interface UpdateInstanceRequest {
+  name: string
+  base_url: string
+  registry_url: string
+  oauth_client_id: string
+  /** Omit/empty to keep the stored secret. */
+  oauth_client_secret?: string
+  enabled: boolean
+}
+
 export interface GitlabAccountSummary {
   instance_id: string
   instance_name: string

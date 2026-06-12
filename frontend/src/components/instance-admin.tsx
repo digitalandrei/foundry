@@ -1,11 +1,28 @@
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Link } from "@tanstack/react-router"
+import { PencilIcon, Trash2Icon } from "lucide-react"
 import { z } from "zod"
 
-import { useCreateInstance, useInstancesFull } from "@/hooks/use-instances"
+import {
+  useCreateInstance,
+  useDeleteInstance,
+  useInstancesFull,
+  useUpdateInstance,
+} from "@/hooks/use-instances"
+import type { InstanceAdmin as InstanceAdminType } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   Field,
   FieldDescription,
@@ -35,10 +52,13 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 /** Admin-only GitLab instance onboarding (Settings). Mirrors the
- * `foundry-controller instance add` bootstrap CLI. */
+ * `foundry-controller instance add` bootstrap CLI; instances can also
+ * be edited (URLs, secret rotation, enable/disable) and removed. */
 export function InstanceAdmin() {
   const instances = useInstancesFull(true)
   const create = useCreateInstance()
+  const remove = useDeleteInstance()
+  const [editing, setEditing] = useState<InstanceAdminType | null>(null)
   const redirectUri = `${window.location.origin}/auth/callback`
 
   const form = useForm<FormValues>({
@@ -73,10 +93,37 @@ export function InstanceAdmin() {
               <Badge variant={i.enabled ? "secondary" : "outline"} className="ml-auto">
                 {i.enabled ? "enabled" : "disabled"}
               </Badge>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                aria-label={`Edit ${i.name}`}
+                title="Edit"
+                onClick={() => setEditing(i)}
+              >
+                <PencilIcon className="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 text-slot-failed"
+                aria-label={`Remove ${i.name}`}
+                title="Remove (disable instead if it has history)"
+                disabled={remove.isPending}
+                onClick={() => {
+                  if (confirm(`Remove GitLab instance "${i.name}"? This cannot be undone.`)) {
+                    remove.mutate(i.id)
+                  }
+                }}
+              >
+                <Trash2Icon className="size-3.5" />
+              </Button>
             </li>
           ))}
         </ul>
       )}
+
+      <InstanceEditDialog instance={editing} onClose={() => setEditing(null)} />
 
       <Separator />
 
@@ -165,5 +212,133 @@ export function InstanceAdmin() {
         </FieldGroup>
       </form>
     </div>
+  )
+}
+
+const editSchema = z.object({
+  name: z.string().trim().min(1, "required").max(100),
+  base_url: url,
+  registry_url: url,
+  oauth_client_id: z.string().trim().min(1, "required"),
+  // Optional on edit — empty keeps the stored secret.
+  oauth_client_secret: z.string(),
+  enabled: z.boolean(),
+})
+type EditValues = z.infer<typeof editSchema>
+
+/** Edit an onboarded instance: URLs, client id, optional secret
+ * rotation, enable/disable. The secret is write-only (never returned),
+ * so an empty field keeps the existing one. */
+function InstanceEditDialog({
+  instance,
+  onClose,
+}: {
+  instance: InstanceAdminType | null
+  onClose: () => void
+}) {
+  const update = useUpdateInstance()
+  const form = useForm<EditValues>({
+    resolver: zodResolver(editSchema),
+    // Remount per instance so defaults reflect the selected row.
+    values: instance
+      ? {
+          name: instance.name,
+          base_url: instance.base_url,
+          registry_url: instance.registry_url,
+          oauth_client_id: instance.oauth_client_id,
+          oauth_client_secret: "",
+          enabled: instance.enabled,
+        }
+      : undefined,
+  })
+
+  if (!instance) return null
+
+  const onSubmit = form.handleSubmit((values) => {
+    update.mutate(
+      {
+        id: instance.id,
+        req: {
+          name: values.name,
+          base_url: values.base_url,
+          registry_url: values.registry_url,
+          oauth_client_id: values.oauth_client_id,
+          oauth_client_secret: values.oauth_client_secret.trim() || undefined,
+          enabled: values.enabled,
+        },
+      },
+      { onSuccess: onClose },
+    )
+  })
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit {instance.name}</DialogTitle>
+          <DialogDescription>
+            URLs and OAuth settings. Disabling hides it from login without losing history.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={onSubmit} noValidate>
+          <FieldGroup className="gap-4">
+            <Field data-invalid={!!form.formState.errors.name}>
+              <FieldLabel htmlFor="edit-name">Display name</FieldLabel>
+              <Input id="edit-name" {...form.register("name")} />
+              {form.formState.errors.name ? (
+                <FieldError>{form.formState.errors.name.message}</FieldError>
+              ) : null}
+            </Field>
+            <Field data-invalid={!!form.formState.errors.base_url}>
+              <FieldLabel htmlFor="edit-base">Base URL</FieldLabel>
+              <Input id="edit-base" {...form.register("base_url")} />
+              {form.formState.errors.base_url ? (
+                <FieldError>{form.formState.errors.base_url.message}</FieldError>
+              ) : null}
+            </Field>
+            <Field data-invalid={!!form.formState.errors.registry_url}>
+              <FieldLabel htmlFor="edit-registry">Registry URL</FieldLabel>
+              <Input id="edit-registry" {...form.register("registry_url")} />
+              {form.formState.errors.registry_url ? (
+                <FieldError>{form.formState.errors.registry_url.message}</FieldError>
+              ) : null}
+            </Field>
+            <Field data-invalid={!!form.formState.errors.oauth_client_id}>
+              <FieldLabel htmlFor="edit-cid">OAuth Application ID</FieldLabel>
+              <Input id="edit-cid" autoComplete="off" {...form.register("oauth_client_id")} />
+              {form.formState.errors.oauth_client_id ? (
+                <FieldError>{form.formState.errors.oauth_client_id.message}</FieldError>
+              ) : null}
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="edit-secret">OAuth Application Secret</FieldLabel>
+              <Input
+                id="edit-secret"
+                type="password"
+                autoComplete="off"
+                placeholder="•••••••• (unchanged)"
+                {...form.register("oauth_client_secret")}
+              />
+              <FieldDescription>Leave blank to keep the current secret.</FieldDescription>
+            </Field>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={form.watch("enabled")}
+                onCheckedChange={(v) => form.setValue("enabled", v === true)}
+              />
+              Enabled (available for login and deployments)
+            </label>
+          </FieldGroup>
+          <DialogFooter className="mt-4">
+            <Button type="button" variant="outline" onClick={onClose} disabled={update.isPending}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={update.isPending}>
+              {update.isPending ? "Saving…" : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }

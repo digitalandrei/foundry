@@ -47,7 +47,7 @@ pub async fn create(
     let slot = sqlx::query!(
         r#"SELECT gs.id AS "id: Uuid", gs.state, gs.name AS slot_name,
                   g.server_id AS "server_id: Uuid",
-                  s.status AS server_status
+                  s.status AS server_status, s.name AS server_name
            FROM gpu_slots gs
            JOIN gpus g ON g.id = gs.gpu_id
            JOIN servers s ON s.id = g.server_id
@@ -86,6 +86,7 @@ pub async fn create(
         &mut tx,
         &mut allocated,
         &container_name,
+        &slot.server_name,
         apps_domain,
         replaces,
     )
@@ -326,6 +327,21 @@ fn sanitize_name(name: &str) -> Result<String, AppError> {
     Ok(name.to_string())
 }
 
+/// Lowercase LDH DNS label (no leading/trailing `-`); None when nothing
+/// usable remains. Shared by the container-name and server-name slugs
+/// that build an app hostname.
+fn dns_label(raw: &str) -> Option<String> {
+    let label = raw
+        .to_lowercase()
+        .chars()
+        .map(|c| if c == '_' { '-' } else { c })
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string();
+    (!label.is_empty()).then_some(label)
+}
+
 /// Generated names embed the GPU slot hint (operator request):
 /// `procms-g0-x7f2`, `procms-g0-3-x7f2` for MIG slice 0:3. The
 /// authoritative GPU assignment is the foundry.gpu_uuid/slot labels.
@@ -418,18 +434,19 @@ async fn allocate_ports(
     Ok(out)
 }
 
-/// Hostname per HTTP/S port under the apps domain (operator design:
-/// `*.ai.protv.ro`, per-server nginx managed by the agent). Single
-/// HTTP/S port → `<name>.<domain>`; several → `<name>-<port>.<domain>`.
-/// Hostnames are globally unique across active deployments — the app
-/// URL must route to exactly one container. The deployment being
-/// replaced is exempt (review finding): its successor may — should —
-/// keep the URL; the chain removes the old vhost before the new one
-/// is applied.
+/// Hostname per HTTP/S port: `<name>.<server>.<domain>` — a per-server
+/// subdomain so DNS and the wildcard cert (`*.<server>.<domain>`,
+/// operator-issued per server) map predictably (operator design,
+/// 0.11.0). Several web ports disambiguate with `<name>-<port>`. The
+/// per-server nginx (agent-managed) serves it. Hostnames are globally
+/// unique across active deployments — the URL routes to exactly one
+/// container; the deployment being replaced is exempt so its successor
+/// keeps the URL (the chain removes the old vhost first).
 async fn assign_hostnames(
     tx: &mut MySqlConnection,
     ports: &mut [DeploymentPort],
     container_name: &str,
+    server_name: &str,
     apps_domain: Option<&str>,
     replaces: Option<DeploymentId>,
 ) -> Result<(), AppError> {
@@ -443,18 +460,17 @@ async fn assign_hostnames(
     let domain = apps_domain
         .ok_or_else(|| AppError::BadRequest("FOUNDRY_APPS_DOMAIN is not configured".into()))?;
 
-    // DNS-safe slug (review finding): a label is LDH, ≤63 chars, and
-    // must not end in '-'.
-    let slug = container_name
-        .to_lowercase()
-        .replace('_', "-")
-        .trim_matches('-')
-        .to_string();
-    if slug.is_empty() {
-        return Err(AppError::BadRequest(
-            "name reduces to an empty app hostname — use letters or digits".into(),
-        ));
-    }
+    let slug = dns_label(container_name).ok_or_else(|| {
+        AppError::BadRequest("name reduces to an empty app hostname — use letters or digits".into())
+    })?;
+    // The server name is admin-set and DNS-safe already, but slugify
+    // defensively — it is the cert's wildcard label (`*.<server>.…`).
+    let server_slug = dns_label(server_name).ok_or_else(|| {
+        AppError::BadRequest(format!(
+            "server name {server_name:?} has no DNS-safe form — rename the server to publish apps"
+        ))
+    })?;
+
     // Never matches a real row when this is not a replacement.
     let exempt = replaces.map(|d| d.0).unwrap_or_else(Uuid::nil);
     for p in ports.iter_mut() {
@@ -471,7 +487,7 @@ async fn assign_hostnames(
                 "app hostname label {label:?} exceeds 63 characters — pick a shorter name"
             )));
         }
-        let hostname = format!("{label}.{domain}");
+        let hostname = format!("{label}.{server_slug}.{domain}");
         let taken = sqlx::query_scalar!(
             r#"SELECT COUNT(*) FROM deployment_ports dp
                JOIN deployments d ON d.id = dp.deployment_id
@@ -530,6 +546,49 @@ pub struct DeploymentRow {
     pub slot_id: SlotId,
     pub instance_id: foundry_shared::GitlabInstanceId,
     pub created_by: UserId,
+}
+
+/// Dismiss a FAILED deployment: mark it REMOVED (clears it from the
+/// active list — it stays as an audit/event log) and free the slot if
+/// it is still stuck FAILED. Controller-side only — a failed deploy
+/// left no container, so no agent round-trip is needed (0.11.0).
+pub async fn dismiss(pool: &MySqlPool, id: DeploymentId) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    let row = sqlx::query!(
+        r#"SELECT state, gpu_slot_id AS "slot_id: Uuid" FROM deployments
+           WHERE id = ? FOR UPDATE"#,
+        id.0
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound("deployment not found"))?;
+    let state: DeploymentState = row.state.parse().map_err(AppError::internal)?;
+    if state != DeploymentState::Failed {
+        return Err(AppError::BadRequest(
+            "only a failed deployment can be dismissed".into(),
+        ));
+    }
+    let slot_id: SlotId = row.slot_id.into();
+    lifecycle::transition_deployment(
+        &mut tx,
+        id,
+        DeploymentState::Removed,
+        &Actor::controller(),
+        Some(serde_json::json!({ "reason": "dismissed by operator" })),
+    )
+    .await?;
+    // Only a still-FAILED slot is freed — never steal one another
+    // deployment has since taken (it would be RUNNING/RESERVED/etc).
+    sqlx::query!(
+        "UPDATE gpu_slots SET state = 'FREE', updated_at = ?
+         WHERE id = ? AND state = 'FAILED'",
+        chrono::Utc::now().naive_utc(),
+        slot_id.0,
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn get(pool: &MySqlPool, id: DeploymentId) -> Result<DeploymentRow, AppError> {

@@ -129,10 +129,11 @@ number). Columns: `id`, `deployment_id` FK, `container_port`,
 `host_port` (controller-allocated from the per-server pool),
 `protocol` (tcp/udp), `kind` (HTTP/HTTPS/TCP/UDP — proxy vs direct,
 plans/phase-06.md), `hostname` null + KEY (HTTP/S only: the published
-app hostname under the apps domain, e.g. `myapp.ai.protv.ro` — assigned
-at create, globally unique across active deployments except the one a
-replacement supersedes, so the URL survives swaps; the agent renders
-the per-server nginx vhost from it, ARCHITECTURE.md § App Publishing).
+app hostname as a per-server subdomain, e.g.
+`myapp.protv-ai-04-02.ai.protv.ro` — assigned at create, globally unique
+across active deployments except the one a replacement supersedes, so
+the URL survives swaps; the agent renders the per-server nginx vhost from
+it, ARCHITECTURE.md § App Publishing).
 
 ### `deployment_env`
 Environment variables. Columns: `id`, `deployment_id` FK, `env_key`,

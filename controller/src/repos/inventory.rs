@@ -112,15 +112,17 @@ pub async fn apply_snapshot(
     // A slot that came back from OFFLINE was reset to FREE above, but
     // an active deployment may still hold it (review finding): restore
     // the slot state from its deployment so nobody double-books the GPU.
+    // FAILED is excluded by design (0.11.0 auto-heal): a failed
+    // deployment never holds a slot — the slot stays FREE and the
+    // failure remains visible only as a deployment log.
     sqlx::query!(
         r#"UPDATE gpu_slots gs
            JOIN gpus g ON g.id = gs.gpu_id
            JOIN deployments d ON d.gpu_slot_id = gs.id
-                AND d.state NOT IN ('REMOVED','REPLACED')
+                AND d.state NOT IN ('REMOVED','REPLACED','FAILED')
            SET gs.state = CASE
                  WHEN d.state = 'RUNNING' THEN 'RUNNING'
                  WHEN d.state = 'STOPPING' THEN 'STOPPING'
-                 WHEN d.state = 'FAILED' THEN 'FAILED'
                  WHEN d.state IN ('PULLING_IMAGE','CREATING_CONTAINER','STARTING') THEN 'DEPLOYING'
                  ELSE 'RESERVED' END,
                gs.updated_at = ?
@@ -134,8 +136,10 @@ pub async fn apply_snapshot(
     // ── Deployment ↔ container reconcile (invariant #5) ─────────────
     // A deployment we believe RUNNING must show its managed container
     // running in this snapshot; otherwise it crashed/was killed
-    // outside Foundry → FAILED + slot FAILED. 90s grace avoids racing
-    // a snapshot collected before the start was reported.
+    // outside Foundry → FAILED, and the slot is FREE (the snapshot
+    // confirms nothing is on the GPU, so it auto-heals — 0.11.0). 90s
+    // grace avoids racing a snapshot collected before the start was
+    // reported.
     let running_short_ids: std::collections::HashSet<String> = snap
         .containers
         .iter()
@@ -185,7 +189,7 @@ pub async fn apply_snapshot(
                 Some(serde_json::json!({ "reason": "container missing from snapshot" })),
             )
             .await?;
-            crate::lifecycle::transition_slot(&mut tx, slot_id, SlotState::Failed).await?;
+            crate::lifecycle::transition_slot(&mut tx, slot_id, SlotState::Free).await?;
         }
     }
 
