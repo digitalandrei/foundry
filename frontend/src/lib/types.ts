@@ -95,6 +95,8 @@ export type ServerStatus = "ONLINE" | "OFFLINE" | "DEGRADED"
 export interface ExternalOccupant {
   name: string
   image: string
+  /** Running (using the GPU) vs stopped/exited (device free, shown anyway). */
+  running: boolean
 }
 
 export interface SlotSummary {

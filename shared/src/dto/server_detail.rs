@@ -34,11 +34,15 @@ pub struct SlotSummary {
     pub external: Option<ExternalOccupant>,
 }
 
-/// A container Foundry did not create, running on a slot's device.
+/// A container Foundry did not create, mapped to a slot's device.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExternalOccupant {
     pub name: String,
     pub image: String,
+    /// True when the container is actually running (using the GPU);
+    /// false when stopped/exited (the device is free, but the container
+    /// is still surfaced so the operator sees it).
+    pub running: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

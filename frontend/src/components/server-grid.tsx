@@ -8,7 +8,7 @@ import { SlotDetailDialog } from "@/components/slot-detail-dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useDeployments, useLatestMetrics } from "@/hooks/use-deployments"
 import { useServers } from "@/hooks/use-servers"
-import { SERVER_STATUS_META, SLOT_STATE_META } from "@/lib/states"
+import { DEPLOYMENT_STATE_META, SERVER_STATUS_META, SLOT_STATE_META } from "@/lib/states"
 import type {
   DeploymentSummary,
   DropSlotData,
@@ -240,9 +240,11 @@ function SlotChip({
   // deployment still references it (auto-heal: failures free the slot).
   const shown = slot.state === "FREE" ? undefined : occupant
   // External (non-Foundry) container on this device — only surfaced
-  // when Foundry has nothing here; it makes the GPU not a deploy target.
+  // when Foundry has nothing here. A *running* one holds the GPU (not a
+  // deploy target); a stopped one is shown but leaves the device free.
   const external = !shown ? slot.external : null
-  const droppable = (slot.state === "FREE" || slot.state === "RUNNING") && !external
+  const droppable =
+    (slot.state === "FREE" || slot.state === "RUNNING") && !external?.running
   const data: DropSlotData = {
     slotId: slot.id,
     slotName: slot.name,
@@ -286,34 +288,54 @@ function SlotChip({
         <span className="font-mono text-xs font-medium">{slot.name}</span>
         <span className={cn("text-[10px]", external ? "text-muted-foreground" : meta.textClass)}>
           {capacity ? `${capacity} · ` : ""}
-          {external ? "External" : meta.label}
+          {external ? (external.running ? "External" : "External · stopped") : meta.label}
         </span>
       </span>
       {shown ? (
         <>
-          <span className="truncate text-xs font-medium" title={shown.image_ref}>
-            {shown.name}
+          <span className="flex items-center gap-1.5 truncate text-xs font-medium" title={shown.image_ref}>
+            <StatusDot running={shown.state === "RUNNING"} className={DEPLOYMENT_STATE_META[shown.state].dotClass} />
+            <span className="truncate">{shown.name}</span>
           </span>
-          <span className="truncate font-mono text-[10px] text-muted-foreground tabular-nums">
+          <span className="truncate pl-3 font-mono text-[10px] text-muted-foreground tabular-nums">
             {shown.status_detail
               ? shown.status_detail
               : usage
                 ? `CPU ${usage.cpu_pct.toFixed(0)}% · MEM ${(usage.mem_used_mb / 1024).toFixed(1)}/${(usage.mem_limit_mb / 1024).toFixed(0)} GB`
-                : shown.state !== "RUNNING"
-                  ? shown.state.toLowerCase().replace(/_/g, " ")
-                  : "—"}
+                : shown.state === "RUNNING"
+                  ? "—"
+                  : shown.state.toLowerCase().replace(/_/g, " ")}
           </span>
         </>
       ) : external ? (
         <>
-          <span className="truncate text-xs font-medium" title={external.image}>
-            {external.name}
+          <span className="flex items-center gap-1.5 truncate text-xs font-medium" title={external.image}>
+            <StatusDot running={external.running} />
+            <span className="truncate">{external.name}</span>
+            <span className="shrink-0 text-[10px] font-normal text-muted-foreground">
+              {external.running ? "running" : "stopped"}
+            </span>
           </span>
-          <span className="truncate font-mono text-[10px] text-muted-foreground" title={external.image}>
+          <span className="truncate pl-3 font-mono text-[10px] text-muted-foreground" title={external.image}>
             {external.image}
           </span>
         </>
       ) : null}
     </div>
+  )
+}
+
+/** Running = green, stopped/other = gray (or the passed Foundry-state
+ * color). One source for the run-state dot on every slot occupant. */
+function StatusDot({ running, className }: { running: boolean; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "size-2 shrink-0 rounded-full",
+        className ?? (running ? "bg-slot-running" : "bg-slot-offline"),
+      )}
+      title={running ? "running" : "stopped"}
+      aria-hidden
+    />
   )
 }

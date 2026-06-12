@@ -296,8 +296,11 @@ UUIDs each *running* container is bound to (from its `--gpus` device
 requests and `NVIDIA_VISIBLE_DEVICES`, indices mapped to UUIDs via
 NVML) and reports them in inventory. The controller maps non-Foundry
 containers onto the slot whose device they occupy, so the dashboard
-shows externally-used GPUs (and does not offer them as deploy
-targets) — Foundry never touches those containers, only reflects them.
+shows externally-used GPUs (and does not offer a *running* one as a
+deploy target) — Foundry never touches those containers, only reflects
+them. Stopped containers are surfaced too (shown as stopped; the
+device stays free), and every slot occupant — Foundry or external —
+carries a clear running/stopped indicator.
 
 ## Server Enrollment
 

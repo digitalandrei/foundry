@@ -391,14 +391,19 @@ pub async fn gpus_for_server(
     Ok(out)
 }
 
-/// device UUID → the non-Foundry container running on it (first wins).
+/// device UUID → the non-Foundry container mapped to it. Stopped
+/// containers are included (surfaced as not-running) but a running one
+/// always wins for a given device — `ORDER BY running DESC` + first-
+/// insert-wins.
 async fn external_occupants(
     pool: &MySqlPool,
     server_id: ServerId,
 ) -> Result<std::collections::HashMap<String, foundry_shared::dto::ExternalOccupant>, AppError> {
     let rows = sqlx::query!(
-        r#"SELECT name, image, gpu_uuids FROM server_containers
-           WHERE server_id = ? AND managed = 0 AND state = 'running'"#,
+        r#"SELECT name, image, gpu_uuids, (state = 'running') AS "running: bool"
+           FROM server_containers
+           WHERE server_id = ? AND managed = 0
+           ORDER BY (state = 'running') DESC, name"#,
         server_id.0
     )
     .fetch_all(pool)
@@ -415,6 +420,7 @@ async fn external_occupants(
                 .or_insert_with(|| foundry_shared::dto::ExternalOccupant {
                     name: r.name.clone(),
                     image: r.image.clone(),
+                    running: r.running,
                 });
         }
     }

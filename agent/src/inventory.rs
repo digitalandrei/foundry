@@ -58,6 +58,11 @@ async fn collect_docker(gpu_index: &HashMap<u32, String>) -> (Option<String>, Ve
         }
     };
 
+    // Inspecting is one API call each. Running containers are always
+    // inspected (they hold a GPU); stopped ones are inspected up to a
+    // budget so an external container that exited is still mapped to
+    // its slot (shown as stopped) without scanning a huge exited pile.
+    let mut stopped_budget = 100usize;
     let mut containers = Vec::with_capacity(list.len());
     for c in list {
         let managed = c
@@ -88,9 +93,16 @@ async fn collect_docker(gpu_index: &HashMap<u32, String>) -> (Option<String>, Ve
             .state
             .map(|s| format!("{s:?}").to_lowercase())
             .unwrap_or_default();
-        // Only running containers occupy a GPU; inspecting is one API
-        // call each, so skip the rest.
         let gpu_uuids = if state == "running" {
+            inspect_gpu_uuids(&docker, &id_full, gpu_index).await
+        } else if stopped_budget > 0 {
+            stopped_budget -= 1;
+            if stopped_budget == 0 {
+                tracing::debug!(
+                    "stopped-container GPU inspection budget reached — \
+                     further exited containers are reported without GPU mapping"
+                );
+            }
             inspect_gpu_uuids(&docker, &id_full, gpu_index).await
         } else {
             Vec::new()
