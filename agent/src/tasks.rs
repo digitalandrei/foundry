@@ -503,24 +503,75 @@ async fn deploy(
     Ok(Some(created.id))
 }
 
+/// The image digest a container was created from — captured before the
+/// container is removed so its image can be reclaimed afterwards.
+async fn container_image(docker: &Docker, id: &str) -> Option<String> {
+    docker
+        .inspect_container(
+            id,
+            None::<bollard::query_parameters::InspectContainerOptions>,
+        )
+        .await
+        .ok()
+        .and_then(|c| c.image)
+}
+
+/// Reclaim an image best-effort. A shared image (another container still
+/// references it) and an already-deleted image are both non-errors: a
+/// re-delivered teardown must stay idempotent, and we must never strand a
+/// sibling deployment that needs the same layers. No `force` — Docker's
+/// own in-use refusal is exactly the protection we want.
+async fn reclaim_image(docker: &Docker, image: &str) {
+    if let Err(e) = docker
+        .remove_image(
+            image,
+            None::<bollard::query_parameters::RemoveImageOptions>,
+            None,
+        )
+        .await
+    {
+        tracing::debug!(%image, error = %e, "image not reclaimed (shared or already gone)");
+    }
+}
+
 async fn stop(t: ContainerTarget) -> Result<(), String> {
     let docker = docker()?;
     let Some((id, state)) = find_managed(&docker, &t.deployment_id.to_string()).await? else {
         return Ok(()); // already gone — idempotent success
     };
-    if state != "running" {
-        return Ok(());
+    // Capture the image while the container still exists so we can reclaim
+    // it once the container is gone.
+    let image = container_image(&docker, &id).await;
+    if state == "running" {
+        docker
+            .stop_container(
+                &id,
+                Some(bollard::query_parameters::StopContainerOptions {
+                    t: Some(30),
+                    ..Default::default()
+                }),
+            )
+            .await
+            .map_err(|e| format!("container stop failed: {e}"))?;
     }
+    // Don't leave a stopped container lingering in `docker ps -a`. Restart
+    // re-deploys from the stored spec (controller `enqueue_restart`), so
+    // nothing here needs to survive — then drop the image so it doesn't
+    // pile up in `docker images`.
     docker
-        .stop_container(
+        .remove_container(
             &id,
-            Some(bollard::query_parameters::StopContainerOptions {
-                t: Some(30),
+            Some(bollard::query_parameters::RemoveContainerOptions {
+                force: true,
                 ..Default::default()
             }),
         )
         .await
-        .map_err(|e| format!("container stop failed: {e}"))
+        .map_err(|e| format!("container remove failed: {e}"))?;
+    if let Some(image) = image {
+        reclaim_image(&docker, &image).await;
+    }
+    Ok(())
 }
 
 async fn restart(t: ContainerTarget) -> Result<(), String> {
@@ -558,6 +609,7 @@ async fn remove(t: ContainerTarget) -> Result<(), String> {
     let Some((id, _)) = find_managed(&docker, &t.deployment_id.to_string()).await? else {
         return Ok(()); // already gone — idempotent success
     };
+    let image = container_image(&docker, &id).await;
     docker
         .remove_container(
             &id,
@@ -567,7 +619,11 @@ async fn remove(t: ContainerTarget) -> Result<(), String> {
             }),
         )
         .await
-        .map_err(|e| format!("container remove failed: {e}"))
+        .map_err(|e| format!("container remove failed: {e}"))?;
+    if let Some(image) = image {
+        reclaim_image(&docker, &image).await;
+    }
+    Ok(())
 }
 
 async fn remove_volume(v: VolumeTarget) -> Result<(), String> {

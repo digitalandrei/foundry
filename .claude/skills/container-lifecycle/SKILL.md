@@ -32,11 +32,20 @@ anywhere else in the codebase; reviewers treat one as a bug.
 → `VALIDATING` (user may pull tag? slot still healthy?)
 → task enqueued → agent: `PULLING_IMAGE` → `CREATING_CONTAINER`
 → `STARTING` → `RUNNING` (slot → RUNNING).
-Stop: `STOPPING` → `STOPPED` (slot → FREE). Then `RESTARTING` → `RUNNING`,
-or `REMOVING` → `REMOVED`.
+Stop: `STOPPING` → `STOPPED` (slot stays `RESERVED` — the spec keeps its
+place). Then `RESTARTING` → `RUNNING`, or `REMOVING` → `REMOVED`.
 
 Agent task results drive the agent-side transitions; the controller maps
 each result onto the machine — agents never write state directly.
+
+**Teardown leaves no host garbage.** `STOP` and `REMOVE` both delete the
+container and then reclaim its image best-effort (an image still used by a
+sibling deployment is left alone). A STOPPED deployment thus has no
+container to start, so **restart re-deploys**: the restart route calls
+`enqueue_restart`, which transitions `STOPPED → RESTARTING` and enqueues
+`DEPLOY_CONTAINER`; the deploy result then drives `RESTARTING → RUNNING`.
+The agent's `RESTART_CONTAINER` executor still exists but the restart
+action no longer uses it.
 
 ## Failure Semantics
 

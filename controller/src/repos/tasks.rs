@@ -563,3 +563,27 @@ pub async fn enqueue_lifecycle(
     tx.commit().await?;
     Ok(())
 }
+
+/// Restart = re-deploy. Stop (and a failed deploy) tear the container and
+/// image off the host so nothing piles up in `docker ps -a` / `docker
+/// images`; that leaves nothing to "start", so restart re-pulls and
+/// recreates from the stored spec. The DEPLOY_CONTAINER result drives
+/// Restarting → Running (or, on failure, → Failed and frees the slot).
+pub async fn enqueue_restart(
+    pool: &MySqlPool,
+    deployment: &super::deployments::DeploymentRow,
+    user: UserId,
+) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    lifecycle::transition_deployment(
+        &mut tx,
+        deployment.id,
+        DeploymentState::Restarting,
+        &Actor::user(user),
+        None,
+    )
+    .await?;
+    enqueue_deploy(&mut tx, deployment.id).await?;
+    tx.commit().await?;
+    Ok(())
+}

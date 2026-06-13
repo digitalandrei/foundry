@@ -167,6 +167,15 @@ RUNNING → REPLACED   (superseded by a replacement deployment)
 Every transition writes a `deployment_events` row (old state, new state,
 actor, timestamp, detail) and is auditable end to end.
 
+**Teardown leaves no host garbage (0.18.0):** `STOP` and `REMOVE` both
+delete the container (nothing lingers in `docker ps -a`) and then reclaim
+its image best-effort (nothing piles up in `docker images`; an image still
+referenced by a sibling deployment is left untouched). Because a STOPPED
+deployment therefore has *no* container to start, **restart re-deploys**:
+the restart action enqueues `DEPLOY_CONTAINER`, which re-pulls and recreates
+from the stored spec, and the deploy result drives `RESTARTING → RUNNING`.
+The slot stays RESERVED across stop→restart so the spec keeps its place.
+
 **Slot auto-heal (0.11.0):** a failed *deploy* leaves nothing on the GPU
 (the agent's executor removes any container it created), so the slot is
 released to FREE rather than left stuck FAILED — the failure survives only
@@ -217,9 +226,9 @@ The controller enqueues typed tasks; the agent polls and executes:
 | Task | Effect |
 |---|---|
 | `DEPLOY_CONTAINER` | Pull image (with registry credentials), create container with labels + GPU device requests + port bindings + volume binds, start |
-| `STOP_CONTAINER` | Stop a managed container |
-| `RESTART_CONTAINER` | Restart (running) / start (stopped) a managed container |
-| `REMOVE_CONTAINER` | Remove a managed container (persistent volumes survive) |
+| `STOP_CONTAINER` | Stop and remove a managed container, then reclaim its image (best-effort; persistent volumes survive) |
+| `RESTART_CONTAINER` | Restart (running) / start (stopped) an existing managed container. Not used by the user-facing restart action, which re-deploys (see Deployment Lifecycle); retained as an executor for any directly-enqueued restart |
+| `REMOVE_CONTAINER` | Remove a managed container and reclaim its image (best-effort; persistent volumes survive) |
 | `REMOVE_VOLUME` | Delete a persistent volume directory (amendment: persistent storage; hard-scoped under `/storage/containers/`) |
 | `REFRESH_INVENTORY` | Re-enumerate GPUs/MIG slots/containers and upload |
 | `UPLOAD_LOGS` | Collect and upload container logs |

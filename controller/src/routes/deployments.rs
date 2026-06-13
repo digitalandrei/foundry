@@ -156,14 +156,10 @@ pub async fn restart(
     if d.created_by != user.id && !user.is_admin {
         return Err(AppError::Forbidden);
     }
-    tasks::enqueue_lifecycle(
-        &state.pool,
-        &d,
-        TaskType::RestartContainer,
-        (d.state, DeploymentState::Restarting),
-        user.id,
-    )
-    .await?;
+    // Stop tears the container and image down (no host garbage), so there
+    // is nothing to "start" — restart re-pulls and recreates from the
+    // stored spec.
+    tasks::enqueue_restart(&state.pool, &d, user.id).await?;
     summary_of(&state, id).await.map(Json)
 }
 
