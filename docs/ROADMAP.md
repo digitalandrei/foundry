@@ -42,6 +42,18 @@ A user can:
 Scope/architecture changes agreed after the original spec — each must be
 reflected in the affected docs in the same commit set:
 
+- **2026-06-13** (0.18.0) — **Teardown reclaims container + image**
+  (operator: "when we stop a container also remove the image — don't keep
+  garbage"). STOP and REMOVE now delete the container (nothing lingers in
+  `docker ps -a`) and reclaim its image best-effort (nothing piles up in
+  `docker images`; a shared image still used by a sibling deployment is
+  left untouched). Consequence: a STOPPED deployment has no container to
+  start, so **restart re-deploys** — the controller's restart route calls
+  `enqueue_restart` (transition `STOPPED → RESTARTING` + enqueue
+  `DEPLOY_CONTAINER`), and the deploy result drives `RESTARTING →
+  RUNNING`. Affects ARCHITECTURE (Deployment Lifecycle, Agent Tasks),
+  container-lifecycle skill.
+
 - **2026-06-11** — Multi-GitLab-instance support (instances onboarded
   dynamically; login per instance). Affects ARCHITECTURE, DATABASE
   (`gitlab_instances`), API, GITLAB-INTEGRATION, phase 3.
