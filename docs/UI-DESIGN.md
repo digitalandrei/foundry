@@ -71,13 +71,15 @@ panel title.
     `GET /api/metrics/latest`. NVML cannot attribute per MIG slice, so
     GPU-level stats live here, container stats on the chips.
   - Slot chips stretch to fill their GPU cell (a full-GPU slot fills
-    it entirely). Chip anatomy (0.23.0): the **first line** carries
-    `SLOT g:i` (display only — identity is the UUID), the occupant's name
-    inline, and the state label on the right (Free / Locked / Deploying /
-    Running / Freeing / …) + capacity/MIG profile. Below it a small
-    contextual line: `CPU 12%` when running (the container's **memory is
-    not repeated** here — VRAM lives on the GPU header), or the in-flight
-    progress text while deploying (`pulling: 3/7 layers · 410 / 1208 MB`).
+    it entirely). Chip anatomy (0.23/0.24): the **first line** carries
+    `SLOT g:i` (display only — identity is the UUID), the occupant's name,
+    its **run-state inline** (`running` / `stopped` / `deploying` …), and
+    on the right the slot state label (Free / Locked / Deploying /
+    Running / Freeing / …) + capacity/MIG profile. A second line appears
+    only when there's live detail: `CPU 12%` when running (the container's
+    **memory is not repeated** — VRAM lives on the GPU header), or the
+    in-flight progress text while deploying (`pulling: 3/7 layers …`). The
+    server row shows the hostname only when it differs from the name.
   - **Clicking an occupied chip opens the dedicated deployment page**
     (`/deployments/{id}`, `deployment-detail.tsx`, backed by
     `GET /api/deployments/{id}` + `…/logs`). It's a **full-screen, three-

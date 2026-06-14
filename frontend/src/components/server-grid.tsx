@@ -122,7 +122,7 @@ function ServerRow({
         >
           {server.name}
         </Link>
-        {server.hostname ? (
+        {server.hostname && server.hostname !== server.name ? (
           <span className="text-sm text-muted-foreground">{server.hostname}</span>
         ) : null}
         {server.os_version ? (
@@ -292,6 +292,9 @@ function SlotChip({
                 className={DEPLOYMENT_STATE_META[shown.state].dotClass}
               />
               <span className="truncate">{shown.name}</span>
+              <span className="shrink-0 text-[10px] font-normal text-muted-foreground">
+                {shown.state === "RUNNING" ? "running" : shown.state.toLowerCase().replace(/_/g, " ")}
+              </span>
             </span>
           ) : external ? (
             <span
@@ -300,23 +303,22 @@ function SlotChip({
             >
               <StatusDot running={external.running} />
               <span className="truncate">{external.name}</span>
+              <span className="shrink-0 text-[10px] font-normal text-muted-foreground">
+                {external.running ? "running" : "stopped"}
+              </span>
             </span>
           ) : null}
         </span>
         <span className={cn("shrink-0 text-[10px]", external ? "text-muted-foreground" : meta.textClass)}>
           {capacity ? `${capacity} · ` : ""}
-          {external ? (external.running ? "External" : "External · stopped") : meta.label}
+          {external ? "External" : meta.label}
         </span>
       </span>
-      {shown ? (
+      {/* Second line only when there's live detail: deploy progress or CPU,
+          or the external image. Run-state moved inline above. */}
+      {shown && (shown.status_detail || usage) ? (
         <span className="truncate pl-3 font-mono text-[10px] text-muted-foreground tabular-nums">
-          {shown.status_detail
-            ? shown.status_detail
-            : usage
-              ? `CPU ${usage.cpu_pct.toFixed(0)}%`
-              : shown.state === "RUNNING"
-                ? "—"
-                : shown.state.toLowerCase().replace(/_/g, " ")}
+          {shown.status_detail ? shown.status_detail : `CPU ${usage!.cpu_pct.toFixed(0)}%`}
         </span>
       ) : external ? (
         <span className="truncate pl-3 font-mono text-[10px] text-muted-foreground" title={external.image}>
