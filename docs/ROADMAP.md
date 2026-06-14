@@ -42,6 +42,16 @@ A user can:
 Scope/architecture changes agreed after the original spec — each must be
 reflected in the affected docs in the same commit set:
 
+- **2026-06-14** (0.26.0) — **Deployment-detail action buttons**
+  (operator): the deployment page header now carries the **same
+  state-gated lifecycle buttons as the Deployments list** (stop ·
+  re-deploy · delete · dismiss), extracted into a shared
+  `DeploymentActions` component used by both; the hostname/slot sits to
+  their left. Actions go through the existing mutations (shared
+  `["deployments"]` query cache), so pressing one is reflected on the
+  list, the detail view, and the slot grid at once. The redundant in-card
+  "Clear failed deployment" button was removed. Affects UI-DESIGN.
+
 - **2026-06-14** (0.25.0) — **Audit-log read path + deploy-auth tightening
   + tooling fixes** (audit improvement plan). **Audit Logs**: the
   append-only trail (written since Phase 6) is now readable —

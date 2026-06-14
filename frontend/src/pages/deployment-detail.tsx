@@ -1,15 +1,12 @@
 import { useState } from "react"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
-import { ArrowLeftIcon, HardDriveIcon, LockIcon, XCircleIcon } from "lucide-react"
+import { ArrowLeftIcon, HardDriveIcon, LockIcon } from "lucide-react"
 
 import { ConsolePanel } from "@/components/console-panel"
+import { DeploymentActions } from "@/components/deployment-actions"
 import { DeploymentPorts } from "@/components/deployment-ports"
 import { ShellPanel } from "@/components/shell-panel"
-import {
-  useDeploymentDetail,
-  useDismissDeployment,
-  useLatestMetrics,
-} from "@/hooks/use-deployments"
+import { useDeploymentDetail, useLatestMetrics } from "@/hooks/use-deployments"
 import { formatRelative } from "@/lib/format"
 import { DEPLOYMENT_STATE_META } from "@/lib/states"
 import type { DeploymentDetail } from "@/lib/types"
@@ -17,7 +14,6 @@ import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 
 /** Each stacked box fills ~one viewport (minus header h-14 + p-4) on
@@ -35,7 +31,6 @@ export function DeploymentDetailPage() {
   const navigate = useNavigate()
   const detail = useDeploymentDetail(deploymentId)
   const metrics = useLatestMetrics()
-  const dismiss = useDismissDeployment()
   const [expanded, setExpanded] = useState<Expanded>("none")
 
   const d = detail.data
@@ -63,9 +58,13 @@ export function DeploymentDetailPage() {
           <>
             <h1 className="text-lg font-semibold">{d.name}</h1>
             <span className={`text-sm ${meta?.textClass ?? ""}`}>{meta?.label}</span>
-            <span className="ml-auto truncate text-sm text-muted-foreground">
+            <span className="ml-auto min-w-0 truncate text-sm text-muted-foreground">
               {d.server_name} · {d.gpu_label} / slot {d.slot_name}
             </span>
+            <DeploymentActions
+              deployment={d}
+              onRemoved={() => navigate({ to: "/deployments" })}
+            />
           </>
         ) : (
           <Skeleton className="h-7 w-64" />
@@ -151,23 +150,6 @@ export function DeploymentDetailPage() {
                   )}
                 </Section>
               </div>
-
-              {d.state === "FAILED" ? (
-                <>
-                  <Separator />
-                  <Button
-                    variant="outline"
-                    className="text-slot-failed"
-                    disabled={dismiss.isPending}
-                    onClick={() =>
-                      dismiss.mutate(d.id, { onSuccess: () => navigate({ to: "/deployments" }) })
-                    }
-                  >
-                    <XCircleIcon className="size-3.5" aria-hidden />
-                    Clear failed deployment
-                  </Button>
-                </>
-              ) : null}
             </CardContent>
           </Card>
 

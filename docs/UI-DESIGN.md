@@ -83,7 +83,12 @@ panel title.
   - **Clicking an occupied chip opens the dedicated deployment page**
     (`/deployments/{id}`, `deployment-detail.tsx`, backed by
     `GET /api/deployments/{id}` + `…/logs`). It's a **full-screen, three-
-    region layout** (0.21.0): **(1) Details** on top — state + live
+    region layout** (0.21.0). A **header bar** carries the name, state,
+    server/slot, and the **same state-gated lifecycle action buttons as
+    the Deployments list** (stop · re-deploy · delete · dismiss; 0.26.0) to
+    its right — actions run through the shared mutations, so one press is
+    reflected on the list, the detail view, and the slot grid at once.
+    Then **(1) Details** on top — state + live
     progress/error, image, usage, ports incl. clickable app URLs,
     **mounts** (volume name, container path, ro, host path), env *names*
     (secrets `•••` — values never leave the server), uptime/creator;

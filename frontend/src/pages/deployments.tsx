@@ -1,24 +1,10 @@
 import { useNavigate } from "@tanstack/react-router"
-import {
-  CircleAlertIcon,
-  RocketIcon,
-  RotateCcwIcon,
-  SquareIcon,
-  TerminalIcon,
-  Trash2Icon,
-  XCircleIcon,
-} from "lucide-react"
+import { CircleAlertIcon, RocketIcon, TerminalIcon } from "lucide-react"
 
-import { useConfirm } from "@/components/confirm-context"
+import { DeploymentActions } from "@/components/deployment-actions"
 import { DeploymentPorts } from "@/components/deployment-ports"
 import { EmptyState } from "@/components/empty-state"
-import {
-  useDeployments,
-  useDismissDeployment,
-  useRemoveDeployment,
-  useRestartDeployment,
-  useStopDeployment,
-} from "@/hooks/use-deployments"
+import { useDeployments } from "@/hooks/use-deployments"
 import { formatRelative } from "@/lib/format"
 import { DEPLOYMENT_STATE_META } from "@/lib/states"
 import type { DeploymentSummary } from "@/lib/types"
@@ -90,13 +76,7 @@ export function DeploymentsPage() {
 
 function DeploymentRow({ deployment: d }: { deployment: DeploymentSummary }) {
   const navigate = useNavigate()
-  const confirm = useConfirm()
-  const stop = useStopDeployment()
-  const restart = useRestartDeployment()
-  const remove = useRemoveDeployment()
-  const dismiss = useDismissDeployment()
   const meta = DEPLOYMENT_STATE_META[d.state]
-  const busy = stop.isPending || restart.isPending || remove.isPending || dismiss.isPending
   const open = () => navigate({ to: "/deployments/$deploymentId", params: { deploymentId: d.id } })
 
   return (
@@ -157,78 +137,7 @@ function DeploymentRow({ deployment: d }: { deployment: DeploymentSummary }) {
           >
             <TerminalIcon className="size-3.5" />
           </Button>
-          {d.state === "RUNNING" ? (
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8"
-              disabled={busy}
-              onClick={async () => {
-                if (
-                  await confirm({
-                    title: `Stop "${d.name}"?`,
-                    description:
-                      "The container is removed; restarting it re-deploys from the stored spec.",
-                    destructive: true,
-                  })
-                )
-                  stop.mutate(d.id)
-              }}
-              aria-label="Stop"
-              title="Stop"
-            >
-              <SquareIcon className="size-3.5" />
-            </Button>
-          ) : null}
-          {d.state === "STOPPED" ? (
-            <>
-              <Button
-                variant="outline"
-                size="icon"
-                className="size-8"
-                disabled={busy}
-                onClick={() => restart.mutate(d.id)}
-                aria-label="Start"
-                title="Start"
-              >
-                <RotateCcwIcon className="size-3.5" />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                className="size-8 text-slot-failed"
-                disabled={busy}
-                onClick={async () => {
-                  if (
-                    await confirm({
-                      title: `Delete "${d.name}"?`,
-                      description:
-                        "The container and its image are deleted and its captured logs are purged. Persistent volumes survive.",
-                      destructive: true,
-                    })
-                  )
-                    remove.mutate(d.id)
-                }}
-                aria-label="Remove"
-                title="Remove container (persistent volumes survive)"
-              >
-                <Trash2Icon className="size-3.5" />
-              </Button>
-            </>
-          ) : null}
-          {d.state === "FAILED" ? (
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8 text-slot-failed"
-              disabled={busy}
-              onClick={() => dismiss.mutate(d.id)}
-              aria-label="Dismiss"
-              title="Clear this failed deployment (the slot is already free)"
-            >
-              <XCircleIcon className="size-3.5" />
-            </Button>
-          ) : null}
+          <DeploymentActions deployment={d} />
         </div>
       </TableCell>
     </TableRow>
