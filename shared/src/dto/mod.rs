@@ -4,6 +4,7 @@
 //! here, never redefined locally in controller, agent, or frontend.
 
 mod agent;
+mod audit;
 mod deployment;
 mod error;
 mod health;
@@ -21,6 +22,7 @@ mod shell;
 mod task;
 
 pub use agent::*;
+pub use audit::*;
 pub use deployment::*;
 pub use error::*;
 pub use health::*;

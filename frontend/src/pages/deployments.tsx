@@ -9,7 +9,7 @@ import {
   XCircleIcon,
 } from "lucide-react"
 
-import { useConfirm } from "@/components/confirm-dialog"
+import { useConfirm } from "@/components/confirm-context"
 import { DeploymentPorts } from "@/components/deployment-ports"
 import { EmptyState } from "@/components/empty-state"
 import {

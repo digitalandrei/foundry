@@ -40,14 +40,16 @@ pub async fn create(
         tag.tag_name
     );
 
-    // Authorization stays personal: the deployer needs an account on
-    // the image's instance (pull token is minted from THEIR token at
-    // dispatch). Local operator accounts may deploy public images.
+    // Authorization stays personal: the deployer needs a GitLab account
+    // on the image's instance (the pull token is minted from THEIR token
+    // at dispatch). is_admin governs Foundry-operational actions only and
+    // never grants deploy — a local operator account with no GitLab
+    // identity cannot deploy (docs/SECURITY.md § Authorization).
     let has_account = users::account_tokens(&state.pool, &state.secrets, user.id)
         .await?
         .iter()
         .any(|a| a.instance_id == tag.instance_id);
-    if !has_account && !user.is_admin {
+    if !has_account {
         return Err(AppError::Forbidden);
     }
 
@@ -253,11 +255,12 @@ pub async fn replace(
         tag.repo_path,
         tag.tag_name
     );
+    // Same personal-account gate as create: is_admin never grants deploy.
     let has_account = users::account_tokens(&state.pool, &state.secrets, user.id)
         .await?
         .iter()
         .any(|a| a.instance_id == tag.instance_id);
-    if !has_account && !user.is_admin {
+    if !has_account {
         return Err(AppError::Forbidden);
     }
 

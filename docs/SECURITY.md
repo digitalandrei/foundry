@@ -121,6 +121,9 @@ capability and keep its controls tight:
   onboarding, enrollment, deployment action, replacement, rotation, and
   settings change is recorded with actor, subject, detail, IP, timestamp.
 - Audit rows are never updated or deleted by application code.
+- Read access (`GET /api/audit`): an admin sees every row; a non-admin is
+  scoped to rows they are the actor of (`actor_id = self`). Newest-first,
+  cursor-paginated, with an optional exact-match `action` filter.
 
 ## Input & Secrets Hygiene
 

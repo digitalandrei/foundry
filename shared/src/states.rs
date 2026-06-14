@@ -146,8 +146,8 @@ str_enum! {
 
 str_enum! {
     /// How a published port is exposed (plans/phase-06.md § Networking).
-    /// HTTP/HTTPS ride the central proxy (later build); TCP/UDP map
-    /// directly onto the server IP.
+    /// HTTP/HTTPS are published via the per-server agent-managed nginx
+    /// vhost (amendment 0.8.0); TCP/UDP map directly onto the server IP.
     pub enum PortKind {
         Http => "HTTP",
         Https => "HTTPS",

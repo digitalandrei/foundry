@@ -12,7 +12,7 @@ import {
   useUpdateInstance,
 } from "@/hooks/use-instances"
 import type { InstanceAdmin as InstanceAdminType } from "@/lib/types"
-import { useConfirm } from "@/components/confirm-dialog"
+import { useConfirm } from "@/components/confirm-context"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"

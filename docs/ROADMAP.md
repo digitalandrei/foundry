@@ -42,6 +42,25 @@ A user can:
 Scope/architecture changes agreed after the original spec — each must be
 reflected in the affected docs in the same commit set:
 
+- **2026-06-14** (0.25.0) — **Audit-log read path + deploy-auth tightening
+  + tooling fixes** (audit improvement plan). **Audit Logs**: the
+  append-only trail (written since Phase 6) is now readable —
+  `GET /api/audit` returns a newest-first, cursor-paginated
+  (`?before=&limit=`, `next_cursor`) page with an exact-match `?action=`
+  filter; an admin sees every row, a non-admin only rows they are the
+  actor of. The static Audit page became a query-backed table (action
+  filter + Load more), realizing success criterion #9. **Deploy auth**:
+  removed the `is_admin` bypass in deployment create/replace — deploying
+  now requires a GitLab account on the image's instance, period; a local
+  operator account (enrollment/administration only) can no longer deploy
+  (matches SECURITY.md doctrine; the agent's anonymous-pull fallback is
+  now only the post-create token-revoked race). **Tooling**: frontend
+  `npm run lint` joined `scripts/check.sh` (confirm-dialog split into
+  `confirm-context` for react-refresh); the doc-drift hook now also
+  watches `lifecycle.rs` + `repos/{tasks,deployments}.rs`; fixed a stale
+  "central proxy" comment (per-server nginx since 0.8.0). New
+  `shared::dto::audit`. Affects API, SECURITY, codebase-map, phase-08.
+
 - **2026-06-14** (0.22.0) — **Interactive container shell** (operator:
   "open a shell on that container … try bash and sh"). A real xterm.js
   terminal on the deployment page, built to **preserve pull-only**: the

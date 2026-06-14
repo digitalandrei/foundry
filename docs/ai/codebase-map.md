@@ -36,7 +36,9 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
 - Secrets-at-rest + token hashing → `controller/src/crypto.rs`
   (AES-256-GCM SecretBox, `random_token`, `token_hash`)
 - Error envelope → `controller/src/error.rs` (AppError)
-- Audit writes → `controller/src/audit.rs` (append-only)
+- Audit → writes `controller/src/audit.rs` (append-only) + read API
+  `controller/src/routes/audit.rs` (→ `audit::list_page`; cursor +
+  `action` filter; admin sees all, non-admin actor-scoped)
 - Sessions + extractors (`CurrentUser`, `AdminUser`), cookies, OAuth
   routes → `controller/src/auth/{session,cookies,routes}.rs`
 - GitLab: OAuth/PKCE → `controller/src/gitlab/oauth.rs`; API client
@@ -141,10 +143,6 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   `servers.docker_ok` (`repos/inventory.rs`) → `ServerSummary.docker_ok`
   (`repos/servers.rs`); deploy gate in `repos/deployments.rs::create`;
   UI badge + drop-disable in `server-grid.tsx`
-
-**Planned (later phases):**
-
-- Audit route → `controller/src/routes/`
 
 ## Maintenance
 

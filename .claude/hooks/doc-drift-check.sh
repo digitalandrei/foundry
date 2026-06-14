@@ -27,7 +27,7 @@ touched() { echo "$files" | grep -qE "$1"; }
 warnings=()
 
 # Controller routes / lifecycle / task queue ↔ API.md, ARCHITECTURE.md, controller agent
-if touched '^controller/src/(routes/|lifecycle/|tasks/)'; then
+if touched '^controller/src/(routes/|lifecycle\.rs|repos/(tasks|deployments)\.rs)'; then
   touched '^docs/(API|ARCHITECTURE)\.md|^\.claude/agents/controller\.md' || \
     warnings+=("controller routes/lifecycle/tasks changed; review docs/API.md, docs/ARCHITECTURE.md (state machines), and .claude/agents/controller.md.")
 fi

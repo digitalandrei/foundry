@@ -10,7 +10,7 @@ cargo test
 
 # Frontend gate activates once the Vite app exists (Phase 2).
 if [ -f frontend/package.json ]; then
-  (cd frontend && npm run build)
+  (cd frontend && npm run lint && npm run build)
 fi
 
 echo "check.sh: all gates passed"

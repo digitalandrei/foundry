@@ -126,10 +126,12 @@ pub async fn tasks_next(
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
-/// Decrypt env + mint the pull credential for a DEPLOY payload. A
-/// missing GitLab account (local operator) or mint failure degrades to
-/// an anonymous pull — public images still work, private ones fail in
-/// the executor with a clear error.
+/// Decrypt env + mint the pull credential for a DEPLOY payload. `create`
+/// already verified the deployer holds a GitLab account on the image's
+/// instance, so the no-account branch below is the post-create race
+/// (instance disabled or token revoked before dispatch): it degrades to
+/// an anonymous pull — a public image still works, a private one fails
+/// in the executor with a clear error.
 async fn enrich_deploy_payload(
     state: &AppState,
     p: &mut foundry_shared::dto::DeployPayload,
@@ -143,7 +145,7 @@ async fn enrich_deploy_payload(
         .into_iter()
         .find(|a| a.instance_id == d.instance_id)
     else {
-        tracing::warn!(deployment = %d.id, "deployer has no GitLab account on the instance — anonymous pull");
+        tracing::warn!(deployment = %d.id, "deployer's GitLab account vanished after create (disabled/revoked) — anonymous pull");
         return Ok(());
     };
     let instance =

@@ -12,7 +12,9 @@ General rules:
 - Consistent error envelope: `{ "error": { "code": "...", "message": "..." } }`
   with appropriate HTTP status.
 - Every state-changing endpoint writes an `audit_logs` row.
-- Pagination: `?page=` / `?per_page=` with `X-Total-Count` header.
+- Pagination (list endpoints that support it): cursor via
+  `?before=<id>&limit=N`; the response carries `next_cursor` (null on the
+  last page).
 
 ## Frontend API (`/api/...`)
 
@@ -48,7 +50,7 @@ user's GitLab account on the instance that owns the resource.
 | `DELETE /api/volumes/{id}` | Delete volume + data (creator/admin; refused while mounted) | ✅ live |
 | `GET /api/deployments/{id}/logs` | Captured container logs (merged stdout+stderr, bounded recent window) → `{content, collected_at, available}`; org-visible like the list; 404 on unknown id | ✅ live |
 | `GET /api/deployments/{id}/shell` | **WebSocket** — interactive container shell (owner/admin; deployment must be RUNNING; audited `SHELL_OPENED`). The controller registers a pending session and bridges it to the server's agent (pull-only: the agent dials back). Binary frames = TTY I/O, text `{"type":"resize",cols,rows}` = resize. Closes 1011 if no agent attaches in 25s | ✅ live |
-| `GET /api/audit` | Audit log (admin sees all; users see their own actions) | Phase 8 |
+| `GET /api/audit` | Audit log, newest-first → `{entries[], next_cursor}`. Cursor `?before=<id>`, `?limit=` (1–200, default 50), `?action=` exact-match filter; `actor_name` resolved server-side. Admin sees all; a non-admin sees only rows they are the actor of | ✅ live |
 | `POST /api/enrollment-tokens` | Generate server enrollment token — admin | Phase 4 |
 | `POST /api/servers/{id}/rotate-token` | Rotate an agent credential — admin | Phase 4 |
 

@@ -96,3 +96,5 @@ hot paths here — clarity and correctness dominate).
   See `TESTING.md`.
 - Before claiming completion on touched crates:
   `cargo fmt --all && cargo clippy --all-targets -- -D warnings && cargo test`.
+- Frontend changes also pass `npm run lint && npm run build`. `scripts/check.sh`
+  runs the whole set (backend gate + frontend lint + build).

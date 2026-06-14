@@ -333,3 +333,27 @@ export interface EnrollmentTokenResponse {
   command: string
   expires_at: string
 }
+
+/** One row of the append-only audit trail (GET /api/audit). Mirrors
+ * shared::dto::AuditLogEntry. `actor_name` is resolved server-side;
+ * null for agent/system actors. `detail` is the raw JSON recorded with
+ * the action. */
+export interface AuditLogEntry {
+  id: string
+  actor_type: string
+  actor_id: string | null
+  actor_name: string | null
+  action: string
+  subject_type: string | null
+  subject_id: string | null
+  detail: Record<string, unknown> | null
+  ip_address: string | null
+  created_at: string
+}
+
+/** Cursor-paginated audit page. `next_cursor` → pass as `?before=` for
+ * the next (older) page; null at the end. Mirrors shared::dto::AuditPage. */
+export interface AuditPage {
+  entries: AuditLogEntry[]
+  next_cursor: string | null
+}

@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useRef, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 
+import { ConfirmContext, type ConfirmFn, type ConfirmOptions } from "@/components/confirm-context"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -11,21 +12,9 @@ import {
 } from "@/components/ui/dialog"
 
 /** Imperative confirmation modal (replaces native `window.confirm` —
- * docs/FRONTEND_RULES.md / UI-DESIGN). `useConfirm()` returns a function
- * that opens the modal and resolves true/false. Destructive actions
- * (Stop, Delete) get a red CONFIRM button. */
-type ConfirmOptions = {
-  title: string
-  description?: React.ReactNode
-  /** Defaults to "CONFIRM". */
-  confirmLabel?: string
-  destructive?: boolean
-}
-
-type ConfirmFn = (opts: ConfirmOptions) => Promise<boolean>
-
-const ConfirmContext = createContext<ConfirmFn | null>(null)
-
+ * docs/FRONTEND_RULES.md / UI-DESIGN). `useConfirm()` (see
+ * confirm-context) opens the modal and resolves true/false. Destructive
+ * actions (Stop, Delete) get a red CONFIRM button. */
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const [opts, setOpts] = useState<ConfirmOptions | null>(null)
   const resolver = useRef<((v: boolean) => void) | null>(null)
@@ -69,10 +58,4 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
       </Dialog>
     </ConfirmContext.Provider>
   )
-}
-
-export function useConfirm() {
-  const ctx = useContext(ConfirmContext)
-  if (!ctx) throw new Error("useConfirm must be used within ConfirmProvider")
-  return ctx
 }

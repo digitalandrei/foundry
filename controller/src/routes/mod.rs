@@ -2,6 +2,7 @@
 //! per resource; this file only assembles the router.
 
 mod agent;
+mod audit;
 mod deployments;
 mod health;
 mod instances;
@@ -67,6 +68,7 @@ pub fn router(state: AppState) -> Router {
             axum::routing::delete(deployments::remove),
         )
         .route("/api/deployments/{id}/replace", post(deployments::replace))
+        .route("/api/audit", get(audit::list))
         .route(
             "/api/servers/{server_id}/enrollment-token",
             post(servers::regenerate_token),

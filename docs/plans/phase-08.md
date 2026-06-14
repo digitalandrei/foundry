@@ -18,8 +18,9 @@ this phase closes the gaps.
   mine", system status), slot grid (legend, drag ghost, drop-target
   highlight, offline rendering), running-deployments panel
 - Pages: Deployments (filters + detail with lifecycle timeline), Servers
-  (enrollment + detail), Audit Logs (filterable), Settings (instances,
-  tokens, theme, profile)
+  (enrollment + detail), Audit Logs (filterable; ✅ shipped 0.25.0 —
+  `GET /api/audit` + cursor-paginated, action-filtered table), Settings
+  (instances, tokens, theme, profile)
 - **Light mode complete**: all semantic tokens defined for `:root` and
   `.dark`; theme switcher persisted; both themes pass the checklist on
   every screen
