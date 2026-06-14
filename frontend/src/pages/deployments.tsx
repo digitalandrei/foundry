@@ -1,12 +1,15 @@
+import { useNavigate } from "@tanstack/react-router"
 import {
   CircleAlertIcon,
   RocketIcon,
   RotateCcwIcon,
   SquareIcon,
+  TerminalIcon,
   Trash2Icon,
   XCircleIcon,
 } from "lucide-react"
 
+import { useConfirm } from "@/components/confirm-dialog"
 import { DeploymentPorts } from "@/components/deployment-ports"
 import { EmptyState } from "@/components/empty-state"
 import {
@@ -86,15 +89,23 @@ export function DeploymentsPage() {
 }
 
 function DeploymentRow({ deployment: d }: { deployment: DeploymentSummary }) {
+  const navigate = useNavigate()
+  const confirm = useConfirm()
   const stop = useStopDeployment()
   const restart = useRestartDeployment()
   const remove = useRemoveDeployment()
   const dismiss = useDismissDeployment()
   const meta = DEPLOYMENT_STATE_META[d.state]
   const busy = stop.isPending || restart.isPending || remove.isPending || dismiss.isPending
+  const open = () => navigate({ to: "/deployments/$deploymentId", params: { deploymentId: d.id } })
 
   return (
-    <TableRow>
+    <TableRow
+      className="cursor-pointer"
+      onClick={open}
+      role="button"
+      aria-label={`Open ${d.name}`}
+    >
       <TableCell className="font-medium">{d.name}</TableCell>
       <TableCell
         className="max-w-52 truncate font-mono text-xs text-muted-foreground"
@@ -133,15 +144,36 @@ function DeploymentRow({ deployment: d }: { deployment: DeploymentSummary }) {
           : "—"}
       </TableCell>
       <TableCell className="text-muted-foreground">{d.created_by_name}</TableCell>
-      <TableCell className="text-right">
+      {/* Action buttons must not trigger the row's navigate. */}
+      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-end gap-1">
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-8"
+            onClick={open}
+            aria-label="Console / logs"
+            title="Console & logs"
+          >
+            <TerminalIcon className="size-3.5" />
+          </Button>
           {d.state === "RUNNING" ? (
             <Button
               variant="outline"
               size="icon"
               className="size-8"
               disabled={busy}
-              onClick={() => stop.mutate(d.id)}
+              onClick={async () => {
+                if (
+                  await confirm({
+                    title: `Stop "${d.name}"?`,
+                    description:
+                      "The container is removed; restarting it re-deploys from the stored spec.",
+                    destructive: true,
+                  })
+                )
+                  stop.mutate(d.id)
+              }}
               aria-label="Stop"
               title="Stop"
             >
@@ -166,7 +198,17 @@ function DeploymentRow({ deployment: d }: { deployment: DeploymentSummary }) {
                 size="icon"
                 className="size-8 text-slot-failed"
                 disabled={busy}
-                onClick={() => remove.mutate(d.id)}
+                onClick={async () => {
+                  if (
+                    await confirm({
+                      title: `Delete "${d.name}"?`,
+                      description:
+                        "The container and its image are deleted and its captured logs are purged. Persistent volumes survive.",
+                      destructive: true,
+                    })
+                  )
+                    remove.mutate(d.id)
+                }}
                 aria-label="Remove"
                 title="Remove container (persistent volumes survive)"
               >

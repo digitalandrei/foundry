@@ -19,6 +19,15 @@ nvml-wrapper = "0.11"
 # Telemetry (plans/phase-05.md): host metrics + bollard stats streaming.
 sysinfo = "0.33"
 futures-util = "0.3"
+# Log capture (Phase 7): parse docker `--timestamps` lines and the
+# foundry.deployment_id container label into the wire types.
+chrono = { workspace = true }
+uuid = { workspace = true }
+# Interactive shell: dial a WebSocket back to the controller (pull-only)
+# and bridge it to a `docker exec` TTY. rustls + system roots (the
+# controller cert is public, behind Cloudflare).
+tokio-tungstenite = { version = "0.29", features = ["rustls-tls-native-roots"] }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

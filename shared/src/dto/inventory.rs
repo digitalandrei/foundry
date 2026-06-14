@@ -7,6 +7,13 @@ use serde::{Deserialize, Serialize};
 pub struct InventorySnapshot {
     pub agent_version: String,
     pub docker_version: Option<String>,
+    /// Whether the Docker daemon answered (drives the per-server "Docker
+    /// active" indicator + deploy gate). Defaulted `false` so snapshots
+    /// from pre-0.20 agents don't deserialize-fail; such agents only ever
+    /// upload when their daemon is up, so the controller treats a missing
+    /// field as "unknown" via the column default, not as "down".
+    #[serde(default)]
+    pub docker_ok: bool,
     pub nvidia_driver_version: Option<String>,
     /// HTTP/S app-publishing readiness: `Some(true)` only when nginx
     /// (≥ the version the vhost template needs), the service, the

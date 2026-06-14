@@ -127,6 +127,19 @@ pub async fn detail(
     Ok(Json(detail))
 }
 
+/// Captured container logs for the deployment detail view (merged
+/// stdout+stderr, bounded recent window). Org-visible like the list —
+/// fleet *visibility* is org-wide (docs/SECURITY.md).
+pub async fn logs(
+    State(state): State<AppState>,
+    _user: CurrentUser,
+    Path(id): Path<DeploymentId>,
+) -> Result<Json<foundry_shared::dto::DeploymentLogsView>, AppError> {
+    // 404 on an unknown deployment (don't leak an empty body for a typo).
+    deployments::get(&state.pool, id).await?;
+    Ok(Json(crate::repos::logs::recent(&state.pool, id).await?))
+}
+
 pub async fn stop(
     State(state): State<AppState>,
     user: CurrentUser,

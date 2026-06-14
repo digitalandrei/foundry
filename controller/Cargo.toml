@@ -5,8 +5,10 @@ edition.workspace = true
 
 [dependencies]
 foundry-shared = { workspace = true }
-axum = { workspace = true }
+axum = { workspace = true, features = ["ws"] }
 axum-extra = { version = "0.10", features = ["cookie"] }
+# WebSocket sink/stream split for the interactive shell bridge.
+futures-util = "0.3"
 dotenvy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -10,11 +10,13 @@ import {
 } from "@tanstack/react-router"
 import { ThemeProvider } from "next-themes"
 
+import { ConfirmProvider } from "@/components/confirm-dialog"
 import { AppShell } from "@/components/layout/app-shell"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AuditPage } from "@/pages/audit"
 import { DashboardPage } from "@/pages/dashboard"
+import { DeploymentDetailPage } from "@/pages/deployment-detail"
 import { DeploymentsPage } from "@/pages/deployments"
 import { HelpGitlabOauthPage } from "@/pages/help-gitlab-oauth"
 import { LoginPage } from "@/pages/login"
@@ -51,6 +53,11 @@ const routeTree = rootRoute.addChildren([
       path: "/deployments",
       component: DeploymentsPage,
     }),
+    createRoute({
+      getParentRoute: () => appLayout,
+      path: "/deployments/$deploymentId",
+      component: DeploymentDetailPage,
+    }),
     createRoute({ getParentRoute: () => appLayout, path: "/servers", component: ServersPage }),
     createRoute({
       getParentRoute: () => appLayout,
@@ -84,7 +91,9 @@ createRoot(document.getElementById("root")!).render(
         {/* One provider for every Radix tooltip in the app (a bare
             <Tooltip> throws without it — docs/FRONTEND_RULES.md). */}
         <TooltipProvider>
-          <RouterProvider router={router} />
+          <ConfirmProvider>
+            <RouterProvider router={router} />
+          </ConfirmProvider>
         </TooltipProvider>
         <Toaster />
       </QueryClientProvider>

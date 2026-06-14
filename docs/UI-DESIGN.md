@@ -49,11 +49,20 @@ page scrolls normally — content is never trapped.
   running) and app version (`Foundry vX.Y.Z`).
 - Hint line: "Drag a container to a GPU slot to deploy".
 
-### 2. Main panel — "Servers & GPU Slots (NVIDIA MIG)"
+### 2. Main panel — "Servers & GPU Slots"
+
+The main panel fills the full height of the dashboard (0.20.0: the
+bottom Deployments box was removed — deployments live on their own page
+now; the grid stretches and scrolls inside itself). MIG is shown
+**per GPU** (a `MIG` / `No MIG` marker on each GPU cell), not in the
+panel title.
 
 - Header with state legend: **Free / Running / Reserved / Offline**.
-- One row per server: status dot, name (`gpu-server-01`), IP, OS, GPU model,
-  `MIG Mode: Enabled|Disabled`, totals (`8 GPUs | 64 MIG Slices`).
+- One row per server: status dot, name (`gpu-server-01`), IP, OS, plus
+  per-server health badges — **`docker: active`** (green) or **`Docker
+  stopped — deploys blocked`** (red), and the nginx/HTTP-S badge. A
+  server whose Docker daemon is down accepts no deploys (drop targets
+  inert; the controller also rejects at create).
 - GPUs render as **cells that split the full row width** (0.10.0,
   operator feedback: chips were small with space to spare) —
   `repeat(auto-fit, minmax(280px, 1fr))`, so 2 GPUs split 50/50.
@@ -62,18 +71,29 @@ page scrolls normally — content is never trapped.
     `GET /api/metrics/latest`. NVML cannot attribute per MIG slice, so
     GPU-level stats live here, container stats on the chips.
   - Slot chips stretch to fill their GPU cell (a full-GPU slot fills
-    it entirely). Chip anatomy: slot name `g:i` (display only —
-    identity is the UUID) + capacity/MIG profile + state label, then
-    when occupied the workload name and a small live-usage line
-    (`CPU 12% · MEM 3.4/16 GB`, or the in-flight progress text while
-    deploying — `pulling: 3/7 layers · 410 / 1208 MB`).
-  - **Clicking an occupied chip opens the slot detail dialog**
-    (`slot-detail-dialog.tsx`, backed by `GET /api/deployments/{id}`):
-    state + live progress/error, image, usage, ports incl. clickable
-    app URLs, **mounts** (volume name, container path, ro, host path),
-    env *names* (secrets shown as `•••` — values never leave the
-    server), uptime/creator. Presentational only — lifecycle actions
-    stay on the Deployments page.
+    it entirely). Chip anatomy (0.23.0): the **first line** carries
+    `SLOT g:i` (display only — identity is the UUID), the occupant's name
+    inline, and the state label on the right (Free / Locked / Deploying /
+    Running / Freeing / …) + capacity/MIG profile. Below it a small
+    contextual line: `CPU 12%` when running (the container's **memory is
+    not repeated** here — VRAM lives on the GPU header), or the in-flight
+    progress text while deploying (`pulling: 3/7 layers · 410 / 1208 MB`).
+  - **Clicking an occupied chip opens the dedicated deployment page**
+    (`/deployments/{id}`, `deployment-detail.tsx`, backed by
+    `GET /api/deployments/{id}` + `…/logs`). It's a **full-screen, three-
+    region layout** (0.21.0): **(1) Details** on top — state + live
+    progress/error, image, usage, ports incl. clickable app URLs,
+    **mounts** (volume name, container path, ro, host path), env *names*
+    (secrets `•••` — values never leave the server), uptime/creator;
+    **(2) Console** (merged stdout+stderr; Follow, Copy on the title line)
+    and **(3) Shell** — a live **xterm.js terminal** (0.22.0) — side by
+    side below, each expandable to full width. On phones the three boxes
+    stack one-per-viewport (swipe details → console → shell). The shell
+    **connects only on an explicit Start click** (a deliberate action; it
+    `docker exec`s bash→sh via the agent-dialed reverse-WS tunnel),
+    Disconnects from the title line, and Reconnects after a session ends.
+    Each box's actions sit on its title line, with Expand last. Lifecycle
+    actions stay on the Deployments page.
 - **Drag interaction**: dragging a container card over a valid `FREE` slot
   shows a dashed highlighted drop target (mockup: dashed green outline with
   a floating card ghost showing image + version + size). Dropping opens the
@@ -81,15 +101,17 @@ page scrolls normally — content is never trapped.
   replacement confirmation (see `ARCHITECTURE.md` § Replacement workflow).
 - Offline servers render gray with hollow status dot; their slots are inert.
 
-### 3. Bottom panel — "Deployments"
+### 3. Deployments
 
-Table with running-count badge and "View All" link to the Deployments
-page. Shows everything alive on the fleet — including **in-flight
-deploys with live progress text** under the status label and FAILED
-rows with their error (REPLACED history stays on the Deployments
-page). Columns: **Name** · **Image** · **Server** · **GPU / Slice** ·
-**Status** (colored; progress/error sub-line) · **Uptime**. Actions
-live on the Deployments page.
+There is no bottom Deployments box on the dashboard (removed in 0.20.0
+so the slot grid can fill the panel). The **Deployments page** is the
+full table — each **row clicks through to the deployment page**
+(`/deployments/{id}`) for details + console, and a console icon does the
+same. Rows carry the lifecycle actions. Destructive ones (Stop, Delete) open a
+**confirmation modal** with a red **CONFIRM** button (`confirm-dialog.tsx`
+/ `useConfirm` — never the native `window.confirm`); in-flight deploys
+show live progress; FAILED rows show their error. The dashboard's **System Status** card keeps the
+running/online counts.
 
 ## Slot State Colors
 

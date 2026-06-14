@@ -5,6 +5,7 @@ import { api, ApiError, queryKeys } from "@/lib/api"
 import type {
   CreateDeploymentRequest,
   DeploymentDetail,
+  DeploymentLogsView,
   DeploymentSummary,
   ExposedPortsResponse,
   LatestMetricsResponse,
@@ -27,6 +28,17 @@ export function useDeploymentDetail(id: string | null) {
     queryFn: () => api<DeploymentDetail>(`/api/deployments/${id}`),
     enabled: id !== null,
     refetchInterval: 5_000, // live state/progress while the dialog is open
+  })
+}
+
+/** Captured stdout+stderr for a deployment (deployment detail viewer).
+ * Follow mode polls; paused mode fetches once and on manual refresh. */
+export function useDeploymentLogs(id: string | null, follow: boolean) {
+  return useQuery({
+    queryKey: queryKeys.deploymentLogs(id ?? ""),
+    queryFn: () => api<DeploymentLogsView>(`/api/deployments/${id}/logs`),
+    enabled: id !== null,
+    refetchInterval: follow ? 3_000 : false,
   })
 }
 

@@ -54,5 +54,6 @@ export const queryKeys = {
   serverVolumes: (id: string) => ["servers", id, "volumes"] as const,
   deployments: ["deployments"] as const,
   deploymentDetail: (id: string) => ["deployments", id] as const,
+  deploymentLogs: (id: string) => ["deployments", id, "logs"] as const,
   metricsLatest: ["metrics", "latest"] as const,
 }

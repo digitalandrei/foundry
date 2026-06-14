@@ -167,6 +167,13 @@ RUNNING → REPLACED   (superseded by a replacement deployment)
 Every transition writes a `deployment_events` row (old state, new state,
 actor, timestamp, detail) and is auditable end to end.
 
+**Create-time server gates (fail fast, don't dispatch a doomed deploy):**
+the target server must be ONLINE, its **Docker daemon up**
+(`servers.docker_ok != false`, reported each inventory — 0.20.0), and —
+for HTTP/S ports — app-publishing ready. The dashboard mirrors these:
+inert drop targets + a per-server `docker: active` / `Docker stopped`
+badge.
+
 **Teardown leaves no host garbage (0.18.0):** `STOP` and `REMOVE` both
 delete the container (nothing lingers in `docker ps -a`) and then reclaim
 its image best-effort (nothing piles up in `docker images`; an image still
@@ -231,7 +238,7 @@ The controller enqueues typed tasks; the agent polls and executes:
 | `REMOVE_CONTAINER` | Remove a managed container and reclaim its image (best-effort; persistent volumes survive) |
 | `REMOVE_VOLUME` | Delete a persistent volume directory (amendment: persistent storage; hard-scoped under `/storage/containers/`) |
 | `REFRESH_INVENTORY` | Re-enumerate GPUs/MIG slots/containers and upload |
-| `UPLOAD_LOGS` | Collect and upload container logs |
+| `UPLOAD_LOGS` | (Reserved task type.) Log capture ships on a periodic **push** loop, not the task queue — see Container logs below |
 
 ### Persistent storage (amendment, Phase 6 — operator requirement)
 
@@ -257,6 +264,41 @@ throttled human detail line aggregated from Docker's pull stream
 contract: posts are fire-and-forget on the agent, stale/out-of-order
 reports are dropped by the controller, and the detail text lives in
 controller memory only — the durable truth stays the state machine.
+
+### Container logs (Phase 7 — operator requirement)
+
+Operators read container logs from the UI without SSH. The agent runs a
+10s **push** loop (same shape as metrics, *not* the sequential task
+queue — which would block deploys): for each **managed** running
+container (foreign containers are detected for slot visibility but never
+read) it captures the new stdout+stderr since a per-deployment cursor
+(`docker logs --timestamps --since`), and uploads bounded chunks to
+`/agent/logs`. The controller stores them in `deployment_logs` and
+serves a bounded recent window at `GET /api/deployments/{id}/logs`,
+which the deployment detail dialog renders (merged console, follow mode,
+copy). Retention is bounded two ways — at most 7 days *and* at most a
+fixed number of newest chunks per deployment — so a chatty container
+cannot exhaust the controller; logs are deleted with their deployment
+(REMOVED), while a STOPPED deployment's last logs remain readable. This
+is poll-tail by decision (docs/API.md § Logs design); SSE was deferred.
+
+### Container shell (0.22.0 — operator requirement)
+
+An in-browser terminal into a running container, **without breaking
+pull-only**: the agent dials *back*. The browser opens a WebSocket
+(`/api/deployments/{id}/shell`, owner/admin, RUNNING only, audited); the
+controller registers an in-memory pending session; the server's agent —
+already long-polling `/agent/shell/next` — dials
+`/agent/shell/attach/{id}` as its own WebSocket, and the controller
+bridges the two sockets verbatim. The agent runs `docker exec` with a TTY
+(`bash` if present, else `sh`, in one exec) on the **managed** container
+and pipes stdin/stdout/stderr through; resize is a small JSON control.
+The controller never connects to the agent, there is no SSH, and the
+Docker socket never leaves the server — the invariants hold. Sessions are
+deliberately in-memory (a live socket pair is meaningless across a
+restart); 30s keepalive pings keep nginx/Cloudflare from idling the
+connection. This is the UI realization of success criterion #10 ("operate
+without SSH"). Threat model: docs/SECURITY.md § Container shell.
 
 ## App Publishing (amendment, 0.8.0 — operator requirement)
 

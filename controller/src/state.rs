@@ -23,4 +23,9 @@ pub struct AppState {
     /// just blanks the text until the next report. Lock is never held
     /// across an await (docs/RUST_RULES.md).
     pub progress: Arc<Mutex<HashMap<uuid::Uuid, String>>>,
+    /// Pending/active interactive shell sessions, keyed by session id
+    /// (crate::shell). In-memory by nature — a session is a live socket
+    /// pair, meaningless across a restart. Same lock discipline as
+    /// `progress`: short sync sections only.
+    pub shells: crate::shell::ShellRegistry,
 }

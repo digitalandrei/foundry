@@ -103,9 +103,11 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
 - Frontend deployments: hooks → `hooks/use-deployments.ts` (incl.
   useLatestMetrics + useDeploymentDetail); deploy/replace dialog →
   `components/deploy-dialog.tsx`; drag sources in
-  `containers-panel.tsx`, drop targets + live slot chips in
-  `server-grid.tsx`; slot click-through detail (mounts/env names) →
-  `components/slot-detail-dialog.tsx`; DndContext in
+  `containers-panel.tsx`, drop targets + live slot chips + per-server
+  Docker/nginx status badges in `server-grid.tsx`; slot/row click-through
+  → dedicated deployment page (details + console) →
+  `pages/deployment-detail.tsx` (route `/deployments/$deploymentId`);
+  DndContext + slot grid only (deployments box removed 0.20.0) in
   `pages/dashboard.tsx`; table → `pages/deployments.tsx`
 - Live deploy progress: agent reporter + pull aggregation →
   `agent/src/tasks.rs` (ProgressReporter/PullProgress); controller
@@ -113,9 +115,36 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   `routes/agent.rs::tasks_progress` (detail text in
   `AppState.progress`, in-memory)
 
+- Container logs (Phase 7): agent push-loop collector (incremental
+  `docker logs --since` per managed container) → `agent/src/logs.rs`,
+  uploaded in `agent/src/main.rs` heartbeat loop; controller intake
+  `routes/agent.rs::logs` + bounded store/sweeper/delete →
+  `controller/src/repos/logs.rs`; read route `routes/deployments.rs::logs`;
+  delete-with-deployment choke point in `lifecycle.rs` (REMOVED); wire
+  types → `shared/src/dto/logs.rs`; UI viewer (follow/copy) →
+  `frontend/src/components/deployment-logs.tsx`, embedded in the
+  deployment page `pages/deployment-detail.tsx`; hook `useDeploymentLogs`
+  → `hooks/use-deployments.ts`
+
+- Container shell (0.22.0): reverse-WS terminal. Controller bridge +
+  session registry (browser WS, agent attach WS, agent long-poll) →
+  `controller/src/shell.rs` (registry field on `state.rs`, routes in
+  `routes/mod.rs`); agent exec bridge (long-poll → dial back → docker
+  exec bash→sh TTY + resize) → `agent/src/shell.rs` (joined in
+  `agent/src/main.rs`); wire type `ShellRequest` → `shared/src/dto/shell.rs`;
+  UI xterm.js terminal → `frontend/src/components/shell-panel.tsx`; shared
+  panel chrome → `components/detail-panel.tsx`; logs box →
+  `components/console-panel.tsx`; both hosted by `pages/deployment-detail.tsx`
+
+- Docker liveness (0.20.0): agent reports `docker_ok` (daemon answered)
+  in `agent/src/inventory.rs` → `shared` `InventorySnapshot.docker_ok` →
+  `servers.docker_ok` (`repos/inventory.rs`) → `ServerSummary.docker_ok`
+  (`repos/servers.rs`); deploy gate in `repos/deployments.rs::create`;
+  UI badge + drop-disable in `server-grid.tsx`
+
 **Planned (later phases):**
 
-- Audit route → `controller/src/routes/`; UPLOAD_LOGS executor
+- Audit route → `controller/src/routes/`
 
 ## Maintenance
 

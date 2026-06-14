@@ -20,6 +20,7 @@ pub async fn list(pool: &MySqlPool) -> Result<Vec<ServerSummary>, AppError> {
         r#"SELECT s.id AS "id: Uuid", s.name, s.hostname, s.status,
                   s.last_heartbeat_at, s.os_version,
                   s.app_publishing_ready AS "app_publishing_ready: bool", s.nginx_status,
+                  s.docker_ok AS "docker_ok: bool",
                   a.agent_version, a.id AS "agent_id: Uuid"
            FROM servers s
            LEFT JOIN server_agents a ON a.server_id = s.id
@@ -42,6 +43,7 @@ pub async fn list(pool: &MySqlPool) -> Result<Vec<ServerSummary>, AppError> {
             os_version: r.os_version,
             app_publishing_ready: r.app_publishing_ready,
             nginx_status: r.nginx_status,
+            docker_ok: r.docker_ok,
             enrolled: r.agent_id.is_some(),
             gpus: super::inventory::gpus_for_server(pool, id).await?,
             containers_running: super::inventory::running_count(pool, id).await?,

@@ -238,6 +238,22 @@ pub async fn metrics(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Container log chunks (docs/API.md § Logs): incremental stdout+stderr
+/// for the server's managed containers. Bounded count; each chunk is
+/// authorized against its deployment in the repo. Foreign containers are
+/// never uploaded (the agent filters by the `foundry.managed` label).
+pub async fn logs(
+    State(state): State<AppState>,
+    AuthenticatedAgent(ctx): AuthenticatedAgent,
+    Json(chunks): Json<Vec<foundry_shared::dto::DeploymentLogChunk>>,
+) -> Result<StatusCode, AppError> {
+    if chunks.len() > 256 {
+        return Err(AppError::BadRequest("log batch exceeds sane bounds".into()));
+    }
+    crate::repos::logs::append(&state.pool, ctx.server_id, &chunks).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Full snapshot upload (docs/GPU-MIG.md). Bounds: an authenticated
 /// agent is not blindly trusted (docs/SECURITY.md § Input hygiene).
 pub async fn inventory(

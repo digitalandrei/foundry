@@ -135,6 +135,9 @@ export interface ServerSummary {
    * NGINX_INACTIVE | NOT_CONFIGURED | TLS_MISSING, or null (pre-0.16
    * agent / no snapshot). */
   nginx_status: string | null
+  /** Docker daemon liveness: true → active, false → down (deploys
+   * blocked), null → unknown / no snapshot yet. */
+  docker_ok: boolean | null
   enrolled: boolean
   gpus: GpuSummary[]
   containers_running: number
@@ -269,6 +272,15 @@ export interface DeploymentEnvKey {
 export interface DeploymentDetail extends DeploymentSummary {
   mounts: DeploymentMount[]
   env: DeploymentEnvKey[]
+}
+
+/** GET /api/deployments/{id}/logs — bounded recent stdout+stderr. */
+export interface DeploymentLogsView {
+  /** Merged stdout+stderr (oldest→newest), capped to the response budget. */
+  content: string
+  /** Timestamp of the newest captured line (null → nothing captured yet). */
+  collected_at: string | null
+  available: boolean
 }
 
 /** GET /api/metrics/latest — newest telemetry sample per server. */

@@ -13,7 +13,7 @@ in `docs/plans/`.
 | 4 | Agent enrollment | [plans/phase-04.md](plans/phase-04.md) | 🔶 Built & deployed (0.2.0) — awaiting first real GPU-server enrollment; rotation endpoint pending |
 | 5 | Inventory (GPU/MIG discovery & reconciliation) | [plans/phase-05.md](plans/phase-05.md) | ✅ Done (2026-06-12) — inventory verified on real L40S servers (0.3/0.4); telemetry shipped (0.5.0) |
 | 6 | Deployments (lifecycle, replacement) | [plans/phase-06.md](plans/phase-06.md) | 🔶 Built & deployed (0.13.0) — TCP/UDP + volumes + per-server HTTP/S publishing + EXPOSE discovery + live progress + slot auto-heal/dismiss + external-GPU visibility + nginx-readiness flag; first real GPU deploy in progress |
-| 7 | Logs | [plans/phase-07.md](plans/phase-07.md) | ⬜ Not started |
+| 7 | Logs | [plans/phase-07.md](plans/phase-07.md) | 🔶 Built & deployed (0.19.0) — agent push-loop log capture + bounded 7-day storage + UI viewer; awaiting agent redeploy on GPU servers to start capturing |
 | 8 | UI (full dashboard, dark+light themes) | [plans/phase-08.md](plans/phase-08.md) | ⬜ Not started |
 | 9 | Security hardening | [plans/phase-09.md](plans/phase-09.md) | ⬜ Not started |
 | 10 | Production readiness | [plans/phase-10.md](plans/phase-10.md) | ⬜ Not started |
@@ -41,6 +41,61 @@ A user can:
 
 Scope/architecture changes agreed after the original spec — each must be
 reflected in the affected docs in the same commit set:
+
+- **2026-06-14** (0.22.0) — **Interactive container shell** (operator:
+  "open a shell on that container … try bash and sh"). A real xterm.js
+  terminal on the deployment page, built to **preserve pull-only**: the
+  browser opens a WebSocket (`/api/deployments/{id}/shell`, owner/admin,
+  RUNNING, audited `SHELL_OPENED`); the controller registers an in-memory
+  session and the server's agent — long-polling `/agent/shell/next` —
+  dials `/agent/shell/attach/{id}` back as its own WS; the controller
+  bridges them and the agent `docker exec`s `bash`→`sh` (TTY, one exec)
+  on the managed container. Resize + 30s keepalive pings (nginx/Cloudflare
+  idle). Console/Shell box actions moved onto their title lines (Follow,
+  Copy, Expand). New deps: axum `ws`, controller `futures-util`, agent
+  `tokio-tungstenite` (rustls), frontend `@xterm/xterm`+`addon-fit`.
+  **Needs agent redeploy (≥0.22.0)** to function. Affects API,
+  ARCHITECTURE, SECURITY, DEPLOYMENT, UI-DESIGN. Realizes success
+  criterion #10 (operate without SSH).
+
+- **2026-06-14** (0.21.0) — **Deployment page full-screen 3-region
+  layout** (operator). The page now uses the whole screen: Details +
+  ports + mounts + env on top, then **Console and Shell side by side**
+  below, each expandable to full width; on phones the three boxes stack
+  one-per-viewport. The log viewer fills its panel. The **Shell box is a
+  placeholder with a Start button** — the session opens only on click
+  (by design); the agent-dialed reverse-WS terminal is the next change.
+
+- **2026-06-14** (0.20.0) — **Dedicated deployment page + dashboard
+  refocus + Docker-active gate** (operator). Clicking a deployment
+  (dashboard slot *or* Deployments row) now opens a dedicated page
+  `/deployments/{id}` (`deployment-detail.tsx`) with the details the slot
+  dialog used to show **plus the live console**; the old
+  `slot-detail-dialog.tsx` is retired. The dashboard's bottom Deployments
+  box was removed so "Servers & GPU Slots" fills the panel (title
+  de-suffixed; MIG stays a per-GPU `MIG`/`No MIG` marker). The agent now
+  reports Docker daemon liveness (`servers.docker_ok`); each server shows
+  a `docker: active` / `Docker stopped — deploys blocked` badge (like
+  nginx) and a down daemon blocks deploys both in the UI (inert drop
+  targets) and at the controller (`create` rejects). **The container
+  shell was split out as a follow-up** (needs a pull-respecting reverse
+  WebSocket tunnel + its own security review). Affects API, DATABASE,
+  ARCHITECTURE, UI-DESIGN, phase-07/08.
+
+- **2026-06-14** (0.19.0, Phase 7) — **Container logs + destructive-action
+  confirmation** (operator). Logs: the agent ships *incremental*
+  stdout+stderr for each managed running container on a 10s push loop
+  (foreign containers never read), stored in a new `deployment_logs`
+  table (25 tables) and served at `GET /api/deployments/{id}/logs`; the
+  deployment detail dialog gained a console (merged stdout+stderr, follow
+  mode, copy) and the Deployments table a console button. **Decision:
+  poll-tail, not SSE; periodic push, not the `UPLOAD_LOGS` task** (a
+  sequential task would block deploys). Retention is bounded twice — at
+  most 7 days *and* a fixed newest-chunk count per deployment (operator:
+  "keep only the last 7 days at most"); logs are deleted with the
+  deployment (REMOVED) but a STOPPED deployment keeps them. Stop and
+  Remove now prompt for confirmation. Affects API, ARCHITECTURE,
+  DATABASE, DEPLOYMENT, phase-07.
 
 - **2026-06-13** (0.18.0) — **Teardown reclaims container + image**
   (operator: "when we stop a container also remove the image — don't keep

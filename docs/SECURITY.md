@@ -90,6 +90,31 @@ reload` — no shell, no other arguments. Defense in depth around it:
   `/etc/foundry-agent/tls/` on each GPU server. Private keys never
   transit the controller, the database, or the task queue.
 
+## Container shell
+
+The interactive shell (0.22.0, docs/ARCHITECTURE.md § Container shell) is
+a real `docker exec` into a running container — treat it as a privileged
+capability and keep its controls tight:
+
+- **Authorization is owner/admin**, the same gate as stop/remove; the
+  browser WebSocket carries the session cookie and is rejected before the
+  upgrade otherwise. The deployment must be RUNNING.
+- **Audited**: opening a shell writes a `SHELL_OPENED` audit row (actor,
+  deployment, IP).
+- **Pull-only preserved**: the controller never dials the agent; the
+  agent dials back over an outbound WSS authenticated with its own agent
+  credential, and the controller checks the session belongs to that
+  agent's `server_id`. No SSH, no inbound port, no remote Docker socket.
+- **Scope**: only `foundry.managed=true` containers can be targeted (the
+  agent resolves the container by deployment-id label). The exec runs as
+  the container's own user — typically root *inside the container*, the
+  same blast radius as the workload already has; it is not host root.
+- **No persistence**: sessions live only as an in-memory socket pair; a
+  controller restart drops them. Bytes are bridged, never logged.
+- Residual risk accepted: a shell is as powerful as the container. The
+  mitigations are the owner/admin gate + audit trail; tighten by limiting
+  who can deploy (deploy rights already come from GitLab membership).
+
 ## Audit Logging
 
 - `audit_logs` and `deployment_events` are append-only. Every login,

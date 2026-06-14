@@ -39,14 +39,15 @@ user's GitLab account on the instance that owns the resource.
 | `GET /api/deployments` | Deployments with ports/state/uptime (REMOVED filtered out; latest 200); HTTP/S ports carry their published `hostname`; `status_detail` carries live deploy progress (in-memory overlay), `container_id` joins telemetry | ✅ live |
 | `GET /api/deployments/{id}` | Detail for the slot dialog: summary (flattened) + `mounts` (volume name/host path/container path/ro) + `env` **names** (`is_secret` flagged — values never returned) | ✅ live |
 | `GET /api/metrics/latest` | Newest telemetry sample per server — live GPU/container labels on the dashboard grid | ✅ live |
-| `POST /api/deployments` | Create from drag-drop: slot (FREE, locked) + tag + ports (per-port kind, pool-allocated; HTTP/S get a unique `<name>.<server>.apps-domain` hostname) + env (secrets encrypted) + persistent volumes; returns it VALIDATING. HTTP/S deploys are **rejected fast** when the target server isn't publish-ready (with the nginx reason) | ✅ live |
+| `POST /api/deployments` | Create from drag-drop: slot (FREE, locked) + tag + ports (per-port kind, pool-allocated; HTTP/S get a unique `<name>.<server>.apps-domain` hostname) + env (secrets encrypted) + persistent volumes; returns it VALIDATING. **Rejected fast** when the target server's Docker daemon is down (`docker_ok = false`), or — for HTTP/S deploys — when it isn't publish-ready (with the nginx reason) | ✅ live |
 | `POST /api/deployments/{id}/replace` | Replacement chain: stop old → remove old → REPLACED → deploy successor on the same slot | ✅ live |
 | `POST /api/deployments/{id}/stop` · `/restart` | Lifecycle actions (legality enforced by the transition table) | ✅ live |
 | `POST /api/deployments/{id}/dismiss` | Clear a FAILED deployment (→ REMOVED) and free its stuck slot — controller-side, no agent; owner/admin | ✅ live |
 | `DELETE /api/deployments/{id}` | Remove a stopped/failed deployment (container removed; volumes survive) | ✅ live |
 | `GET /api/servers/{id}/volumes` | Persistent volumes (own; admins see all) with attached-to info | ✅ live |
 | `DELETE /api/volumes/{id}` | Delete volume + data (creator/admin; refused while mounted) | ✅ live |
-| `GET /api/deployments/{id}/logs` | Container logs (uploaded by agent) | Phase 7 |
+| `GET /api/deployments/{id}/logs` | Captured container logs (merged stdout+stderr, bounded recent window) → `{content, collected_at, available}`; org-visible like the list; 404 on unknown id | ✅ live |
+| `GET /api/deployments/{id}/shell` | **WebSocket** — interactive container shell (owner/admin; deployment must be RUNNING; audited `SHELL_OPENED`). The controller registers a pending session and bridges it to the server's agent (pull-only: the agent dials back). Binary frames = TTY I/O, text `{"type":"resize",cols,rows}` = resize. Closes 1011 if no agent attaches in 25s | ✅ live |
 | `GET /api/audit` | Audit log (admin sees all; users see their own actions) | Phase 8 |
 | `POST /api/enrollment-tokens` | Generate server enrollment token — admin | Phase 4 |
 | `POST /api/servers/{id}/rotate-token` | Rotate an agent credential — admin | Phase 4 |
@@ -81,12 +82,39 @@ single-use enrollment token.
 |---|---|
 | `POST /agent/enroll` | ✅ live — single-use token → permanent identity `{agent_id, agent_secret}`; binds to the pre-named server; re-enrollment replaces the credential |
 | `POST /agent/heartbeat` | ✅ live — marks the server ONLINE + records agent version; a 30s sweeper flips servers OFFLINE after 90s without a beat |
-| `POST /agent/inventory` | ✅ live — full snapshot (GPUs/MIG + ALL containers with `managed` flag, port mappings + runtime versions) at start + every 60s; controller reconciles UUID-keyed (vanished → OFFLINE, returned → FREE), containers replace-all; bounds: ≤64 GPUs, ≤1024 containers |
+| `POST /agent/inventory` | ✅ live — full snapshot (GPUs/MIG + ALL containers with `managed` flag, port mappings + runtime versions + `docker_ok` daemon-liveness) at start + every 60s; controller reconciles UUID-keyed (vanished → OFFLINE, returned → FREE), containers replace-all; bounds: ≤64 GPUs, ≤1024 containers |
 | `POST /agent/metrics` | ✅ live — telemetry sample every 30s: host CPU/mem/disk/net rates (sysinfo), per-GPU util/mem/temp/power (NVML), per-container CPU/mem (Engine stats); stored as JSON in `server_metrics`, 24h sweeper |
+| `POST /agent/logs` | ✅ live — container logs every 10s: a batch of *incremental* stdout+stderr chunks (`[{deployment_id, container_id, through, content}]`), one per **managed** running container (foreign containers never read); `docker logs --since` driven off a per-deployment cursor so only new output ships; each chunk authorized against its deployment+server, capped, then stored in `deployment_logs`. Bound: ≤256 chunks/batch |
 | `GET /agent/tasks/next` | ✅ live — long-poll (≤25s server-side); DEPLOY payloads enriched at dispatch (env decrypted, pull token freshly minted — secrets never rest in the queue); lost DISPATCHED tasks re-queue after 5 min (re-claims tolerate already-advanced deployment state) |
 | `POST /agent/tasks/result` | ✅ live — advances the deployment state machine; duplicate reports are idempotent no-ops; replacement chains continue here |
 | `POST /agent/tasks/progress` | ✅ live — best-effort live DEPLOY progress: PULLING_IMAGE/CREATING_CONTAINER/STARTING transitions + a human detail line (`pulling: 3/7 layers · 410 / 1208 MB`, agent-throttled ~2s). Detail text is held in controller memory (transient by design); stale/out-of-order reports are dropped, never errors |
-| `POST /agent/logs` | Upload container log chunks for a deployment |
+| `GET /agent/shell/next` | ✅ live — long-poll (≤20s); returns a pending `{session_id, deployment_id}` shell for this server, else 204. The browser-side WS created it |
+| `GET /agent/shell/attach/{session_id}` | ✅ live — **WebSocket** the agent dials back; the controller bridges it to the waiting browser. The agent `docker exec`s bash→sh (TTY) on the managed container and pipes it through. Verified `server_id` owns the session |
+
+**Logs design (Phase 7 decision):** poll-tail, not live streaming. The
+agent *pushes* incremental log chunks on a 10s loop (same shape as
+`/agent/metrics`) rather than the controller enqueuing an `UPLOAD_LOGS`
+task — the sequential task loop would block deploys, and a push loop
+keeps the viewer continuously fresh. The UI polls `GET …/logs` every 3s
+while "Follow" is on. SSE was rejected for v1: every other view already
+polls, and a 3s tail is live enough. Retention is bounded twice — at
+most **7 days** *and* at most a fixed number of newest chunks per
+deployment (a log-spamming container is capped within one interval) —
+and logs are deleted with their deployment (REMOVED), so a STOPPED
+deployment's logs stay readable but a removed one's are purged.
+
+**Shell design (reverse-WS tunnel):** an interactive shell needs a live
+bidirectional channel, but the agent is pull-only — so the *agent dials
+back*. The browser opens `GET /api/deployments/{id}/shell` (session
+cookie auth, owner/admin, RUNNING only); the controller registers an
+in-memory pending session and the server's agent — already long-polling
+`/agent/shell/next` — learns of it and dials
+`/agent/shell/attach/{session_id}` as its own WebSocket. The controller
+then bridges the two sockets verbatim and the agent runs `docker exec`
+(bash→sh, TTY) on the managed container. No inbound connection to the
+agent, no SSH, no remote Docker socket — the invariant holds. Sessions
+are in-memory (a live socket pair); 30s keepalive pings defeat nginx/
+Cloudflare idle close; a session with no agent in 25s closes 1011.
 
 Agent protocol invariants:
 

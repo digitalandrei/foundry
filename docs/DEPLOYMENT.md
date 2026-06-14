@@ -198,6 +198,22 @@ The published binary lives at `/srv/foundry/downloads/foundry-agent`
 
 - `GET /health` — liveness; `GET /metrics` — Prometheus (localhost).
 - Structured JSON logs in journald for both services.
+- **Container logs** (Phase 7, 0.19.0): agents push incremental
+  stdout+stderr to `/agent/logs` every 10s; the controller keeps a
+  bounded window in `deployment_logs` (≤7 days *and* a newest-chunk cap
+  per deployment, swept half-hourly) and serves it at
+  `GET /api/deployments/{id}/logs`. Poll-tail by decision (no SSE in v1;
+  the UI follows at 3s). Logs are deleted with their deployment; a
+  STOPPED deployment keeps its last logs. A new GPU-server feature, so
+  it activates only after the **agent is redeployed** on each server.
+- **Container shell** (0.22.0): an in-browser terminal. WebSocket path —
+  the browser hits `/api/deployments/{id}/shell`, the agent dials back
+  `/agent/shell/attach/{id}`; both ride the existing nginx `/api/` and
+  `/agent/` locations (the proxy-headers snippet already forwards the
+  WebSocket `Upgrade`/`Connection` headers, and the controller pings
+  every 30s so nginx/Cloudflare don't idle-close). No vhost change
+  needed. Like logs, the shell only works once the **agent is
+  redeployed** (≥0.22.0) on the server.
 
 ## Runtime Truth
 

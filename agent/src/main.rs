@@ -10,8 +10,10 @@
 
 mod config;
 mod inventory;
+mod logs;
 mod metrics;
 mod register;
+mod shell;
 mod tasks;
 mod vhost;
 
@@ -82,7 +84,8 @@ async fn run_agent() -> Result<(), Box<dyn Error>> {
     // each exits on SIGTERM/ctrl-c.
     tokio::join!(
         heartbeat_loop(&client, &config),
-        tasks::run_loop(&client, &config)
+        tasks::run_loop(&client, &config),
+        shell::run_loop(&client, &config)
     );
     tracing::info!("shut down cleanly");
     Ok(())
@@ -105,6 +108,11 @@ async fn heartbeat_loop(client: &reqwest::Client, config: &config::AgentConfig) 
     let mut collector = metrics::MetricsCollector::new();
     let mut metrics_interval = tokio::time::interval(Duration::from_secs(30));
     metrics_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // Container logs every 10s (incremental — only new output ships).
+    let logs_url = format!("{base}/agent/logs");
+    let mut log_collector = logs::LogCollector::new();
+    let mut logs_interval = tokio::time::interval(Duration::from_secs(10));
+    logs_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut healthy: Option<bool> = None;
 
     loop {
@@ -122,6 +130,23 @@ async fn heartbeat_loop(client: &reqwest::Client, config: &config::AgentConfig) 
                     Ok(resp) if resp.status().is_success() => {}
                     Ok(resp) => tracing::warn!(status = %resp.status(), "metrics upload rejected"),
                     Err(err) => tracing::debug!(%err, "metrics upload failed (controller unreachable)"),
+                }
+            }
+            _ = logs_interval.tick() => {
+                let chunks = log_collector.collect().await;
+                if !chunks.is_empty() {
+                    let result = client
+                        .post(&logs_url)
+                        .header("x-foundry-agent-id", &config.agent_id)
+                        .bearer_auth(&config.agent_secret)
+                        .json(&chunks)
+                        .send()
+                        .await;
+                    match result {
+                        Ok(resp) if resp.status().is_success() => {}
+                        Ok(resp) => tracing::warn!(status = %resp.status(), "log upload rejected"),
+                        Err(err) => tracing::debug!(%err, "log upload failed (controller unreachable)"),
+                    }
                 }
             }
             _ = inventory_interval.tick() => {

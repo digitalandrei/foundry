@@ -11,6 +11,7 @@ mod gitlab;
 mod lifecycle;
 mod repos;
 mod routes;
+mod shell;
 mod state;
 
 use std::error::Error;
@@ -52,6 +53,7 @@ async fn serve() -> Result<(), Box<dyn Error>> {
     auth::session::spawn_sweeper(pool.clone());
     repos::servers::spawn_offline_sweeper(pool.clone());
     repos::metrics::spawn_sweeper(pool.clone());
+    repos::logs::spawn_sweeper(pool.clone());
 
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
@@ -65,6 +67,7 @@ async fn serve() -> Result<(), Box<dyn Error>> {
         admin_emails: Arc::from(config.admin_emails.clone()),
         apps_domain: config.apps_domain.as_deref().map(Arc::from),
         progress: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        shells: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
     };
 
     let app = routes::router(state);

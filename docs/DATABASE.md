@@ -68,7 +68,9 @@ Enrolled GPU servers. Columns: `id`, `name`, `hostname`, `ip_address`,
 the latest inventory snapshot; 0.13.0), `nginx_status` (VARCHAR(32)
 null — granular reason: READY / NGINX_MISSING / NGINX_OUTDATED /
 NGINX_INACTIVE / NOT_CONFIGURED / TLS_MISSING; agent-reported, 0.16.0,
-values extended 0.17.0), timestamps.
+values extended 0.17.0), `docker_ok` (BOOL null — Docker daemon
+liveness from the latest snapshot; NULL = unknown/no inventory yet,
+false = down → deploys rejected at create; 0.20.0), timestamps.
 
 ### `server_agents`
 Agent identity and auth per server. Columns: `id`, `server_id` FK,
@@ -164,6 +166,21 @@ Columns: `id`, `server_id` FK, `name`, `owner_slug`, `path`,
 `created_by` FK users, timestamps. Unique: (`server_id`, `created_by`,
 `name`) and (`server_id`, `path`).
 
+### `deployment_logs`
+> Added in Phase 7 (Logs): captured container stdout+stderr.
+
+Incremental log chunks the agent ships for each **managed** running
+container (foreign containers are never read). Columns: `id`,
+`deployment_id` FK, `server_id`, `container_id` null, `logged_at`
+(newest docker timestamp in the chunk — the retention clock), `content`
+MEDIUMTEXT (merged stdout+stderr, `docker --timestamps` lines). Indexed
+(`deployment_id`, `logged_at`) and (`logged_at`). Bounded twice: a
+half-hourly sweeper drops chunks older than **7 days**, and each append
+trims the deployment to its newest N chunks so a log-spamming container
+cannot exhaust the controller. Deleted with the deployment when it goes
+REMOVED (`lifecycle::transition_deployment`); a STOPPED deployment keeps
+its logs.
+
 ## Agent Task Queue
 
 ### `agent_tasks`
@@ -214,10 +231,10 @@ null, `created_at`. Never updated or deleted.
 
 18 spec tables + amendments (`gitlab_instances`, `sessions`,
 `local_credentials`, `server_containers`, `server_metrics`,
-`server_volumes`) = 24 tables total: users, gitlab_accounts,
-gitlab_instances, local_credentials, sessions, gitlab_projects,
-registry_repositories, registry_tags, servers, server_agents,
-server_containers, server_metrics, server_volumes, gpus, gpu_slots,
-deployments, deployment_events, deployment_ports, deployment_env,
-deployment_volumes, agent_tasks, agent_task_results, audit_logs,
-enrollment_tokens.
+`server_volumes`, `deployment_logs`) = 25 tables total: users,
+gitlab_accounts, gitlab_instances, local_credentials, sessions,
+gitlab_projects, registry_repositories, registry_tags, servers,
+server_agents, server_containers, server_metrics, server_volumes, gpus,
+gpu_slots, deployments, deployment_events, deployment_ports,
+deployment_env, deployment_volumes, deployment_logs, agent_tasks,
+agent_task_results, audit_logs, enrollment_tokens.

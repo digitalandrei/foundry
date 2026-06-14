@@ -17,11 +17,12 @@ pub async fn collect() -> InventorySnapshot {
     // running containers (so even non-Foundry containers map to a slot).
     let (nvidia_driver_version, gpus) = collect_gpus();
     let gpu_index: HashMap<u32, String> = gpus.iter().map(|g| (g.index, g.uuid.clone())).collect();
-    let (docker_version, containers) = collect_docker(&gpu_index).await;
+    let (docker_version, docker_ok, containers) = collect_docker(&gpu_index).await;
     let nginx = crate::vhost::app_publishing_status();
     InventorySnapshot {
         agent_version: env!("CARGO_PKG_VERSION").to_string(),
         docker_version,
+        docker_ok,
         nvidia_driver_version,
         app_publishing: Some(nginx == "READY"),
         nginx_status: Some(nginx.to_string()),
@@ -30,19 +31,25 @@ pub async fn collect() -> InventorySnapshot {
     }
 }
 
-async fn collect_docker(gpu_index: &HashMap<u32, String>) -> (Option<String>, Vec<ContainerInfo>) {
+/// Returns `(version, daemon_reachable, containers)`. `daemon_reachable`
+/// drives the per-server "Docker active" indicator + deploy gate: it is
+/// true only when the daemon answered `version()`, independent of
+/// whether that response carried a version string.
+async fn collect_docker(
+    gpu_index: &HashMap<u32, String>,
+) -> (Option<String>, bool, Vec<ContainerInfo>) {
     let docker = match Docker::connect_with_local_defaults() {
         Ok(d) => d,
         Err(err) => {
             tracing::debug!(%err, "docker unavailable");
-            return (None, Vec::new());
+            return (None, false, Vec::new());
         }
     };
     let version = match docker.version().await {
         Ok(v) => v.version,
         Err(err) => {
             tracing::warn!(%err, "docker socket present but not responding");
-            return (None, Vec::new());
+            return (None, false, Vec::new());
         }
     };
 
@@ -56,7 +63,7 @@ async fn collect_docker(gpu_index: &HashMap<u32, String>) -> (Option<String>, Ve
         Ok(list) => list,
         Err(err) => {
             tracing::warn!(%err, "container listing failed");
-            return (version, Vec::new());
+            return (version, true, Vec::new());
         }
     };
 
@@ -126,7 +133,7 @@ async fn collect_docker(gpu_index: &HashMap<u32, String>) -> (Option<String>, Ve
             gpu_uuids,
         });
     }
-    (version, containers)
+    (version, true, containers)
 }
 
 /// Resolve a container's GPU/MIG device UUIDs from its inspect data:

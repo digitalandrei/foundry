@@ -12,6 +12,7 @@ import {
   useUpdateInstance,
 } from "@/hooks/use-instances"
 import type { InstanceAdmin as InstanceAdminType } from "@/lib/types"
+import { useConfirm } from "@/components/confirm-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -55,6 +56,7 @@ type FormValues = z.infer<typeof schema>
  * `foundry-controller instance add` bootstrap CLI; instances can also
  * be edited (URLs, secret rotation, enable/disable) and removed. */
 export function InstanceAdmin() {
+  const confirm = useConfirm()
   const instances = useInstancesFull(true)
   const create = useCreateInstance()
   const remove = useDeleteInstance()
@@ -110,8 +112,14 @@ export function InstanceAdmin() {
                 aria-label={`Remove ${i.name}`}
                 title="Remove (disable instead if it has history)"
                 disabled={remove.isPending}
-                onClick={() => {
-                  if (confirm(`Remove GitLab instance "${i.name}"? This cannot be undone.`)) {
+                onClick={async () => {
+                  if (
+                    await confirm({
+                      title: `Remove "${i.name}"?`,
+                      description: "This GitLab instance will be removed. This cannot be undone.",
+                      destructive: true,
+                    })
+                  ) {
                     remove.mutate(i.id)
                   }
                 }}

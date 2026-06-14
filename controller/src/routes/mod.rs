@@ -56,6 +56,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/deployments", get(deployments::list))
         .route("/api/deployments", post(deployments::create))
         .route("/api/deployments/{id}", get(deployments::detail))
+        .route("/api/deployments/{id}/logs", get(deployments::logs))
+        // Interactive shell (WebSocket; docs/API.md § Shell)
+        .route("/api/deployments/{id}/shell", get(crate::shell::browser))
         .route("/api/deployments/{id}/stop", post(deployments::stop))
         .route("/api/deployments/{id}/restart", post(deployments::restart))
         .route("/api/deployments/{id}/dismiss", post(deployments::dismiss))
@@ -73,8 +76,14 @@ pub fn router(state: AppState) -> Router {
         .route("/agent/heartbeat", post(agent::heartbeat))
         .route("/agent/inventory", post(agent::inventory))
         .route("/agent/metrics", post(agent::metrics))
+        .route("/agent/logs", post(agent::logs))
         .route("/agent/tasks/next", get(agent::tasks_next))
         .route("/agent/tasks/result", post(agent::tasks_result))
         .route("/agent/tasks/progress", post(agent::tasks_progress))
+        .route("/agent/shell/next", get(crate::shell::agent_next))
+        .route(
+            "/agent/shell/attach/{session_id}",
+            get(crate::shell::agent_attach),
+        )
         .with_state(state)
 }

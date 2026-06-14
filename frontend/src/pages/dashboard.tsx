@@ -3,7 +3,6 @@ import { DndContext, DragOverlay, type DragEndEvent, type DragStartEvent } from 
 // No drop animation: the card snaps to the slot (opening the dialog)
 // instead of flying back to the sidebar on release (operator request).
 const NO_DROP_ANIMATION = null
-import { Link } from "@tanstack/react-router"
 import { PackageIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -13,20 +12,11 @@ import { ServerGrid } from "@/components/server-grid"
 import { SlotLegend } from "@/components/slot-legend"
 import { useDeployments } from "@/hooks/use-deployments"
 import { useServers } from "@/hooks/use-servers"
-import { formatRelative, formatSize } from "@/lib/format"
-import { DEPLOYMENT_STATE_META } from "@/lib/states"
+import { formatSize } from "@/lib/format"
 import type { DragTagData, DropSlotData } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { APP_VERSION } from "@/lib/version"
 
 function SystemStatus() {
@@ -83,11 +73,6 @@ export function DashboardPage() {
     setTarget({ tag, slot, replaces: current })
   }
 
-  // The dashboard table shows everything still alive on the fleet —
-  // including in-flight deploys (live progress) and failures. History
-  // (REPLACED) stays on the Deployments page.
-  const active = (deployments.data ?? []).filter((d) => d.state !== "REPLACED")
-
   return (
     // App-like layout: on wide screens the page never scrolls — every
     // box scrolls inside itself (header h-14 + main p-4 → 5.5rem of
@@ -116,91 +101,13 @@ export function DashboardPage() {
       </aside>
 
       <section className="flex min-w-0 flex-1 flex-col gap-4">
-        <Card className="flex min-h-0 flex-col lg:flex-[3]">
+        <Card className="flex min-h-0 flex-1 flex-col">
           <CardHeader className="shrink-0 flex-row items-center justify-between">
-            <CardTitle className="text-base">Servers &amp; GPU Slots (NVIDIA MIG)</CardTitle>
+            <CardTitle className="text-base">Servers &amp; GPU Slots</CardTitle>
             <SlotLegend />
           </CardHeader>
           <CardContent className="min-h-0 flex-1 lg:overflow-y-auto">
             <ServerGrid />
-          </CardContent>
-        </Card>
-
-        <Card className="flex min-h-0 flex-col lg:flex-[2]">
-          <CardHeader className="shrink-0 flex-row items-center justify-between">
-            <CardTitle className="text-base">
-              Deployments
-              {deployments.data ? (
-                <Badge variant="secondary" className="ml-2">
-                  {deployments.data.filter((d) => d.state === "RUNNING").length} running
-                </Badge>
-              ) : null}
-            </CardTitle>
-            <Link to="/deployments" className="text-sm text-muted-foreground hover:text-foreground">
-              View All
-            </Link>
-          </CardHeader>
-          <CardContent className="min-h-0 flex-1 lg:overflow-y-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Image</TableHead>
-                  <TableHead>Server</TableHead>
-                  <TableHead>GPU / Slice</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Uptime</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {active.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
-                      No deployments yet — drag an image onto a free slot.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  active.map((d) => (
-                    <TableRow key={d.id}>
-                      <TableCell className="font-medium">{d.name}</TableCell>
-                      <TableCell
-                        className="max-w-56 truncate font-mono text-xs text-muted-foreground"
-                        title={d.image_ref}
-                      >
-                        {d.image_ref}
-                      </TableCell>
-                      <TableCell>{d.server_name}</TableCell>
-                      <TableCell className="font-mono text-xs">
-                        {d.gpu_label} / {d.slot_name}
-                      </TableCell>
-                      <TableCell>
-                        <span className={DEPLOYMENT_STATE_META[d.state].textClass}>
-                          {DEPLOYMENT_STATE_META[d.state].label}
-                        </span>
-                        {d.status_detail ? (
-                          <span className="block max-w-52 truncate font-mono text-[10px] text-muted-foreground">
-                            {d.status_detail}
-                          </span>
-                        ) : null}
-                        {d.state === "FAILED" && d.error_message ? (
-                          <span
-                            className="block max-w-52 truncate text-[10px] text-muted-foreground"
-                            title={d.error_message}
-                          >
-                            {d.error_message}
-                          </span>
-                        ) : null}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {d.state === "RUNNING" && d.started_at
-                          ? formatRelative(d.started_at).replace(" ago", "")
-                          : "—"}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
           </CardContent>
         </Card>
       </section>

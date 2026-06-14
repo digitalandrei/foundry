@@ -48,7 +48,8 @@ pub async fn create(
         r#"SELECT gs.id AS "id: Uuid", gs.state, gs.name AS slot_name,
                   g.server_id AS "server_id: Uuid",
                   s.status AS server_status, s.name AS server_name,
-                  s.app_publishing_ready AS "app_publishing_ready: bool", s.nginx_status
+                  s.app_publishing_ready AS "app_publishing_ready: bool", s.nginx_status,
+                  s.docker_ok AS "docker_ok: bool"
            FROM gpu_slots gs
            JOIN gpus g ON g.id = gs.gpu_id
            JOIN servers s ON s.id = g.server_id
@@ -61,6 +62,16 @@ pub async fn create(
 
     if slot.server_status != "ONLINE" {
         return Err(AppError::BadRequest("server is not online".into()));
+    }
+    // Docker must be running on the target server — a deploy is a
+    // `docker pull`/`create`/`start` the agent could only fail. Only
+    // blocks when the agent has explicitly reported the daemon down
+    // (NULL = no inventory yet → don't second-guess).
+    if slot.docker_ok == Some(false) {
+        return Err(AppError::BadRequest(format!(
+            "Docker isn't running on {} — start the Docker daemon on the server, then redeploy.",
+            slot.server_name,
+        )));
     }
     // HTTP/S deploys need app publishing on the target server. Fail fast
     // with the agent-reported reason rather than dispatching a deploy

@@ -1,6 +1,32 @@
 # Phase 7 — Logs
 
-**Status:** Not started · refine this plan right before starting.
+**Status:** 🔶 Built & deployed (0.19.0). Agent push-loop log capture +
+bounded 7-day storage + UI viewer + destructive-action confirmation are
+live on the controller/frontend; GPU-server agents pick it up on their
+next redeploy (operator-driven). Implementation diverged from the
+original deliverables in two deliberate ways — recorded below.
+
+## Decisions taken (vs the original sketch)
+
+- **Push loop, not `UPLOAD_LOGS` task.** The agent ships incremental
+  log chunks every 10s (same architecture as `/agent/metrics`) rather
+  than the controller enqueuing a task — the sequential task loop would
+  block deploys, and a push loop keeps the viewer continuously fresh.
+  The `UPLOAD_LOGS` task type is retained but unused.
+- **Poll-tail, not SSE** (the plan's decision point). The UI polls
+  `GET /api/deployments/{id}/logs` every 3s while Follow is on; every
+  other view already polls and a 3s tail is live enough. Recorded in
+  API.md § Logs design and DEPLOYMENT.md.
+- **Incremental capture** via a per-deployment `docker logs --since`
+  cursor (+ sub-second dedup), so only new output ships.
+- **Retention bounded twice** (operator: "keep only the last 7 days at
+  most"): a half-hourly sweeper drops chunks older than 7 days, and each
+  append trims the deployment to its newest N chunks so a log-spamming
+  container is capped within one interval. Logs are deleted with the
+  deployment when it goes REMOVED (the `transition_deployment` choke
+  point); a STOPPED deployment keeps its logs.
+- **Only managed containers** are read (label `foundry.managed=true`);
+  foreign containers stay detect-only (slot locked, name+telemetry).
 
 ## Goal
 

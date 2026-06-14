@@ -24,10 +24,11 @@ pub async fn apply_snapshot(
 
     sqlx::query!(
         "UPDATE servers SET nvidia_driver_version = ?, docker_version = ?,
-             app_publishing_ready = ?, nginx_status = ?, updated_at = ?
+             docker_ok = ?, app_publishing_ready = ?, nginx_status = ?, updated_at = ?
          WHERE id = ?",
         snap.nvidia_driver_version,
         snap.docker_version,
+        snap.docker_ok,
         snap.app_publishing,
         snap.nginx_status,
         now,

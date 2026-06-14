@@ -1,10 +1,8 @@
-import { useState } from "react"
+import { Link, useNavigate } from "@tanstack/react-router"
 import { useDroppable } from "@dnd-kit/core"
-import { Link } from "@tanstack/react-router"
 import { CheckCircle2Icon, ServerOffIcon, TriangleAlertIcon } from "lucide-react"
 
 import { EmptyState } from "@/components/empty-state"
-import { SlotDetailDialog } from "@/components/slot-detail-dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useDeployments, useLatestMetrics } from "@/hooks/use-deployments"
 import { useServers } from "@/hooks/use-servers"
@@ -49,7 +47,10 @@ export function ServerGrid() {
   const servers = useServers()
   const deployments = useDeployments()
   const metrics = useLatestMetrics()
-  const [selected, setSelected] = useState<string | null>(null)
+  const navigate = useNavigate()
+  // Clicking an occupied slot opens the dedicated deployment page.
+  const openDeployment = (deploymentId: string) =>
+    navigate({ to: "/deployments/$deploymentId", params: { deploymentId } })
 
   if (servers.isPending) {
     return (
@@ -89,10 +90,9 @@ export function ServerGrid() {
           server={server}
           occupants={occupants}
           sample={samples.get(server.id)}
-          onSelect={setSelected}
+          onSelect={openDeployment}
         />
       ))}
-      <SlotDetailDialog deploymentId={selected} onClose={() => setSelected(null)} />
     </div>
   )
 }
@@ -128,6 +128,7 @@ function ServerRow({
         {server.os_version ? (
           <span className="text-xs text-muted-foreground">{server.os_version}</span>
         ) : null}
+        <DockerStatus ok={server.docker_ok} />
         <NginxStatus status={server.nginx_status} ready={server.app_publishing_ready} />
         <span className="ml-auto text-xs text-muted-foreground">
           {server.gpus.length} GPU{server.gpus.length === 1 ? "" : "s"}
@@ -247,7 +248,8 @@ function SlotChip({
   const { setNodeRef, isOver } = useDroppable({
     id: slot.id,
     data,
-    disabled: !droppable || server.status !== "ONLINE",
+    // Docker down → no deploys (the controller rejects them too).
+    disabled: !droppable || server.status !== "ONLINE" || server.docker_ok === false,
   })
   const capacity =
     slot.mig_profile ??
@@ -276,44 +278,78 @@ function SlotChip({
       )}
       title={`${meta.label} · ${slot.slot_type}${slot.state === "RUNNING" ? " — drop to replace, click for details" : occupant ? " — click for details" : external ? " — GPU in use by a non-Foundry container" : ""}`}
     >
+      {/* Slot number, occupant name, and status all on one line. */}
       <span className="flex items-baseline justify-between gap-2">
-        <span className="font-mono text-xs font-medium">{slot.name}</span>
-        <span className={cn("text-[10px]", external ? "text-muted-foreground" : meta.textClass)}>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="shrink-0 font-mono text-xs font-medium">SLOT {slot.name}</span>
+          {shown ? (
+            <span
+              className="flex min-w-0 items-center gap-1 truncate text-xs font-medium"
+              title={shown.image_ref}
+            >
+              <StatusDot
+                running={shown.state === "RUNNING"}
+                className={DEPLOYMENT_STATE_META[shown.state].dotClass}
+              />
+              <span className="truncate">{shown.name}</span>
+            </span>
+          ) : external ? (
+            <span
+              className="flex min-w-0 items-center gap-1 truncate text-xs font-medium"
+              title={external.image}
+            >
+              <StatusDot running={external.running} />
+              <span className="truncate">{external.name}</span>
+            </span>
+          ) : null}
+        </span>
+        <span className={cn("shrink-0 text-[10px]", external ? "text-muted-foreground" : meta.textClass)}>
           {capacity ? `${capacity} · ` : ""}
           {external ? (external.running ? "External" : "External · stopped") : meta.label}
         </span>
       </span>
       {shown ? (
-        <>
-          <span className="flex items-center gap-1.5 truncate text-xs font-medium" title={shown.image_ref}>
-            <StatusDot running={shown.state === "RUNNING"} className={DEPLOYMENT_STATE_META[shown.state].dotClass} />
-            <span className="truncate">{shown.name}</span>
-          </span>
-          <span className="truncate pl-3 font-mono text-[10px] text-muted-foreground tabular-nums">
-            {shown.status_detail
-              ? shown.status_detail
-              : usage
-                ? `CPU ${usage.cpu_pct.toFixed(0)}% · MEM ${(usage.mem_used_mb / 1024).toFixed(1)}/${(usage.mem_limit_mb / 1024).toFixed(0)} GB`
-                : shown.state === "RUNNING"
-                  ? "—"
-                  : shown.state.toLowerCase().replace(/_/g, " ")}
-          </span>
-        </>
+        <span className="truncate pl-3 font-mono text-[10px] text-muted-foreground tabular-nums">
+          {shown.status_detail
+            ? shown.status_detail
+            : usage
+              ? `CPU ${usage.cpu_pct.toFixed(0)}%`
+              : shown.state === "RUNNING"
+                ? "—"
+                : shown.state.toLowerCase().replace(/_/g, " ")}
+        </span>
       ) : external ? (
-        <>
-          <span className="flex items-center gap-1.5 truncate text-xs font-medium" title={external.image}>
-            <StatusDot running={external.running} />
-            <span className="truncate">{external.name}</span>
-            <span className="shrink-0 text-[10px] font-normal text-muted-foreground">
-              {external.running ? "running" : "stopped"}
-            </span>
-          </span>
-          <span className="truncate pl-3 font-mono text-[10px] text-muted-foreground" title={external.image}>
-            {external.image}
-          </span>
-        </>
+        <span className="truncate pl-3 font-mono text-[10px] text-muted-foreground" title={external.image}>
+          {external.image}
+        </span>
       ) : null}
     </div>
+  )
+}
+
+/** Per-server Docker daemon health (same shape as nginx). Active → quiet
+ * green; down → red "deploys blocked"; unknown (no snapshot yet) → silent. */
+function DockerStatus({ ok }: { ok: boolean | null }) {
+  if (ok === null) return null
+  if (ok) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-xs text-slot-free"
+        title="The Docker daemon is running — deployments are allowed."
+      >
+        <CheckCircle2Icon className="size-3.5" aria-hidden />
+        docker: active
+      </span>
+    )
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-xs text-slot-failed"
+      title="The Docker daemon is not responding on this server. Start it (`sudo systemctl start docker`); deploys are blocked until it's back."
+    >
+      <TriangleAlertIcon className="size-3.5" aria-hidden />
+      Docker stopped — deploys blocked
+    </span>
   )
 }
 

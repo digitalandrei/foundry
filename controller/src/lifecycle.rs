@@ -124,6 +124,13 @@ pub async fn transition_deployment(
     .execute(&mut *tx)
     .await?;
 
+    // A removed deployment's captured logs go with it (operator rule:
+    // logs are deleted when the deployment/container is deleted). STOP
+    // keeps them — a stopped deployment's logs stay readable.
+    if to.as_str() == "REMOVED" {
+        crate::repos::logs::delete_for(tx, deployment_id).await?;
+    }
+
     sqlx::query!(
         r#"INSERT INTO deployment_events
            (id, deployment_id, from_state, to_state, actor_type, actor_id, detail, created_at)

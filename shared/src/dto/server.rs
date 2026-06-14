@@ -23,6 +23,10 @@ pub struct ServerSummary {
     /// `NOT_CONFIGURED` / `TLS_MISSING`); `None` when not reported
     /// (pre-0.16 agent or no snapshot).
     pub nginx_status: Option<String>,
+    /// Docker daemon liveness from the latest snapshot: `Some(true)` →
+    /// active, `Some(false)` → daemon down (deploys blocked), `None` →
+    /// unknown / no snapshot yet (pre-0.20 agent included).
+    pub docker_ok: Option<bool>,
     /// Whether an agent has ever enrolled for this server.
     pub enrolled: bool,
     /// GPUs with their slots (from the latest inventory snapshot) —
