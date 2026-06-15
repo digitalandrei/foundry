@@ -104,9 +104,13 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   `controller/src/routes/registry.rs` (`exposed_ports`)
 - Frontend deployments: hooks → `hooks/use-deployments.ts` (incl.
   useLatestMetrics + useDeploymentDetail); deploy/replace dialog →
-  `components/deploy-dialog.tsx`; drag sources in
+  `components/deploy-dialog.tsx`; tap/drag sources in
   `containers-panel.tsx`, drop targets + live slot chips + per-server
-  Docker/nginx status badges in `server-grid.tsx`; slot/row click-through
+  Docker/nginx status badges in `server-grid.tsx`; tap-to-deploy slot
+  picker → `components/slot-picker-dialog.tsx` (opened via
+  `components/deploy-pick-context.tsx`); shared slot occupancy +
+  deploy-eligibility, one source for grid + picker → `lib/slots.ts`;
+  slot/row click-through
   → dedicated deployment page (details + console) →
   `pages/deployment-detail.tsx` (route `/deployments/$deploymentId`);
   DndContext + slot grid only (deployments box removed 0.20.0) in

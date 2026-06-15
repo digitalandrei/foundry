@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useDeployments, useLatestMetrics } from "@/hooks/use-deployments"
 import { useServers } from "@/hooks/use-servers"
+import { occupantsBySlot, slotDeployability } from "@/lib/slots"
 import { DEPLOYMENT_STATE_META, SERVER_STATUS_META, SLOT_STATE_META } from "@/lib/states"
 import type {
   DeploymentSummary,
@@ -16,21 +17,6 @@ import type {
   SlotSummary,
 } from "@/lib/types"
 import { cn } from "@/lib/utils"
-
-/** Deployment states that occupy a slot (everything still on the host). */
-const OCCUPYING = new Set([
-  "PENDING",
-  "VALIDATING",
-  "PULLING_IMAGE",
-  "CREATING_CONTAINER",
-  "STARTING",
-  "RUNNING",
-  "STOPPING",
-  "STOPPED",
-  "RESTARTING",
-  "REMOVING",
-  "FAILED",
-])
 
 /** Container ids appear both short (12) and full (64) — match either way. */
 function containerMetrics(sample: MetricsSample | undefined, containerId: string | null) {
@@ -74,12 +60,7 @@ export function ServerGrid() {
   }
 
   // Latest occupant per slot (REMOVED/REPLACED no longer hold one).
-  const occupants = new Map<string, DeploymentSummary>()
-  for (const d of deployments.data ?? []) {
-    if (!OCCUPYING.has(d.state)) continue
-    const existing = occupants.get(d.slot_id)
-    if (!existing || d.created_at > existing.created_at) occupants.set(d.slot_id, d)
-  }
+  const occupants = occupantsBySlot(deployments.data)
   const samples = new Map((metrics.data?.servers ?? []).map((m) => [m.server_id, m.sample]))
 
   return (
@@ -236,8 +217,6 @@ function SlotChip({
   // when Foundry has nothing here. A *running* one holds the GPU (not a
   // deploy target); a stopped one is shown but leaves the device free.
   const external = !shown ? slot.external : null
-  const droppable =
-    (slot.state === "FREE" || slot.state === "RUNNING") && !external?.running
   const data: DropSlotData = {
     slotId: slot.id,
     slotName: slot.name,
@@ -245,12 +224,10 @@ function SlotChip({
     serverId: server.id,
     serverName: server.name,
   }
-  const { setNodeRef, isOver } = useDroppable({
-    id: slot.id,
-    data,
-    // Docker down → no deploys (the controller rejects them too).
-    disabled: !droppable || server.status !== "ONLINE" || server.docker_ok === false,
-  })
+  // Same eligibility the slot picker uses: FREE → deploy, RUNNING →
+  // replace; needs an ONLINE server, Docker up, no external holder.
+  const { deployable } = slotDeployability(slot, server, occupant)
+  const { setNodeRef, isOver } = useDroppable({ id: slot.id, data, disabled: !deployable })
   const capacity =
     slot.mig_profile ??
     (slot.capacity_mb != null ? `${Math.round(slot.capacity_mb / 1024)} GB` : "")

@@ -1,5 +1,15 @@
 import { useState } from "react"
-import { DndContext, DragOverlay, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core"
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core"
 // No drop animation: the card snaps to the slot (opening the dialog)
 // instead of flying back to the sidebar on release (operator request).
 const NO_DROP_ANIMATION = null
@@ -7,8 +17,10 @@ import { PackageIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { ContainersPanel } from "@/components/containers-panel"
+import { DeployPickProvider } from "@/components/deploy-pick-context"
 import { DeployDialog, type DeployTarget } from "@/components/deploy-dialog"
 import { ServerGrid } from "@/components/server-grid"
+import { SlotPickerDialog } from "@/components/slot-picker-dialog"
 import { SlotLegend } from "@/components/slot-legend"
 import { useDeployments } from "@/hooks/use-deployments"
 import { useServers } from "@/hooks/use-servers"
@@ -48,16 +60,21 @@ function SystemStatus() {
 export function DashboardPage() {
   const deployments = useDeployments()
   const [dragging, setDragging] = useState<DragTagData | null>(null)
+  const [picking, setPicking] = useState<DragTagData | null>(null)
   const [target, setTarget] = useState<DeployTarget | null>(null)
 
-  const onDragStart = (e: DragStartEvent) => {
-    setDragging((e.active.data.current as DragTagData) ?? null)
-  }
-  const onDragEnd = (e: DragEndEvent) => {
-    setDragging(null)
-    const tag = e.active.data.current as DragTagData | undefined
-    const slot = e.over?.data.current as DropSlotData | undefined
-    if (!tag || !slot) return
+  // Mouse needs a little movement before a drag starts (so a plain click
+  // taps-to-deploy instead); touch waits for a short press (so a quick tap
+  // deploys and a vertical swipe still scrolls the container list).
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+    useSensor(KeyboardSensor),
+  )
+
+  // Resolve a (tag, slot) pair into a deploy/replace target — shared by
+  // the drag-drop path and the tap-to-deploy slot picker.
+  const openTarget = (tag: DragTagData, slot: DropSlotData) => {
     if (slot.slotState === "FREE") {
       setTarget({ tag, slot, replaces: null })
       return
@@ -73,11 +90,22 @@ export function DashboardPage() {
     setTarget({ tag, slot, replaces: current })
   }
 
+  const onDragStart = (e: DragStartEvent) => {
+    setDragging((e.active.data.current as DragTagData) ?? null)
+  }
+  const onDragEnd = (e: DragEndEvent) => {
+    setDragging(null)
+    const tag = e.active.data.current as DragTagData | undefined
+    const slot = e.over?.data.current as DropSlotData | undefined
+    if (!tag || !slot) return
+    openTarget(tag, slot)
+  }
+
   return (
     // App-like layout: on wide screens the page never scrolls — every
     // box scrolls inside itself (header h-14 + main p-4 → 5.5rem of
     // chrome). Below lg the boxes stack and the page scrolls normally.
-    <DndContext onDragStart={onDragStart} onDragEnd={onDragEnd}>
+    <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
     <div className="flex h-auto flex-col gap-4 lg:h-[calc(100svh-5.5rem)] lg:flex-row">
       <aside className="flex w-full shrink-0 flex-col gap-4 lg:w-72">
         <Card className="flex max-h-[60svh] min-h-0 flex-1 flex-col lg:max-h-none">
@@ -85,7 +113,9 @@ export function DashboardPage() {
             <CardTitle className="text-sm">Available Containers (from GitLab)</CardTitle>
           </CardHeader>
           <CardContent className="min-h-0 flex-1">
-            <ContainersPanel />
+            <DeployPickProvider onPick={setPicking}>
+              <ContainersPanel />
+            </DeployPickProvider>
           </CardContent>
         </Card>
         <Card className="shrink-0">
@@ -128,6 +158,14 @@ export function DashboardPage() {
       ) : null}
     </DragOverlay>
 
+    <SlotPickerDialog
+      tag={picking}
+      onClose={() => setPicking(null)}
+      onSelect={(tag, slot) => {
+        setPicking(null)
+        openTarget(tag, slot)
+      }}
+    />
     <DeployDialog target={target} onClose={() => setTarget(null)} />
     </DndContext>
   )

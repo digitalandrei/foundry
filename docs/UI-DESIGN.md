@@ -16,6 +16,13 @@ Top navigation: **Dashboard · Deployments · Servers · Audit Logs · Settings*
 GitLab browsing (the spec's "Projects" and "Registry" pages) lives in the
 persistent left sidebar rather than separate pages.
 
+Responsive header: the inline nav row only fits comfortably at `lg` and
+up. Below `lg` it collapses behind a hamburger menu (same items, same
+active styling) so the header never exceeds a phone viewport — the brand,
+help, theme, and user controls stay on the bar. The app shell is
+`overflow-x-clip` so no wide child (table, grid, console) can drag the
+whole page sideways; wide content scrolls inside its own box.
+
 ## Dashboard Layout (the core screen)
 
 Three regions:
@@ -43,8 +50,8 @@ page scrolls normally — content is never trapped.
   matches.
 - Collapsible project groups (`namespace / project` with item count badge),
   each listing **container cards**: package icon, image name, version tag
-  (e.g. `v1.7.0`) and size (e.g. `2.8 GB`). These cards are the **drag
-  sources**.
+  (e.g. `v1.7.0`) and size (e.g. `2.8 GB`). These cards deploy two ways:
+  **tap** one to open the slot picker, or **drag** it onto a slot.
 - **New-image awareness** (0.27.0): while you're in the app the SPA polls
   for newly-pushed tags across your available repos (cheap name-only
   sync); a toast announces them, a dot marks the affected **project**
@@ -53,7 +60,7 @@ page scrolls normally — content is never trapped.
   refreshes in place so the new tag shows up where it belongs.
 - Bottom: System Status card (Servers online, GPUs total, Containers
   running) and app version (`Foundry vX.Y.Z`).
-- Hint line: "Drag a container to a GPU slot to deploy".
+- Hint line: "Tap a container to pick a slot, or drag it onto one".
 
 ### 2. Main panel — "Servers & GPU Slots"
 
@@ -107,11 +114,18 @@ panel title.
     Disconnects from the title line, and Reconnects after a session ends.
     Each box's actions sit on its title line, with Expand last. Lifecycle
     actions stay on the Deployments page.
-- **Drag interaction**: dragging a container card over a valid `FREE` slot
-  shows a dashed highlighted drop target (mockup: dashed green outline with
-  a floating card ghost showing image + version + size). Dropping opens the
-  deployment config dialog; dropping on an occupied slot opens the
-  replacement confirmation (see `ARCHITECTURE.md` § Replacement workflow).
+- **Deploy interaction**: two equivalent paths into the same config dialog.
+  **Drag** a container card over a valid `FREE` slot to show a dashed
+  highlighted drop target (mockup: dashed green outline with a floating card
+  ghost showing image + version + size); dropping opens the deployment
+  config dialog, and dropping on an occupied slot opens the replacement
+  confirmation (see `ARCHITECTURE.md` § Replacement workflow). **Tap** (the
+  touch/keyboard path, primary on mobile) opens a **slot picker** dialog
+  listing every server's GPUs and slots — free slots deploy, running slots
+  replace, ineligible slots show disabled with the reason. Both paths honor
+  the same eligibility from one source (`lib/slots.ts`). The dnd sensors
+  keep a tap from registering as a drag and let a vertical swipe still
+  scroll the container list.
 - Offline servers render gray with hollow status dot; their slots are inert.
 
 ### 3. Deployments

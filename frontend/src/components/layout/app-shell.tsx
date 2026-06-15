@@ -2,6 +2,7 @@ import { Link, Navigate, Outlet } from "@tanstack/react-router"
 import {
   CircleHelpIcon,
   LayoutDashboardIcon,
+  MenuIcon,
   RocketIcon,
   ScrollTextIcon,
   ServerIcon,
@@ -12,6 +13,12 @@ import { ModeToggle } from "@/components/mode-toggle"
 import { RegistryWatchProvider } from "@/components/registry-watch"
 import { UserMenu } from "@/components/user-menu"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useMe } from "@/hooks/use-auth"
 
@@ -41,16 +48,48 @@ export function AppShell() {
 
   return (
     <RegistryWatchProvider>
-      <div className="flex min-h-svh flex-col">
+      {/* overflow-x-clip: a wide child must never drag the whole page
+          sideways on a phone — content scrolls inside its own box. */}
+      <div className="flex min-h-svh flex-col overflow-x-clip">
       <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
-        <div className="flex h-14 items-center gap-6 px-4">
+        <div className="flex h-14 items-center gap-3 px-4 lg:gap-6">
+          {/* Below lg the inline nav would push the header wider than a
+              phone viewport (dragging the page with it), so it collapses
+              into this menu. Same items, same active styling. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="lg:hidden"
+                aria-label="Open navigation menu"
+              >
+                <MenuIcon className="size-5" aria-hidden />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-52">
+              {NAV.map(({ to, label, icon: Icon }) => (
+                <DropdownMenuItem key={to} asChild>
+                  <Link
+                    to={to}
+                    activeOptions={{ exact: to === "/" }}
+                    activeProps={{ className: "bg-accent text-accent-foreground" }}
+                  >
+                    <Icon className="size-4" aria-hidden />
+                    {label}
+                  </Link>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <Link to="/" className="flex items-center gap-2 font-semibold">
             <span className="flex size-7 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
               F
             </span>
             Foundry
           </Link>
-          <nav className="flex items-center gap-1 text-sm" aria-label="Main">
+          <nav className="hidden items-center gap-1 text-sm lg:flex" aria-label="Main">
             {NAV.map(({ to, label, icon: Icon }) => (
               <Link
                 key={to}

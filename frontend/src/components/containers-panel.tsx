@@ -9,6 +9,7 @@ import {
   SearchIcon,
 } from "lucide-react"
 
+import { useDeployPick } from "@/components/deploy-pick-context"
 import { EmptyState } from "@/components/empty-state"
 import { useRegistryWatch } from "@/components/registry-watch-context"
 import { Badge } from "@/components/ui/badge"
@@ -206,9 +207,12 @@ function ProjectNode({
   )
 }
 
-/** Drag source: drop on a free slot to deploy, on a running slot to
- * replace (docs/UI-DESIGN.md § Drag interaction). */
+/** Deploy source: tap to open the slot picker, or drag onto a slot — a
+ * free slot deploys, a running slot replaces (docs/UI-DESIGN.md § Drag
+ * interaction). Tap is the touch/keyboard path; the dnd sensors keep a
+ * click from being read as a drag. */
 function DraggableTag({ tag, imageName }: { tag: RegistryTag; imageName: string }) {
+  const pick = useDeployPick()
   const data: DragTagData = {
     registryTagId: tag.id,
     imageName,
@@ -225,11 +229,17 @@ function DraggableTag({ tag, imageName }: { tag: RegistryTag; imageName: string 
       ref={setNodeRef}
       {...attributes}
       {...listeners}
+      onClick={pick ? () => pick(data) : undefined}
       className={cn(
-        "flex cursor-grab items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent",
+        "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent",
+        pick ? "cursor-pointer" : "cursor-grab",
         isDragging && "opacity-40",
       )}
-      aria-label={`Drag ${imageName}:${tag.name} to a GPU slot to deploy`}
+      aria-label={
+        pick
+          ? `Deploy ${imageName}:${tag.name} — tap to choose a slot, or drag onto one`
+          : `Drag ${imageName}:${tag.name} to a GPU slot to deploy`
+      }
     >
       <GripVerticalIcon className="size-3 shrink-0 text-muted-foreground/60" aria-hidden />
       <PackageIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
