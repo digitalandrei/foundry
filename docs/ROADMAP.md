@@ -42,6 +42,21 @@ A user can:
 Scope/architecture changes agreed after the original spec — each must be
 reflected in the affected docs in the same commit set:
 
+- **2026-06-15** (0.27.0) — **New-image notifications** (operator: "when a
+  new container image is uploaded and we're in the app, pop a message and
+  show it in the listing"). While authenticated, the SPA polls
+  `GET /api/registry/updates` (~90s) — a cheap **name-only** tag sync (no
+  per-tag detail) across the user's available repos that returns tags
+  first seen this round; the first response is a silent baseline. New tags
+  raise a toast, badge the project (dot) + repo (`new`) in the sidebar
+  until viewed, and invalidate the affected project's tree so an expanded
+  repo shows the tag in place. Backend: `registry_tag_names` (name-only
+  list factored out of `registry_tags`), `mirror::insert_new_tag_names`
+  (INSERT-IGNORE new-name detector handling concurrent-tab races), a
+  repos-per-poll cap. New `shared::dto::{RegistryNewTag, RegistryUpdates}`;
+  frontend `RegistryWatchProvider` mounted in the app shell. Affects API,
+  GITLAB-INTEGRATION, UI-DESIGN.
+
 - **2026-06-14** (0.26.0) — **Deployment-detail action buttons**
   (operator): the deployment page header now carries the **same
   state-gated lifecycle buttons as the Deployments list** (stop ·

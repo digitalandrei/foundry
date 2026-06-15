@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { api, queryKeys } from "@/lib/api"
-import type { ProjectSummary, RegistryBrowseResponse } from "@/lib/types"
+import type { ProjectSummary, RegistryBrowseResponse, RegistryUpdates } from "@/lib/types"
 
 export function useProjects(enabled = true) {
   return useQuery({
@@ -19,5 +19,18 @@ export function useRegistry(projectId: string, enabled: boolean) {
     queryFn: () => api<RegistryBrowseResponse>(`/api/registry/${projectId}`),
     staleTime: 120_000,
     enabled,
+  })
+}
+
+/** New-image poller — a cheap, name-only registry sync across the user's
+ * available repos. The watcher provider turns each response into toasts +
+ * sidebar badges. Cost note: each poll lists repos+tag-names for every
+ * available project, so keep the interval gentle. */
+export function useRegistryUpdates() {
+  return useQuery({
+    queryKey: queryKeys.registryUpdates,
+    queryFn: () => api<RegistryUpdates>("/api/registry/updates"),
+    refetchInterval: 90_000,
+    staleTime: 60_000,
   })
 }

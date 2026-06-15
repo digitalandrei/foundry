@@ -57,4 +57,5 @@ export const queryKeys = {
   deploymentLogs: (id: string) => ["deployments", id, "logs"] as const,
   metricsLatest: ["metrics", "latest"] as const,
   audit: (action: string | null) => ["audit", action ?? "all"] as const,
+  registryUpdates: ["registry", "updates"] as const,
 }

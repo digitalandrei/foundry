@@ -41,6 +41,7 @@ pub fn router(state: AppState) -> Router {
             "/api/registry/tags/{tag_id}/exposed-ports",
             get(registry::exposed_ports),
         )
+        .route("/api/registry/updates", get(registry::updates))
         .route("/api/servers", get(servers::list))
         .route("/api/servers", post(servers::create))
         .route("/api/metrics/latest", get(servers::metrics_latest))

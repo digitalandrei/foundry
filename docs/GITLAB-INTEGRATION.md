@@ -99,6 +99,12 @@ cache, not an ACL.
 - Registry browsing:
   `GET /api/v4/projects/{id}/registry/repositories` and
   `.../repositories/{repo_id}/tags` (+ tag detail for digest/size/pushed_at).
+- New-image poller (`GET /api/registry/updates`): lists registry repos +
+  **tag names only** (no per-tag detail) across the user's available
+  projects to detect newly-pushed tags cheaply. Per-tag detail (the
+  expensive fan-out) stays on the lazy full browse. Bounded to a fixed
+  number of repos per poll so a user in many projects can't fan out
+  unboundedly; the SPA polls gently (~90s) and only while in the app.
 
 ## Image Pulls on GPU Servers
 

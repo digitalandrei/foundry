@@ -4,7 +4,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{RegistryRepositoryId, RegistryTagId};
+use crate::{GitlabProjectId, RegistryRepositoryId, RegistryTagId};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegistryBrowseResponse {
@@ -43,4 +43,24 @@ pub struct ExposedPort {
     pub container_port: u16,
     /// `tcp` / `udp`.
     pub protocol: String,
+}
+
+/// One freshly-discovered image tag (`GET /api/registry/updates`) — just
+/// enough for the SPA to toast it and refresh the right project tree.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistryNewTag {
+    pub id: RegistryTagId,
+    pub tag_name: String,
+    /// Full registry path, e.g. `group/project/image`.
+    pub repo_path: String,
+    /// The mirror project id — the SPA invalidates this project's tree.
+    pub project_id: GitlabProjectId,
+}
+
+/// `GET /api/registry/updates` — image tags first seen during this poll
+/// across the user's available repos. Empty when nothing is new (and on
+/// the SPA's first/baseline poll, which it suppresses).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistryUpdates {
+    pub new_tags: Vec<RegistryNewTag>,
 }

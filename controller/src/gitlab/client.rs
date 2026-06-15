@@ -95,6 +95,19 @@ impl GitlabApi<'_> {
         .await
     }
 
+    /// Tag NAMES of one repository — a single paginated list call, no
+    /// per-tag detail (cheap; the new-image poller uses this).
+    pub async fn registry_tag_names(
+        &self,
+        project_id: i64,
+        repository_id: i64,
+    ) -> Result<Vec<GitlabRegistryTag>, AppError> {
+        self.get_paginated(&format!(
+            "/api/v4/projects/{project_id}/registry/repositories/{repository_id}/tags"
+        ))
+        .await
+    }
+
     /// Tags of one repository, with per-tag detail (size, created_at)
     /// for the first `MAX_TAG_DETAILS` tags. Detail requests run
     /// sequentially — bounded and simple; revisit if real registries
@@ -104,11 +117,7 @@ impl GitlabApi<'_> {
         project_id: i64,
         repository_id: i64,
     ) -> Result<Vec<GitlabRegistryTagDetail>, AppError> {
-        let names: Vec<GitlabRegistryTag> = self
-            .get_paginated(&format!(
-                "/api/v4/projects/{project_id}/registry/repositories/{repository_id}/tags"
-            ))
-            .await?;
+        let names = self.registry_tag_names(project_id, repository_id).await?;
 
         let mut detailed = Vec::with_capacity(names.len());
         for (i, tag) in names.into_iter().enumerate() {

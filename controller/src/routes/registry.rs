@@ -5,7 +5,8 @@
 use axum::extract::{Path, State};
 use axum::Json;
 use foundry_shared::dto::{
-    ExposedPortsResponse, RegistryBrowseResponse, RegistryRepository, RegistryTag,
+    ExposedPortsResponse, RegistryBrowseResponse, RegistryNewTag, RegistryRepository, RegistryTag,
+    RegistryUpdates,
 };
 use foundry_shared::{GitlabProjectId, RegistryTagId};
 
@@ -111,4 +112,75 @@ pub async fn exposed_ports(
         Vec::new()
     });
     Ok(Json(ExposedPortsResponse { ports }))
+}
+
+/// Hard cap on repos scanned per account per poll — bounds GitLab load
+/// for a user in very many registry projects; the rest are picked up on
+/// a later poll or a manual browse.
+const MAX_WATCHED_REPOS: usize = 100;
+
+/// `GET /api/registry/updates` — cheap new-image poller. Walks the user's
+/// available projects → registry repos → tag NAMES (no per-tag detail)
+/// and returns the tags first seen this round (mirror inserts). The SPA
+/// polls it on a timer, treats its first response as a silent baseline,
+/// and toasts thereafter. Authorization is the user's own token per
+/// instance, exactly like browse/projects.
+pub async fn updates(
+    State(state): State<AppState>,
+    user: CurrentUser,
+) -> Result<Json<RegistryUpdates>, AppError> {
+    let accounts = users::account_tokens(&state.pool, &state.secrets, user.id).await?;
+    let mut new_tags = Vec::new();
+
+    for account in accounts {
+        let instance =
+            match instances::fetch_config(&state.pool, &state.secrets, account.instance_id).await {
+                Ok(i) => i,
+                Err(_) => continue,
+            };
+        // One unreachable instance degrades that account, not the whole
+        // poll (docs/GITLAB-INTEGRATION.md § Failure Modes).
+        let result: Result<(), AppError> = async {
+            let token = tokens::ensure_fresh(&state, &instance, &account).await?;
+            let api = GitlabApi {
+                http: &state.http,
+                base_url: &instance.base_url,
+                access_token: &token,
+            };
+            let mut scanned = 0usize;
+            for p in api.projects().await? {
+                let project_id = mirror::upsert_project(&state.pool, instance.id, &p).await?;
+                for repo in api.registry_repositories(p.id).await? {
+                    if scanned >= MAX_WATCHED_REPOS {
+                        tracing::warn!(instance = %instance.name,
+                            "registry-updates repo cap hit; remaining repos polled next round");
+                        return Ok(());
+                    }
+                    scanned += 1;
+                    let repo_id = mirror::upsert_repository(&state.pool, project_id, &repo).await?;
+                    let names: Vec<String> = api
+                        .registry_tag_names(p.id, repo.id)
+                        .await?
+                        .into_iter()
+                        .map(|t| t.name)
+                        .collect();
+                    for fresh in mirror::insert_new_tag_names(&state.pool, repo_id, &names).await? {
+                        new_tags.push(RegistryNewTag {
+                            id: fresh.id,
+                            tag_name: fresh.name,
+                            repo_path: repo.path.clone(),
+                            project_id,
+                        });
+                    }
+                }
+            }
+            Ok(())
+        }
+        .await;
+        if let Err(err) = result {
+            tracing::warn!(instance = %instance.name, ?err, "registry updates poll degraded");
+        }
+    }
+
+    Ok(Json(RegistryUpdates { new_tags }))
 }

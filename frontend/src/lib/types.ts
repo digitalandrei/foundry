@@ -357,3 +357,16 @@ export interface AuditPage {
   entries: AuditLogEntry[]
   next_cursor: string | null
 }
+
+/** One freshly-discovered image tag (GET /api/registry/updates). Mirrors
+ * shared::dto::RegistryNewTag. */
+export interface RegistryNewTag {
+  id: string
+  tag_name: string
+  repo_path: string
+  project_id: string
+}
+
+export interface RegistryUpdates {
+  new_tags: RegistryNewTag[]
+}

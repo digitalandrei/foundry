@@ -9,6 +9,7 @@ import {
 } from "lucide-react"
 
 import { ModeToggle } from "@/components/mode-toggle"
+import { RegistryWatchProvider } from "@/components/registry-watch"
 import { UserMenu } from "@/components/user-menu"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -39,7 +40,8 @@ export function AppShell() {
   }
 
   return (
-    <div className="flex min-h-svh flex-col">
+    <RegistryWatchProvider>
+      <div className="flex min-h-svh flex-col">
       <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
         <div className="flex h-14 items-center gap-6 px-4">
           <Link to="/" className="flex items-center gap-2 font-semibold">
@@ -76,6 +78,7 @@ export function AppShell() {
       <main className="flex-1 p-4">
         <Outlet />
       </main>
-    </div>
+      </div>
+    </RegistryWatchProvider>
   )
 }

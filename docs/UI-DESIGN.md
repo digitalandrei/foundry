@@ -45,6 +45,12 @@ page scrolls normally — content is never trapped.
   each listing **container cards**: package icon, image name, version tag
   (e.g. `v1.7.0`) and size (e.g. `2.8 GB`). These cards are the **drag
   sources**.
+- **New-image awareness** (0.27.0): while you're in the app the SPA polls
+  for newly-pushed tags across your available repos (cheap name-only
+  sync); a toast announces them, a dot marks the affected **project**
+  while collapsed and a `new` badge marks the **repo**, clearing once you
+  open the project and collapse it again. An expanded project's tree
+  refreshes in place so the new tag shows up where it belongs.
 - Bottom: System Status card (Servers online, GPUs total, Containers
   running) and app version (`Foundry vX.Y.Z`).
 - Hint line: "Drag a container to a GPU slot to deploy".

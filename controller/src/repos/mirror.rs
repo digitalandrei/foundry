@@ -195,6 +195,65 @@ pub async fn upsert_tag(
     Ok(id.into())
 }
 
+/// A tag the poller just discovered (name-only insert).
+pub struct NewTag {
+    pub id: foundry_shared::RegistryTagId,
+    pub name: String,
+}
+
+/// Insert any tag NAMES not yet mirrored for this repo (name-only — no
+/// size/date; a later full browse fills those). Returns the rows it
+/// actually inserted, i.e. the freshly-discovered tags — the cheap
+/// detector behind the new-image poller. `INSERT IGNORE` makes a
+/// concurrent poll racing the same `(repo, name)` a no-op, not an error.
+pub async fn insert_new_tag_names(
+    pool: &MySqlPool,
+    repository_id: RegistryRepositoryId,
+    names: &[String],
+) -> Result<Vec<NewTag>, AppError> {
+    if names.is_empty() {
+        return Ok(Vec::new());
+    }
+    let existing: std::collections::HashSet<String> = sqlx::query_scalar!(
+        "SELECT name FROM registry_tags WHERE registry_repository_id = ?",
+        repository_id.0,
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .collect();
+
+    let now = chrono::Utc::now().naive_utc();
+    let mut inserted = Vec::new();
+    for name in names {
+        if existing.contains(name) {
+            continue;
+        }
+        let id = Uuid::now_v7();
+        let res = sqlx::query!(
+            r#"INSERT IGNORE INTO registry_tags
+               (id, registry_repository_id, name, digest, size_bytes, pushed_at,
+                last_synced_at, created_at, updated_at)
+               VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?, ?)"#,
+            id,
+            repository_id.0,
+            name,
+            now,
+            now,
+            now,
+        )
+        .execute(pool)
+        .await?;
+        if res.rows_affected() == 1 {
+            inserted.push(NewTag {
+                id: id.into(),
+                name: name.clone(),
+            });
+        }
+    }
+    Ok(inserted)
+}
+
 /// Everything needed to build a pullable image_ref + mint a pull token.
 pub struct TagRef {
     pub tag_name: String,

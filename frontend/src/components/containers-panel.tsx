@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useDraggable } from "@dnd-kit/core"
 import {
   ChevronDownIcon,
@@ -10,6 +10,7 @@ import {
 } from "lucide-react"
 
 import { EmptyState } from "@/components/empty-state"
+import { useRegistryWatch } from "@/components/registry-watch-context"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
@@ -133,6 +134,19 @@ function ProjectNode({
   onOpenChange: (open: boolean) => void
 }) {
   const registry = useRegistry(project.id, open)
+  const { isProjectNew, markProjectSeen } = useRegistryWatch()
+  const projectNew = isProjectNew(project.id)
+  // Clear the badge once the user has opened the project and collapsed it
+  // again (they've seen what's new inside).
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    if (open) {
+      wasOpen.current = true
+    } else if (wasOpen.current) {
+      wasOpen.current = false
+      markProjectSeen(project.id)
+    }
+  }, [open, project.id, markProjectSeen])
 
   const pathMatched = !query || matches(project.path_with_namespace, query)
 
@@ -164,7 +178,13 @@ function ProjectNode({
         ) : (
           <ChevronRightIcon className="size-3.5 shrink-0" aria-hidden />
         )}
-        <span className="truncate text-left">{project.path_with_namespace}</span>
+        <span className="min-w-0 truncate text-left">{project.path_with_namespace}</span>
+        {!open && projectNew ? (
+          <span
+            className="ml-auto size-2 shrink-0 rounded-full bg-primary"
+            aria-label="new images available"
+          />
+        ) : null}
       </CollapsibleTrigger>
       <CollapsibleContent className="ml-3 border-l pl-2">
         {registry.isPending ? (
@@ -228,6 +248,7 @@ function DraggableTag({ tag, imageName }: { tag: RegistryTag; imageName: string 
 
 function RepoNode({ repo, filtered }: { repo: RegistryRepository; filtered: boolean }) {
   const [showAll, setShowAll] = useState(false)
+  const repoNew = useRegistryWatch().isRepoNew(repo.path)
   // A filtered view is already narrowed — show everything that matched.
   const visible = filtered || showAll ? repo.tags : repo.tags.slice(0, TAG_PREVIEW_COUNT)
   const hidden = repo.tags.length - visible.length
@@ -235,7 +256,12 @@ function RepoNode({ repo, filtered }: { repo: RegistryRepository; filtered: bool
 
   return (
     <div className="py-1">
-      <p className="truncate px-2 text-xs font-medium text-muted-foreground">{repo.path}</p>
+      <div className="flex items-center gap-1.5 px-2">
+        <p className="truncate text-xs font-medium text-muted-foreground">{repo.path}</p>
+        {repoNew ? (
+          <Badge className="shrink-0 px-1.5 py-0 text-[9px] leading-4">new</Badge>
+        ) : null}
+      </div>
       {repo.tags.length === 0 ? (
         <p className="px-2 py-1 text-xs text-muted-foreground">No tags.</p>
       ) : (
