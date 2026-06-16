@@ -188,11 +188,13 @@ mockup — final token mapping fixed when the palette lands in Phase 8).
   command + binary download hint; "New token" re-mint per server.
   Since 0.5.0: "Details" (and server names on the dashboard) navigate
   to the dedicated **`/servers/{id}` page**: header (status, hostname,
-  OS/Docker/driver/agent versions), four host metric cards with
-  sparklines (CPU %, memory, disk /, network rates), one card per GPU
+  OS/Docker/driver/agent versions), five host metric cards with
+  sparklines (CPU %, **Load** = 1-min load average / logical cores,
+  memory used/max, disk /, network rates), one card per GPU
   (utilization sparkline + current mem/temp/power), and the containers
-  table with per-container CPU/mem and **port mappings**
-  (`host→container/proto`). Series: 30s samples, 24h retention.
+  table with per-container **Load** (cores used / cores) + memory
+  (used/max) and **port mappings** (`host→container/proto`). Series:
+  30s samples, 24h retention.
   **Graph scale rule (operator, 0.6.0):** percentage graphs are always
   pinned 0–100; capacity-bound graphs (memory, disk, GPU memory) are
   pinned 0–capacity; only truly unbounded series (network rates,

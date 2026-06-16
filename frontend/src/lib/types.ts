@@ -162,6 +162,8 @@ export interface ServerContainer {
 
 export interface HostMetrics {
   cpu_pct: number
+  load_avg_1m: number
+  cpu_cores: number
   mem_used_mb: number
   mem_total_mb: number
   disk_used_gb: number
@@ -181,6 +183,7 @@ export interface GpuMetrics {
 export interface ContainerMetrics {
   container_id: string
   cpu_pct: number
+  cpu_cores: number
   mem_used_mb: number
   mem_limit_mb: number
 }

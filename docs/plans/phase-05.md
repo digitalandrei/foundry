@@ -23,12 +23,14 @@ agents update to 0.5.0.
 Beyond existence, we want usage, on the dashboard (summary) and on a
 **dedicated page per server**:
 
-- **Host metrics**: CPU %, memory used/total, disk used/total (root
-  mount + docker root), network rx/tx rate — `sysinfo` crate, sampled
-  with each heartbeat.
+- **Host metrics**: CPU %, 1-min load average + logical core count
+  ("load / cores", since 0.30.0), memory used/total, disk used/total
+  (root mount + docker root), network rx/tx rate — `sysinfo` crate,
+  sampled with each heartbeat.
 - **GPU metrics**: utilization %, memory used, temperature, power —
   NVML `utilization_rates`/`memory_info` (already wrapped).
-- **Container metrics**: per-container CPU/mem from the Engine API
+- **Container metrics**: per-container CPU (load = cpu% / 100 over
+  `online_cpus`, since 0.30.0) and mem (used/limit) from the Engine API
   stats endpoint, plus **exposed/mapped ports** in `ContainerInfo`
   (bollard provides both) — feeds the Phase 6 port-publishing dialog
   prefill too.

@@ -30,6 +30,10 @@ pub struct LatestServerMetrics {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostMetrics {
     pub cpu_pct: f32,
+    /// 1-minute load average and logical core count — the "load / cores"
+    /// readout (load == cores means fully saturated).
+    pub load_avg_1m: f32,
+    pub cpu_cores: u32,
     pub mem_used_mb: u64,
     pub mem_total_mb: u64,
     /// Root filesystem.
@@ -55,6 +59,9 @@ pub struct ContainerMetrics {
     /// Short id — joins to the server_containers snapshot.
     pub container_id: String,
     pub cpu_pct: f32,
+    /// Logical cores visible to the container (Docker `online_cpus`) —
+    /// the denominator for "load / cores" (load == cpu_pct / 100).
+    pub cpu_cores: u32,
     pub mem_used_mb: u64,
     pub mem_limit_mb: u64,
 }

@@ -7,7 +7,7 @@ import { DeploymentActions } from "@/components/deployment-actions"
 import { DeploymentPorts } from "@/components/deployment-ports"
 import { ShellPanel } from "@/components/shell-panel"
 import { useDeploymentDetail, useLatestMetrics } from "@/hooks/use-deployments"
-import { formatRelative } from "@/lib/format"
+import { formatLoad, formatMemGb, formatRelative } from "@/lib/format"
 import { DEPLOYMENT_STATE_META } from "@/lib/states"
 import type { DeploymentDetail } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -104,8 +104,8 @@ export function DeploymentDetailPage() {
                   {usage ? (
                     <Row label="Usage">
                       <span className="tabular-nums">
-                        CPU {usage.cpu_pct.toFixed(0)}% · MEM {(usage.mem_used_mb / 1024).toFixed(1)}/
-                        {(usage.mem_limit_mb / 1024).toFixed(0)} GB
+                        Load {formatLoad(usage.cpu_pct / 100, usage.cpu_cores)} · MEM{" "}
+                        {formatMemGb(usage.mem_used_mb, usage.mem_limit_mb)}
                       </span>
                     </Row>
                   ) : null}

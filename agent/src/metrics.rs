@@ -82,6 +82,8 @@ impl MetricsCollector {
 
         HostMetrics {
             cpu_pct: self.sys.global_cpu_usage(),
+            load_avg_1m: System::load_average().one as f32,
+            cpu_cores: self.sys.cpus().len().max(1) as u32,
             mem_used_mb: self.sys.used_memory() / 1024 / 1024,
             mem_total_mb: self.sys.total_memory() / 1024 / 1024,
             disk_used_gb,
@@ -160,7 +162,8 @@ async fn collect_containers() -> Vec<ContainerMetrics> {
             let sys_delta = cpu
                 .system_cpu_usage?
                 .saturating_sub(precpu.system_cpu_usage.unwrap_or(0));
-            let ncpus = cpu.online_cpus.unwrap_or(1).max(1) as f32;
+            let online_cpus = cpu.online_cpus.unwrap_or(1).max(1);
+            let ncpus = online_cpus as f32;
             let cpu_pct = if sys_delta > 0 {
                 cpu_delta as f32 / sys_delta as f32 * ncpus * 100.0
             } else {
@@ -170,6 +173,7 @@ async fn collect_containers() -> Vec<ContainerMetrics> {
             Some(ContainerMetrics {
                 container_id: id.chars().take(12).collect(),
                 cpu_pct,
+                cpu_cores: online_cpus as u32,
                 mem_used_mb: mem.and_then(|m| m.usage).unwrap_or(0) / 1024 / 1024,
                 mem_limit_mb: mem.and_then(|m| m.limit).unwrap_or(0) / 1024 / 1024,
             })

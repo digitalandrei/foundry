@@ -7,6 +7,18 @@ export function formatRelative(iso: string): string {
   return `${Math.floor(seconds / 86400)}d ago`
 }
 
+/** "load / cores" — host load average (or a container's core-equivalent
+ * CPU usage) over the cores available. Cores is optional so pre-upgrade
+ * samples (which predate the field) degrade to just the load number. */
+export function formatLoad(load: number, cores?: number): string {
+  return cores == null ? load.toFixed(2) : `${load.toFixed(2)} / ${cores}`
+}
+
+/** Memory "used / max GB" — shared by host and per-container readouts. */
+export function formatMemGb(usedMb: number, maxMb: number): string {
+  return `${(usedMb / 1024).toFixed(1)} / ${(maxMb / 1024).toFixed(0)} GB`
+}
+
 /** Human-readable byte size, matching the mockup ("2.8 GB"). */
 export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`

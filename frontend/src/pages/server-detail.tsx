@@ -3,7 +3,7 @@ import { ArrowLeftIcon } from "lucide-react"
 
 import { MetricSparkline } from "@/components/metric-sparkline"
 import { useServerDetail, useServerMetrics } from "@/hooks/use-servers"
-import { formatSize } from "@/lib/format"
+import { formatLoad, formatMemGb, formatSize } from "@/lib/format"
 import { SERVER_STATUS_META } from "@/lib/states"
 import type { GpuSummary, MetricsPoint, ServerContainer } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -62,7 +62,7 @@ export function ServerDetailPage() {
       </div>
 
       {/* Host metrics */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <MetricCard
           title="CPU"
           value={latest ? `${latest.host.cpu_pct.toFixed(0)}%` : "—"}
@@ -71,12 +71,19 @@ export function ServerDetailPage() {
           max={100}
         />
         <MetricCard
-          title="Memory"
+          title="Load"
           value={
-            latest
-              ? `${(latest.host.mem_used_mb / 1024).toFixed(1)} / ${(latest.host.mem_total_mb / 1024).toFixed(0)} GB`
+            latest?.host.load_avg_1m != null
+              ? formatLoad(latest.host.load_avg_1m, latest.host.cpu_cores)
               : "—"
           }
+          points={series(metrics.data, (s) => s.host.load_avg_1m ?? 0)}
+          unit=""
+          max={latest?.host.cpu_cores}
+        />
+        <MetricCard
+          title="Memory"
+          value={latest ? formatMemGb(latest.host.mem_used_mb, latest.host.mem_total_mb) : "—"}
           points={series(metrics.data, (s) => s.host.mem_used_mb / 1024)}
           unit="GB"
           max={latest ? latest.host.mem_total_mb / 1024 : undefined}
@@ -271,7 +278,7 @@ function ContainersTable({
           <TableHead>Name</TableHead>
           <TableHead>Image</TableHead>
           <TableHead>State</TableHead>
-          <TableHead>CPU</TableHead>
+          <TableHead>Load</TableHead>
           <TableHead>Memory</TableHead>
           <TableHead>Ports</TableHead>
           <TableHead />
@@ -296,10 +303,10 @@ function ContainersTable({
                 {c.state}
               </TableCell>
               <TableCell className="font-mono text-xs">
-                {m ? `${m.cpu_pct.toFixed(1)}%` : "—"}
+                {m ? formatLoad(m.cpu_pct / 100, m.cpu_cores) : "—"}
               </TableCell>
               <TableCell className="font-mono text-xs">
-                {m ? `${(m.mem_used_mb / 1024).toFixed(1)} GB` : "—"}
+                {m ? formatMemGb(m.mem_used_mb, m.mem_limit_mb) : "—"}
               </TableCell>
               <TableCell className="font-mono text-xs">
                 {c.ports.length === 0
