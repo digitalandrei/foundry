@@ -6,10 +6,13 @@
 > (`ARCHITECTURE.md`, `DATABASE.md`, `API.md`, `UI-DESIGN.md`, and a
 > `ROADMAP.md` phase row). See **§ Done means** at the bottom.
 >
-> **Status:** ⬜ Spec'd, not started (2026-06-16). Decisions locked with the
-> operator (2026-06-16): **overlay** membership, **admins-only** manage
-> groups *and* slot use-mode, and **multi-use slots** (GPU sharing) is now
-> **in scope** alongside groups. Remaining opens in § Decisions to confirm.
+> **Status:** ⬜ Spec'd, not started (2026-06-16). Most decisions locked
+> with the operator (2026-06-16): overlay membership; admins-only manage
+> groups *and* slot use-mode; multi-use slots (GPU sharing) in scope; group
+> size 2…all; a GPU may be in multiple groups (overlap, with UI evidence);
+> heterogeneous members by default; no forced memory cap on shared slots.
+> Only 3 minor opens remain (§ Decisions): `max_occupants` cap, the
+> denormalisation choice, the request shape.
 
 ## Goal
 
@@ -78,11 +81,14 @@ Caveats, stated plainly because they're the whole reason this is opt-in:
 
 ## Invariants
 
-1. A group's members are **whole GPUs** (`gpu_slots.slot_type = FULL`),
+1. A group is **2 to all** of a server's eligible GPUs, each picked
+   individually. Members are **whole GPUs** (`gpu_slots.slot_type = FULL`),
    **MIG-disabled** (`gpus.mig_enabled = 0`), on **one server**
    (cross-server is meaningless — no NVLink/PCIe peering across hosts).
-2. A GPU belongs to **at most one group** (v1 simplification —
-   `UNIQUE(gpu_id)` on membership).
+2. A GPU **may belong to multiple groups** (overlapping definitions are
+   allowed). Overlapping groups share those GPUs and are therefore mutually
+   exclusive *at deploy time* (the zero-occupant rule below). Per-GPU
+   membership — **how many groups and which** — must be surfaced in the UI.
 3. Group deploy is **all-or-nothing**: every member GPU must have **zero
    occupants**; the lock and release happen in **one transaction** over all
    members. A partial failure rolls the whole thing back.
@@ -129,9 +135,9 @@ CREATE TABLE gpu_groups (
 CREATE TABLE gpu_group_members (
     group_id BINARY(16) NOT NULL FK gpu_groups(id) ON DELETE CASCADE,
     gpu_id   BINARY(16) NOT NULL FK gpus(id),
-    PRIMARY KEY (group_id, gpu_id),
-    UNIQUE KEY uq_member_gpu (gpu_id)          -- one group per GPU (inv. 2)
-);
+    PRIMARY KEY (group_id, gpu_id),       -- a GPU can't repeat within a group
+    KEY idx_member_gpu (gpu_id)           -- reverse lookup: which/how many
+);                                        -- groups a GPU is in (multiple OK)
 ```
 
 Occupancy source of truth — generalise deployment→slot to many (this also
@@ -176,10 +182,11 @@ occupancy queries can switch over atomically.
 
 - **Group CRUD** — new `repos/gpu_groups.rs` + routes
   (`GET/POST /api/servers/{id}/gpu-groups`, `DELETE /api/gpu-groups/{id}`),
-  **admin-only** (`AdminUser` extractor). Create validates: ≥2 members
-  (see § Decisions), all on the server, all FULL + MIG-disabled, none
-  already grouped. Delete refused while a group deploy is live (mirror the
-  volume "refused while mounted" choke point).
+  **admin-only** (`AdminUser` extractor). Create validates: **2…all**
+  members, each on the server, FULL + MIG-disabled, individually selected;
+  members **may overlap other groups** (no longer rejected). Heterogeneous
+  models/VRAM are fine. Delete refused while a group deploy is live (mirror
+  the volume "refused while mounted" choke point).
 - **Slot use-mode** — `PATCH /api/slots/{id}` (or a per-server config
   route) sets `max_occupants`, **admin-only**. Lowering it below the
   current occupant count is allowed but does not evict — it just stops new
@@ -232,6 +239,9 @@ occupancy queries can switch over atomically.
 - New `dto` types: `GpuGroup { id, name, gpu_ids, server_id, … }`,
   `GpuGroupSummary` (for the grid: member count, combined VRAM, a
   `deployable`/`busy_reason`), `CreateGpuGroupRequest { name, gpu_ids }`.
+- For the per-GPU **membership evidence**, the GPU summary carries the
+  groups it's in (`group_names: Vec<String>` or ids) so a cell can render
+  `grp A, B` without a second lookup.
 - `DeployPayload` multi-UUID field (above).
 - Mirror all of the above in `frontend/src/lib/types.ts`.
 
@@ -240,19 +250,24 @@ occupancy queries can switch over atomically.
 - **Server config — Groups & slot use-mode** (new section on the
   server-detail page; **admin-only**, hidden for non-admins):
   - *Groups*: list, "New group" (name + multi-select of this server's FULL,
-    MIG-disabled, ungrouped GPUs), delete (disabled while in use, with the
-    reason). Warn on heterogeneous members.
+    MIG-disabled GPUs — **2…all**, individually picked). GPUs already in
+    other groups stay selectable; show each candidate's current memberships
+    inline. Heterogeneous members are fine (no warning). Delete disabled
+    while a group deploy is live, with the reason.
   - *Slot use-mode*: per slot, a **single-use / multi-use** toggle and,
     when multi-use, a max-occupant number. A loud inline caveat that
     multi-use shares the GPU **without VRAM isolation** (prefer MIG when
     isolation matters).
 - **Dashboard grid** ([server-grid.tsx](../../frontend/src/components/server-grid.tsx)):
-  render a group as **one cell spanning its member GPUs** — header shows
-  `GROUP <name> · N GPUs · <combined VRAM>` and the aggregate silicon
-  telemetry (sum/мах across members); one deploy chip for the group. When
-  ≥1 member is individually busy, the cell shows `unavailable — k/N busy`
-  and is not a drop target. Member GPUs that are part of a group no longer
-  render their own standalone slot chips (they live under the group cell).
+  GPUs keep their own cells (overlay — they stay individually deployable),
+  each cell **evidencing its group memberships** (e.g. small `grp A, B`
+  chips) so overlap is visible. Groups are a **separate deploy affordance**
+  — a per-server *Groups* strip listing each group with `<name> · N GPUs ·
+  <combined VRAM>`, deployable when **all** members are zero-occupant else
+  `blocked — <which member is busy>` (note *which*, since an overlapping
+  group may be the holder). Deploying a group marks every member cell
+  **occupied-by-group** (same occupant on each). A running group's strip
+  entry clicks through to the deployment.
   - A **multi-use** slot chip shows occupancy as **`k / N`**, stacks its
     occupant chips (or a compact "+2 more"), and stays a drop target while
     `k < N`.
@@ -281,10 +296,15 @@ occupancy queries can switch over atomically.
   deployable (reuse the external-holder check already in `slotDeployability`).
 - **Delete group while a deploy is live on it** → refused.
 - **Partial lock contention** (a member taken between SELECT and lock) →
-  `FOR UPDATE` + the all-FREE assert inside one tx makes it all-or-nothing.
-- **Group of 1** → degenerate single-GPU deploy; require ≥2 (§ Decisions).
-- **Heterogeneous members** (mixed models/VRAM) → allowed, warn in the
-  editor (NCCL prefers homogeneous).
+  `FOR UPDATE` + the all-zero-occupant assert inside one tx makes it
+  all-or-nothing.
+- **Overlapping groups** — two groups sharing a GPU can't both be deployed;
+  the second is blocked with the holding group named. Expected, not an
+  error.
+- **Group of 1** → not allowed; minimum is 2 members.
+- **Heterogeneous members** (mixed models/VRAM) → **allowed by default**,
+  no warning (operator's call; NCCL still runs, just not perfectly
+  balanced).
 
 ## Security & audit
 
@@ -305,20 +325,20 @@ occupancy queries can switch over atomically.
   deploy-to-group/shared-slot open to any deploy-capable user.
 - **Multi-use slots in scope** — per-slot `max_occupants`, default 1
   (single-use), soft sharing with no VRAM isolation, explicit opt-in.
+- **Group size** — **2 to all** of a server's eligible GPUs, picked
+  individually.
+- **A GPU may be in multiple groups** — overlap allowed; the UI must show
+  how many groups and which (per GPU). No `UNIQUE(gpu_id)`.
+- **Heterogeneous members** — allowed **by default**, no warning.
+- **No forced per-tenant memory cap** on multi-use slots — the 0.31.0 cap
+  stays optional as everywhere else.
 
 **Still open (confirm before coding the lifecycle):**
-1. **Min group size** — recommend **≥2** (a 1-GPU "group" is just a normal
-   deploy).
-2. **A GPU in multiple groups** — recommend **no** for v1 (`UNIQUE(gpu_id)`).
-3. **Heterogeneous members** — recommend **allow + warn**.
-4. **`max_occupants` upper bound** — cap it (e.g. ≤8) so a typo can't
+1. **`max_occupants` upper bound** — cap it (e.g. ≤8) so a typo can't
    oversubscribe a card into uselessness? Recommend a sane max + min 1.
-5. **Mandatory per-tenant memory cap on multi-use?** Since sharing has no
-   isolation, consider **requiring** the 0.31.0 memory cap (not unlimited)
-   when deploying onto a multi-use slot. Recommend: warn, don't force, v1.
-6. **Schema** — keep `deployments.gpu_slot_id` denormalised (recommended,
+2. **Schema** — keep `deployments.gpu_slot_id` denormalised (recommended,
    less churn) vs fully migrate occupancy to `deployment_slots` only.
-7. **Request shape** — `DeployTarget` enum vs nullable `slot_id` +
+3. **Request shape** — `DeployTarget` enum vs nullable `slot_id` +
    `gpu_group_id`.
 
 ## Task breakdown (suggested order)
@@ -335,8 +355,9 @@ occupancy queries can switch over atomically.
    `deployment_slots`; payload multi-UUID.
 4. **Agent** — widen `DeviceRequest.device_ids`; new labels; payload
    back-comp.
-5. **Frontend** — groups & slot-use-mode editor (server config); grid group
-   cell + multi-use `k/N` chips; deploy/slot-picker + `lib/slots.ts`.
+5. **Frontend** — groups & slot-use-mode editor (server config); grid
+   per-GPU group-membership chips + a Groups deploy strip + multi-use `k/N`
+   chips; deploy/slot-picker + `lib/slots.ts`.
 6. **Docs fold-in + delete this plan** (§ Done means).
 
 ## Acceptance
@@ -350,6 +371,9 @@ occupancy queries can switch over atomically.
 - Deleting a busy group is refused; a member going OFFLINE degrades the
   group and blocks (or fails) the deploy; MIG-enabling a member degrades
   the group.
+- A GPU placed in **two overlapping groups** shows both memberships in the
+  UI; deploying one group blocks the other (shared GPU), naming the holder;
+  the minimum-2 / up-to-all selection is enforced on create.
 - Set a slot to **multi-use, max 3**: three containers deploy onto it
   concurrently and the chip reads `3 / 3`; a fourth is refused
   (at-capacity); each shows its own CPU/mem on the chip. Lowering the limit
