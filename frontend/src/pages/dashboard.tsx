@@ -80,13 +80,14 @@ export function DashboardPage() {
       return
     }
     const slot = drop
-    if (slot.slotState === "FREE") {
+    // The chip says whether this position is a fresh deploy or a replace
+    // (a free position — incl. spare capacity on a multi-use slot — is
+    // fresh; only an occupied single-use slot replaces).
+    if (!slot.replace) {
       setTarget({ tag, slot, group: null, replaces: null })
       return
     }
-    // Occupied single-use slot → replacement: confirm against what's
-    // running. (Multi-use slots only ever offer free capacity, never a
-    // RUNNING-state drop target, so they land in the FREE branch.)
+    // Replacement → confirm against what's running on the slot.
     const current = (deployments.data ?? []).find(
       (d) => (d.slot_ids.length ? d.slot_ids.includes(slot.slotId) : d.slot_id === slot.slotId) &&
         d.state === "RUNNING",

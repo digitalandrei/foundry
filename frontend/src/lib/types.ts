@@ -382,10 +382,15 @@ export interface DragTagData {
 export interface DropSlotData {
   kind: "slot"
   slotId: string
+  /** Position label shown to the user (1-based within the GPU). */
   slotName: string
   slotState: import("./states").SlotState
   serverId: string
   serverName: string
+  /** True → this drop replaces the running occupant (single-use slot);
+   * false → a fresh deploy onto free capacity. Set explicitly because a
+   * multi-use slot's `slotState` is RUNNING while it still has room. */
+  replace: boolean
 }
 
 /** Drop payload for a GPU-group strip entry (one container : N GPUs). The

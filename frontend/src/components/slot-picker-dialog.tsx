@@ -5,15 +5,14 @@ import { useDeployments } from "@/hooks/use-deployments"
 import { useServerGroups } from "@/hooks/use-gpu-groups"
 import { useServers } from "@/hooks/use-servers"
 import { formatSize } from "@/lib/format"
-import { occupantsBySlot, slotDeployability } from "@/lib/slots"
-import { SERVER_STATUS_META, SLOT_STATE_META } from "@/lib/states"
+import { gpuSlotPositions, occupantsBySlot, slotDeployability, type SlotPosition } from "@/lib/slots"
+import { SERVER_STATUS_META } from "@/lib/states"
 import type {
   DeploymentSummary,
   DragTagData,
   DropData,
   GpuGroup,
   ServerSummary,
-  SlotSummary,
 } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -82,14 +81,15 @@ export function SlotPickerDialog({
                 key={server.id}
                 server={server}
                 occupants={occupants}
-                onPickSlot={(slot) =>
+                onPickSlot={(position, replace) =>
                   onSelect(tag, {
                     kind: "slot",
-                    slotId: slot.id,
-                    slotName: slot.name,
-                    slotState: slot.state,
+                    slotId: position.slot.id,
+                    slotName: String(position.label),
+                    slotState: position.slot.state,
                     serverId: server.id,
                     serverName: server.name,
+                    replace,
                   })
                 }
                 onPickGroup={(group) =>
@@ -120,7 +120,7 @@ function ServerSlots({
 }: {
   server: ServerSummary
   occupants: Map<string, DeploymentSummary[]>
-  onPickSlot: (slot: SlotSummary) => void
+  onPickSlot: (position: SlotPosition, replace: boolean) => void
   onPickGroup: (group: GpuGroup) => void
 }) {
   const meta = SERVER_STATUS_META[server.status]
@@ -146,13 +146,12 @@ function ServerSlots({
               {gpu.model ? ` · ${gpu.model}` : ""}
             </p>
             <div className="grid gap-1.5 [grid-template-columns:repeat(auto-fill,minmax(9.5rem,1fr))]">
-              {gpu.slots.map((slot) => (
+              {gpuSlotPositions(gpu, occupants).map((position) => (
                 <SlotOption
-                  key={slot.id}
-                  slot={slot}
+                  key={`${position.slot.id}#${position.label}`}
+                  position={position}
                   server={server}
-                  occupants={occupants.get(slot.id) ?? []}
-                  onPick={() => onPickSlot(slot)}
+                  onPick={(replace) => onPickSlot(position, replace)}
                 />
               ))}
             </div>
@@ -203,56 +202,56 @@ function GroupOption({ group, onPick }: { group: GpuGroup; onPick: () => void })
   )
 }
 
+/** One deploy position ("SLOT n"): a free position deploys, an occupied
+ * single-use slot replaces, any other occupant is shown but disabled. */
 function SlotOption({
-  slot,
+  position,
   server,
-  occupants,
   onPick,
 }: {
-  slot: SlotSummary
+  position: SlotPosition
   server: ServerSummary
-  occupants: DeploymentSummary[]
-  onPick: () => void
+  onPick: (replace: boolean) => void
 }) {
-  const multi = slot.max_occupants > 1
-  const meta = SLOT_STATE_META[slot.state]
+  const { slot, label, occupant, occupants } = position
   const { deployable, replace, reason } = slotDeployability(slot, server, occupants)
-  const capacity =
-    slot.mig_profile ?? (slot.capacity_mb != null ? `${Math.round(slot.capacity_mb / 1024)} GB` : "")
+  const isReplace = occupant !== undefined && replace && slot.max_occupants === 1
+  const enabled = occupant === undefined ? deployable : isReplace
 
-  // Action label: multi-use adds a co-tenant (shows the count), single-use
-  // keeps the original deploy/replace wording.
-  const action = !deployable
-    ? reason
-    : multi
-      ? "Add here"
-      : replace
-        ? `Replace ${occupants[0]?.name ?? "running"}`
-        : "Deploy here"
+  const action = !enabled
+    ? occupant
+      ? `In use · ${occupant.name}`
+      : (reason ?? "unavailable")
+    : isReplace
+      ? `Replace ${occupant?.name ?? "running"}`
+      : "Deploy here"
 
   return (
     <button
       type="button"
-      disabled={!deployable}
-      onClick={onPick}
-      title={reason ?? undefined}
+      disabled={!enabled}
+      onClick={() => onPick(isReplace)}
+      title={!enabled ? (occupant?.image_ref ?? reason ?? undefined) : undefined}
       className={cn(
         "flex flex-col items-start gap-0.5 rounded-md border px-2.5 py-2 text-left transition-colors",
-        deployable
+        enabled
           ? "cursor-pointer hover:border-slot-running hover:bg-accent/50"
           : "cursor-not-allowed opacity-50",
-        replace && "border-slot-running/50",
+        isReplace && "border-slot-running/50",
       )}
     >
       <span className="flex w-full items-center justify-between gap-2">
-        <span className="font-mono text-xs font-medium">SLOT {slot.name}</span>
-        <span className={cn("shrink-0 text-[10px]", meta.textClass)}>
-          {multi ? `${occupants.length} / ${slot.max_occupants}` : meta.label}
+        <span className="font-mono text-xs font-medium">SLOT {label}</span>
+        <span className={cn("shrink-0 text-[10px]", occupant ? "text-muted-foreground" : "text-slot-free")}>
+          {occupant
+            ? occupant.state === "RUNNING"
+              ? "running"
+              : occupant.state.toLowerCase().replace(/_/g, " ")
+            : "Free"}
         </span>
       </span>
       <span className="flex w-full items-center justify-between gap-2 text-[11px] text-muted-foreground">
         <span className="truncate">{action}</span>
-        {capacity ? <span className="shrink-0">{capacity}</span> : null}
       </span>
     </button>
   )

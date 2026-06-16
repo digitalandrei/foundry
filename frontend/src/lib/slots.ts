@@ -4,7 +4,7 @@
 // container. Mirrors docs/UI-DESIGN.md § Drag interaction.
 
 import { SLOT_STATE_META } from "@/lib/states"
-import type { DeploymentSummary, ServerSummary, SlotSummary } from "@/lib/types"
+import type { DeploymentSummary, GpuSummary, ServerSummary, SlotSummary } from "@/lib/types"
 
 /** Deployment states that still occupy a slot (the container is on the
  * host). REMOVED/REPLACED have left, so they hold nothing. */
@@ -43,6 +43,42 @@ export function occupantsBySlot(
     list.sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
   }
   return occupants
+}
+
+/** One deploy position within a GPU. A slot exposes `max_occupants`
+ * positions (1 for single-use, up to 4 for multi-use); positions are
+ * numbered 1-based across the GPU so the grid/picker can render exactly as
+ * many "SLOT n" chips as the operator configured. */
+export interface SlotPosition {
+  slot: SlotSummary
+  /** 1-based label within the GPU (`SLOT 1`, `SLOT 2`, …). */
+  label: number
+  /** The occupant filling this position, if any. */
+  occupant: DeploymentSummary | undefined
+  /** All active occupants on the underlying slot (drives deployability). */
+  occupants: DeploymentSummary[]
+  /** First position of its slot — where an external holder is surfaced. */
+  firstOfSlot: boolean
+}
+
+/** Expand a GPU's slots into per-position entries (see `SlotPosition`),
+ * numbered from 1 across the GPU. The i-th occupant fills the i-th
+ * position; the rest are free capacity. */
+export function gpuSlotPositions(
+  gpu: GpuSummary,
+  occupantsBySlot: Map<string, DeploymentSummary[]>,
+): SlotPosition[] {
+  const out: SlotPosition[] = []
+  let label = 0
+  for (const slot of gpu.slots) {
+    const occupants = occupantsBySlot.get(slot.id) ?? []
+    const positions = Math.max(1, slot.max_occupants)
+    for (let i = 0; i < positions; i++) {
+      label += 1
+      out.push({ slot, label, occupant: occupants[i], occupants, firstOfSlot: i === 0 })
+    }
+  }
+  return out
 }
 
 export interface SlotDeployability {

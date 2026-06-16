@@ -1,4 +1,16 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(sed -i 's/^version = \"0.39.0\"/version = \"0.40.0\"/' Cargo.toml)",
+      "Bash(node -e \"const j=require\\('./frontend/package.json'\\);j.version='0.40.0';require\\('fs'\\).writeFileSync\\('frontend/package.json',JSON.stringify\\(j,null,2\\)+'\\\\n'\\)\")",
+      "Bash(node -p \"require\\('./frontend/package.json'\\).version\")",
+      "Bash(echo \"versions: $\\(grep -m1 '^version' Cargo.toml\\) / frontend $\\(node -p \"require\\('./frontend/package.json'\\).version\"\\)\")",
+      "Bash(scripts/deploy.sh)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ]
+  },
   "hooks": {
     "Stop": [
       {
