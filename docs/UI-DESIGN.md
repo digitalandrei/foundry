@@ -79,7 +79,10 @@ panel title.
   GB · disk <used> / <total> GB` — CPU is per-server (1-min load average
   over logical cores), distinct from the per-GPU silicon stats; disk is the
   root filesystem; hidden while the server is OFFLINE (the last sample would
-  be stale). A
+  be stale). When a usage threshold trips, an **amber warning badge** joins
+  the docker/nginx cluster and the matching readout value tints amber —
+  `disk ≥90%`, `mem ≥90%`, or `cpu ≥1.0×` (1-min load ≥ cores); quiet
+  otherwise. A
   server whose Docker daemon is down accepts no deploys (drop targets
   inert; the controller also rejects at create).
 - GPUs render as **cells that split the full row width** (0.10.0,

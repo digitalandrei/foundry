@@ -13,6 +13,7 @@ import type {
   DeploymentSummary,
   DropSlotData,
   GpuSummary,
+  HostMetrics,
   MetricsSample,
   ServerSummary,
   SlotSummary,
@@ -26,6 +27,29 @@ function containerMetrics(sample: MetricsSample | undefined, containerId: string
     (c) => c.container_id.startsWith(containerId) || containerId.startsWith(c.container_id),
   )
 }
+
+// Host-usage warning thresholds (operator request). Amber "heads-up"
+// badges, not hard failures: disk/mem near-full cause real failures
+// (pull/write errors, OOM kills); CPU saturated (1-min load ≥ cores)
+// just means contention.
+const DISK_WARN_PCT = 90
+const MEM_WARN_PCT = 90
+const CPU_WARN_RATIO = 1.0
+
+function hostAlerts(host: HostMetrics) {
+  const diskPct = (host.disk_used_gb / Math.max(1, host.disk_total_gb)) * 100
+  const memPct = (host.mem_used_mb / Math.max(1, host.mem_total_mb)) * 100
+  const cpuRatio = host.load_avg_1m / Math.max(1, host.cpu_cores)
+  return {
+    disk: diskPct >= DISK_WARN_PCT,
+    mem: memPct >= MEM_WARN_PCT,
+    cpu: cpuRatio >= CPU_WARN_RATIO,
+    diskPct,
+    memPct,
+    cpuRatio,
+  }
+}
+type HostAlertFlags = ReturnType<typeof hostAlerts>
 
 /** "Servers & GPU Slots" — the dashboard grid (docs/UI-DESIGN.md § 2).
  * One row per server; GPU cells split the full row width; slot chips
@@ -92,9 +116,10 @@ function ServerRow({
 }) {
   const meta = SERVER_STATUS_META[server.status]
   const offline = server.status === "OFFLINE"
-  // Per-server host telemetry (CPU load / cores · used / total RAM).
-  // Hidden when offline — the last sample would be stale.
+  // Per-server host telemetry (CPU load / cores · used / total RAM ·
+  // disk). Hidden when offline — the last sample would be stale.
   const host = !offline ? sample?.host : undefined
+  const alerts = host ? hostAlerts(host) : null
 
   return (
     <div className={cn("rounded-lg border p-3", offline && "opacity-60")}>
@@ -115,21 +140,22 @@ function ServerRow({
         ) : null}
         <DockerStatus ok={server.docker_ok} />
         <NginxStatus status={server.nginx_status} ready={server.app_publishing_ready} />
+        {alerts ? <HostAlerts alerts={alerts} /> : null}
         <span className="ml-auto flex items-center gap-x-3 text-xs text-muted-foreground tabular-nums">
           {host ? (
             <span
               className="flex items-center gap-x-2"
               title="Host 1-minute load average / logical cores · used / total RAM · root-fs disk used / total"
             >
-              <span>
+              <span className={cn(alerts?.cpu && "font-medium text-slot-reserved")}>
                 <span className="text-[10px] uppercase opacity-70">cpu </span>
                 {formatLoad(host.load_avg_1m, host.cpu_cores)}
               </span>
-              <span>
+              <span className={cn(alerts?.mem && "font-medium text-slot-reserved")}>
                 <span className="text-[10px] uppercase opacity-70">mem </span>
                 {formatMemGb(host.mem_used_mb, host.mem_total_mb)}
               </span>
-              <span>
+              <span className={cn(alerts?.disk && "font-medium text-slot-reserved")}>
                 <span className="text-[10px] uppercase opacity-70">disk </span>
                 {host.disk_used_gb.toFixed(0)} / {host.disk_total_gb.toFixed(0)} GB
               </span>
@@ -334,6 +360,46 @@ function SlotChip({
         </span>
       ) : null}
     </div>
+  )
+}
+
+/** Host-usage warnings (operator request): amber badges shown only when a
+ * threshold trips — disk/RAM near-full or CPU saturated. Quiet otherwise;
+ * the live numbers already sit in the host readout on the right. */
+function HostAlerts({ alerts }: { alerts: HostAlertFlags }) {
+  const badges = [
+    alerts.disk && {
+      key: "disk",
+      label: `disk ${alerts.diskPct.toFixed(0)}%`,
+      title:
+        "Root filesystem is nearly full — image pulls and container writes will start failing. Free space on the server.",
+    },
+    alerts.mem && {
+      key: "mem",
+      label: `mem ${alerts.memPct.toFixed(0)}%`,
+      title: "Host memory is nearly exhausted — new containers risk being OOM-killed.",
+    },
+    alerts.cpu && {
+      key: "cpu",
+      label: `cpu ${alerts.cpuRatio.toFixed(1)}×`,
+      title:
+        "1-minute load average exceeds the logical core count — the host is CPU-saturated and work will contend.",
+    },
+  ].filter(Boolean) as { key: string; label: string; title: string }[]
+
+  return (
+    <>
+      {badges.map((b) => (
+        <span
+          key={b.key}
+          className="inline-flex items-center gap-1 text-xs text-slot-reserved"
+          title={b.title}
+        >
+          <TriangleAlertIcon className="size-3.5" aria-hidden />
+          {b.label}
+        </span>
+      ))}
+    </>
   )
 }
 
