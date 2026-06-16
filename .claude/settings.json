@@ -8,7 +8,8 @@
       "Bash(echo \"versions: $\\(grep -m1 '^version' Cargo.toml\\) / frontend $\\(node -p \"require\\('./frontend/package.json'\\).version\"\\)\")",
       "Bash(scripts/deploy.sh)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(./scripts/deploy.sh)"
     ]
   },
   "hooks": {

@@ -4,7 +4,7 @@
 // container. Mirrors docs/UI-DESIGN.md § Drag interaction.
 
 import { SLOT_STATE_META } from "@/lib/states"
-import type { DeploymentSummary, GpuSummary, ServerSummary, SlotSummary } from "@/lib/types"
+import type { DeploymentSummary, GpuGroup, GpuSummary, ServerSummary, SlotSummary } from "@/lib/types"
 
 /** Deployment states that still occupy a slot (the container is on the
  * host). REMOVED/REPLACED have left, so they hold nothing. */
@@ -78,6 +78,51 @@ export function gpuSlotPositions(
       out.push({ slot, label, occupant: occupants[i], occupants, firstOfSlot: i === 0 })
     }
   }
+  return out
+}
+
+/** Occupying deployments per group id, newest-first — the group's *own*
+ * occupancy (one container across every member GPU), distinct from the
+ * member-slot folding in `occupantsBySlot`. A multi-use group can hold
+ * several; single-use holds at most one. */
+export function occupantsByGroup(
+  deployments: readonly DeploymentSummary[] | undefined,
+): Map<string, DeploymentSummary[]> {
+  const occupants = new Map<string, DeploymentSummary[]>()
+  for (const d of deployments ?? []) {
+    if (!OCCUPYING_STATES.has(d.state) || !d.gpu_group_id) continue
+    const list = occupants.get(d.gpu_group_id)
+    if (list) list.push(d)
+    else occupants.set(d.gpu_group_id, [d])
+  }
+  for (const list of occupants.values()) {
+    list.sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
+  }
+  return occupants
+}
+
+/** One deploy position within a group ("SLOT n"). A group exposes
+ * `max_occupants` positions (1 for single-use, up to 4 for multi-use),
+ * rendered exactly like a GPU's slots so the operator deploys onto a group
+ * the same way they deploy onto a GPU. */
+export interface GroupPosition {
+  /** 1-based label within the group (`SLOT 1`, `SLOT 2`, …). */
+  label: number
+  /** The group deploy filling this position, if any. */
+  occupant: DeploymentSummary | undefined
+}
+
+/** Expand a group into per-position entries, the i-th occupant filling the
+ * i-th position and the rest free capacity — the group-level twin of
+ * `gpuSlotPositions`. */
+export function groupSlotPositions(
+  group: GpuGroup,
+  occupantsByGroup: Map<string, DeploymentSummary[]>,
+): GroupPosition[] {
+  const occupants = occupantsByGroup.get(group.id) ?? []
+  const positions = Math.max(1, group.max_occupants)
+  const out: GroupPosition[] = []
+  for (let i = 0; i < positions; i++) out.push({ label: i + 1, occupant: occupants[i] })
   return out
 }
 

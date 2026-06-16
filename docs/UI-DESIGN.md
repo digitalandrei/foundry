@@ -128,20 +128,25 @@ panel title.
     stay individually deployable when no group job runs; each cell header
     carries small **`grp <names>` membership chips** (a GPU may be in
     several groups — overlap is shown, with a tooltip spelling the names).
-    Groups are a **separate deploy affordance**: a per-server **Groups
-    strip** below the GPU cells lists each group as `<name> · N GPUs ·
-    <combined VRAM> GB`. A deployable group (all members free, computed
-    server-side) is a drop + tap target; a blocked one shows its
-    `busy_reason` (which names the holder for an overlapping group); a group
-    with a live deploy clicks through to that deployment. Deployability is
-    never recomputed client-side — the `deployable`/`busy_reason` from the
-    API are authoritative.
+    Groups are a **separate deploy affordance rendered like a GPU cell**: a
+    per-server **Groups strip** below the GPU cells shows each group as a box
+    headed `GROUP SLOT <name>` with its **member GPUs as `GPU n` badges**
+    beside the name (wrapping to more lines when narrow) and the combined
+    `N GPUs · <VRAM> GB` on the right. Below the header sit the group's
+    **`SLOT 1..N` deploy positions** (N = the group's `max_occupants`: 1
+    single-use, up to 4 multi-use), rendered exactly like a GPU's slots. A
+    free slot is a drop + tap target that deploys **one container across
+    every member GPU**; an occupied slot clicks through to its deployment.
+    Groups **never replace** (a deploy needs every member free). Deployability
+    is never recomputed client-side — the `deployable`/`busy_reason` from the
+    API (which names the holder for an overlapping group) are authoritative; a
+    free slot on a blocked group reads `Busy` with the reason on hover.
   - **Multi-use slots (soft sharing).** A slot's `max_occupants` (1 =
-    single-use; 2…4 = multi-use) is operator config. A multi-use chip shows
-    occupancy as **`k / N`**, stacks each co-tenant's name/run-state/usage
-    (compact `+N more` past two, each clickable through to its deployment),
-    and stays a drop/tap target while `k < N` — it never offers "replace".
-    Sharing has **no VRAM isolation** (MIG is the isolated path).
+    single-use; 2…4 = multi-use) is operator config. A slot expands into
+    **exactly `max_occupants` `SLOT n` positions** (numbered 1-based per
+    GPU); the i-th co-tenant fills the i-th position and the rest read `Free`
+    and stay drop/tap targets — sharing never offers "replace". Sharing has
+    **no VRAM isolation** (MIG is the isolated path).
 - **Deploy interaction**: two equivalent paths into the same config dialog.
   **Drag** a container card over a valid `FREE` slot to show a dashed
   highlighted drop target (mockup: dashed green outline with a floating card
@@ -149,10 +154,10 @@ panel title.
   config dialog, and dropping on an occupied slot opens the replacement
   confirmation (see `ARCHITECTURE.md` § Replacement workflow). **Tap** (the
   touch/keyboard path, primary on mobile) opens a **slot picker** dialog
-  listing every server's GPUs, slots, **and groups** — free slots deploy,
-  multi-use slots add a co-tenant (showing `k / N`), running slots replace,
-  deployable groups deploy across their members, ineligible targets show
-  disabled with the reason. Both paths honor the same eligibility from one
+  listing every server's GPUs, their `SLOT n` positions, **and groups** — a
+  free position deploys, an occupied single-use slot replaces, a group slot
+  deploys across its members, ineligible targets show disabled with the
+  reason. Both paths honor the same eligibility from one
   source (`lib/slots.ts`); groups use the API's `deployable`/`busy_reason`. The dnd sensors
   keep a tap from registering as a drag and let a vertical swipe still
   scroll the container list. The config dialog carries a **Memory limit**
