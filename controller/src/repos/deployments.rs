@@ -3,6 +3,7 @@
 
 use foundry_shared::dto::{
     CreateDeploymentRequest, DeploymentPort, DeploymentSummary, EnvSpec, PortSpec,
+    MEM_LIMIT_MAX_MB, MEM_LIMIT_MIN_MB,
 };
 use foundry_shared::{
     DeploymentId, DeploymentState, PortKind, ServerId, SlotId, SlotState, TaskType, UserId,
@@ -119,12 +120,19 @@ pub async fn create(
     )
     .await?;
 
+    // Memory cap: None → unlimited (default). A set value is clamped to
+    // the slider's [32, 256] GB so a hand-crafted request can't escape
+    // the bounds.
+    let mem_limit_mb = req
+        .mem_limit_mb
+        .map(|v| v.clamp(MEM_LIMIT_MIN_MB, MEM_LIMIT_MAX_MB));
+
     let id = DeploymentId::new();
     sqlx::query!(
         r#"INSERT INTO deployments
            (id, gpu_slot_id, server_id, registry_tag_id, gitlab_instance_id, image_ref,
-            created_by, state, container_name, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)"#,
+            created_by, state, container_name, mem_limit_mb, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?)"#,
         id.0,
         req.slot_id.0,
         server_id.0,
@@ -133,6 +141,7 @@ pub async fn create(
         image_ref,
         created_by.0,
         container_name,
+        mem_limit_mb,
         now,
         now,
     )

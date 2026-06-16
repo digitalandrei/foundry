@@ -124,7 +124,9 @@ One row per deployment attempt onto a slot. Columns: `id`, `gpu_slot_id` FK,
 `server_id` FK, `registry_tag_id` FK (plus denormalized `image_ref` — full
 pullable reference at deploy time), `gitlab_instance_id` FK, `created_by` FK
 users, `state` (see ARCHITECTURE.md § Deployment lifecycle), `container_id`
-(Docker, once created), `container_name`, `replaced_by_deployment_id` FK
+(Docker, once created), `container_name`, `mem_limit_mb` null (Docker
+`--memory` cap in MB from the deploy slider, clamped 32–256 GB;
+NULL = unlimited, the default), `replaced_by_deployment_id` FK
 null, `error_message` null, timestamps, `started_at`, `stopped_at`.
 
 ### `deployment_events`

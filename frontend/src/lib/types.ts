@@ -226,6 +226,8 @@ export interface CreateDeploymentRequest {
   ports: PortSpec[]
   env: EnvSpec[]
   volumes: VolumeSpec[]
+  /** Docker memory cap in MB (deploy slider). Omit → unlimited. */
+  mem_limit_mb?: number
 }
 
 export interface DeploymentPort {

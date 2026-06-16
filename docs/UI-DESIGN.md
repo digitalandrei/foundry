@@ -125,7 +125,10 @@ panel title.
   replace, ineligible slots show disabled with the reason. Both paths honor
   the same eligibility from one source (`lib/slots.ts`). The dnd sensors
   keep a tap from registering as a drag and let a vertical swipe still
-  scroll the container list.
+  scroll the container list. The config dialog carries a **Memory limit**
+  slider (32–256 GB; slide fully right or tick *Unlimited* for no Docker
+  `--memory` cap — the default, so typical deploys are unconstrained).
+  The cap is set only here, at deploy time.
 - Offline servers render gray with hollow status dot; their slots are inert.
 
 ### 3. Deployments

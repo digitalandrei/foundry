@@ -462,6 +462,7 @@ pub async fn enqueue_deploy(
     let d = sqlx::query!(
         r#"SELECT d.server_id AS "server_id: Uuid", d.image_ref, d.container_name,
                   d.gpu_slot_id AS "slot_id: Uuid", gs.name AS slot_name,
+                  d.mem_limit_mb AS "mem_limit_mb?: u32",
                   COALESCE(gs.mig_uuid, g.gpu_uuid) AS "gpu_device_uuid!"
            FROM deployments d
            JOIN gpu_slots gs ON gs.id = d.gpu_slot_id
@@ -518,6 +519,7 @@ pub async fn enqueue_deploy(
         env: Vec::new(), // injected at dispatch
         volumes,
         registry_auth: None, // minted at dispatch
+        mem_limit_mb: d.mem_limit_mb,
     }));
     enqueue(
         tx,

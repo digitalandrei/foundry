@@ -6,6 +6,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::{DeploymentState, PortKind, RegistryTagId, ServerId, SlotId};
 
+/// Docker memory-cap slider bounds (MB). Operator request (2026-06-16):
+/// min 32 GB, max 256 GB, or unlimited (the default — `None`). When a
+/// cap is set the controller clamps it into `[MIN, MAX]`; the agent then
+/// applies it as the container's `--memory` limit.
+pub const MEM_LIMIT_MIN_MB: u32 = 32 * 1024;
+pub const MEM_LIMIT_MAX_MB: u32 = 256 * 1024;
+
 /// One published port — a container may expose any number; each gets
 /// its own kind and host allocation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,6 +55,11 @@ pub struct CreateDeploymentRequest {
     pub env: Vec<EnvSpec>,
     #[serde(default)]
     pub volumes: Vec<VolumeSpec>,
+    /// Docker memory cap in MB (deploy slider). `None` → unlimited (the
+    /// default); a value is clamped to `[MEM_LIMIT_MIN_MB,
+    /// MEM_LIMIT_MAX_MB]` by the controller.
+    #[serde(default)]
+    pub mem_limit_mb: Option<u32>,
 }
 
 /// `GET /api/servers/{id}/volumes`.

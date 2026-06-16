@@ -55,6 +55,11 @@ pub struct DeployPayload {
     /// never logged (docs/GITLAB-INTEGRATION.md § Image Pulls). None →
     /// anonymous pull.
     pub registry_auth: Option<RegistryAuth>,
+    /// Docker `--memory` cap in MB (operator slider; controller-clamped).
+    /// `None` → unlimited (no `--memory`). Defaulted to unlimited so
+    /// DEPLOY payloads queued by a pre-0.31 controller still deserialize.
+    #[serde(default)]
+    pub mem_limit_mb: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

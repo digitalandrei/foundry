@@ -417,6 +417,11 @@ async fn deploy(
         host_config: Some(HostConfig {
             port_bindings: Some(port_bindings),
             binds: (!binds.is_empty()).then_some(binds),
+            // Operator-set Docker memory cap (slider; controller-clamped
+            // to 32–256 GB). None → unlimited (no `--memory`). Bytes =
+            // MB × 1024²; a set cap also becomes the container's reported
+            // "max memory" in telemetry.
+            memory: p.mem_limit_mb.map(|mb| i64::from(mb) * 1024 * 1024),
             // driver omitted = daemon auto-selects the GPU driver
             // (what `docker run --gpus device=…` sends).
             device_requests: Some(vec![DeviceRequest {

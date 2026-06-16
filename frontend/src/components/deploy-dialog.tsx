@@ -40,6 +40,18 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
+import { Slider } from "@/components/ui/slider"
+
+// Docker memory-cap slider (operator request). Mirrors the controller's
+// MEM_LIMIT_* bounds in foundry-shared; the request carries MB, omitted
+// when unlimited. The slider runs one step past the max as the
+// "unlimited" sentinel — sliding fully right (or ticking the box) means
+// no cap, which is the default so typical deploys are unaffected.
+const MEM_MIN_GB = 32
+const MEM_MAX_GB = 256
+const MEM_STEP_GB = 8
+const MEM_UNLIMITED_GB = MEM_MAX_GB + MEM_STEP_GB // sentinel = no cap
+const MEM_PRESET_GB = 128 // value when toggling unlimited → capped
 
 const portRow = z.object({
   container_port: z
@@ -76,6 +88,7 @@ const schema = z.object({
   ports: z.array(portRow).max(32),
   env: z.array(envRow).max(64),
   volumes: z.array(volumeRow).max(16),
+  mem_limit_gb: z.number().min(MEM_MIN_GB).max(MEM_UNLIMITED_GB),
 })
 type FormValues = z.infer<typeof schema>
 
@@ -115,7 +128,7 @@ export function DeployDialog({
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { name: "", ports: [], env: [], volumes: [] },
+    defaultValues: { name: "", ports: [], env: [], volumes: [], mem_limit_gb: MEM_UNLIMITED_GB },
   })
   const ports = useFieldArray({ control: form.control, name: "ports" })
   const env = useFieldArray({ control: form.control, name: "env" })
@@ -135,7 +148,7 @@ export function DeployDialog({
       // Dialog closed — drop leftovers so a cancelled open can't leak
       // values (incl. secrets) into the next one (review finding).
       prefilled.current = null
-      form.reset({ name: "", ports: [], env: [], volumes: [] })
+      form.reset({ name: "", ports: [], env: [], volumes: [], mem_limit_gb: MEM_UNLIMITED_GB })
       return
     }
     if (prefilled.current === prefillKey) return
@@ -153,6 +166,7 @@ export function DeployDialog({
         })),
         env: [],
         volumes: [],
+        mem_limit_gb: MEM_UNLIMITED_GB,
       })
       prefilled.current = prefillKey
       return
@@ -163,7 +177,7 @@ export function DeployDialog({
       kind: defaultKind(p, appsDomain !== null),
       host_port: "",
     }))
-    form.reset({ name: "", ports: rows, env: [], volumes: [] })
+    form.reset({ name: "", ports: rows, env: [], volumes: [], mem_limit_gb: MEM_UNLIMITED_GB })
     prefilled.current = prefillKey
   }, [prefillKey, target, discovered.isPending, discovered.data, appsDomain, isDirty, form])
 
@@ -177,6 +191,9 @@ export function DeployDialog({
       .replace(/_/g, "-")
       .replace(/[^a-z0-9-]/g, "")
       .replace(/^-+|-+$/g, "") || "<server>"
+
+  const memGb = form.watch("mem_limit_gb")
+  const memUnlimited = memGb >= MEM_UNLIMITED_GB
 
   const onSubmit = form.handleSubmit((values) => {
     const req = {
@@ -195,6 +212,10 @@ export function DeployDialog({
       })),
       env: values.env,
       volumes: values.volumes,
+      // Sentinel (fully right / Unlimited ticked) → omit so the cap is
+      // unset (no Docker --memory).
+      mem_limit_mb:
+        values.mem_limit_gb >= MEM_UNLIMITED_GB ? undefined : values.mem_limit_gb * 1024,
     }
     const done = {
       onSuccess: () => {
@@ -254,6 +275,42 @@ export function DeployDialog({
             {form.formState.errors.name ? (
               <FieldError>{form.formState.errors.name.message}</FieldError>
             ) : null}
+          </Field>
+
+          <Separator />
+          <Field>
+            <div className="flex items-center justify-between">
+              <FieldLabel>
+                Memory limit
+                <span className="ml-2 font-mono text-xs text-muted-foreground">
+                  {memUnlimited ? "Unlimited" : `${memGb} GB`}
+                </span>
+              </FieldLabel>
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Checkbox
+                  checked={memUnlimited}
+                  onCheckedChange={(v) =>
+                    form.setValue("mem_limit_gb", v === true ? MEM_UNLIMITED_GB : MEM_PRESET_GB, {
+                      shouldDirty: true,
+                    })
+                  }
+                />
+                Unlimited
+              </label>
+            </div>
+            <Slider
+              className="py-2"
+              min={MEM_MIN_GB}
+              max={MEM_UNLIMITED_GB}
+              step={MEM_STEP_GB}
+              value={[memGb]}
+              onValueChange={([v]) => form.setValue("mem_limit_gb", v, { shouldDirty: true })}
+              aria-label="Memory limit in GB"
+            />
+            <FieldDescription>
+              Docker memory cap ({MEM_MIN_GB}–{MEM_MAX_GB} GB). Slide fully right or tick Unlimited
+              for no cap.
+            </FieldDescription>
           </Field>
 
           <Separator />
