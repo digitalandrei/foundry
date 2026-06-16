@@ -309,8 +309,10 @@ function GroupCell({
         isOver && droppable && "border-2 border-dashed border-slot-free bg-slot-free/15",
       )}
     >
-      {/* Header — mirrors the GPU-cell header line. */}
-      <p className="mb-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs font-medium text-muted-foreground">
+      {/* Header — like the GPU-cell line, but centered so the leading
+          group icon lines up with the label + resources (baseline
+          alignment offsets an icon-bearing span). */}
+      <p className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-muted-foreground">
         <span className="inline-flex items-center gap-1 font-mono font-medium text-foreground/80">
           <BoxesIcon className="size-3.5" aria-hidden /> GROUP SLOT {group.name}
         </span>
