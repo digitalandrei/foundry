@@ -1,4 +1,4 @@
-# Plan — GPU Groups (multi-GPU containers)
+# Plan — GPU Groups + Multi-use Slots
 
 > **TEMPORARY PLANNING ARTIFACT.** This file is a spec to implement from in
 > a later session, not living documentation. **Delete it when the feature
@@ -6,20 +6,32 @@
 > (`ARCHITECTURE.md`, `DATABASE.md`, `API.md`, `UI-DESIGN.md`, and a
 > `ROADMAP.md` phase row). See **§ Done means** at the bottom.
 >
-> **Status:** ⬜ Spec'd, not started (2026-06-16). Open decisions in
-> § Decisions to confirm must be answered before coding the lifecycle.
+> **Status:** ⬜ Spec'd, not started (2026-06-16). Decisions locked with the
+> operator (2026-06-16): **overlay** membership, **admins-only** manage
+> groups *and* slot use-mode, and **multi-use slots** (GPU sharing) is now
+> **in scope** alongside groups. Remaining opens in § Decisions to confirm.
 
 ## Goal
 
-Let one deployment occupy **multiple whole GPUs on one server** so the
-container sees all of them (`nvidia-smi` lists N) — the missing capability
-for multi-GPU training (DDP/FSDP/NCCL) and models whose VRAM exceeds a
-single card. Operators **define named GPU groups in server config**; a
-group is then a one-click deploy target that atomically locks its GPUs.
+Two **independent**, operator-configured capabilities — both set in
+**server config, admin-only** — that lift the current "one container, one
+whole GPU" limit from opposite ends:
 
-Scope is **aggregation** (1 container : N GPUs). It is *not* GPU sharing
-(N containers : 1 GPU) — that stays MIG's job (hardware-isolated slices,
-already modelled). See § Non-goals.
+- **GPU groups (aggregation, 1 container : N GPUs).** A named set of whole
+  GPUs on one server; deploying to it runs **one** container across all of
+  them (`nvidia-smi` lists N) — multi-GPU training (DDP/FSDP/NCCL) and
+  models whose VRAM exceeds a single card. The group atomically locks its
+  GPUs.
+- **Multi-use slots (sharing, N containers : 1 GPU).** Each slot carries a
+  **single-use / multi-use** setting with a **max-occupant limit**;
+  multi-use lets several containers share one GPU up to that limit. This is
+  soft sharing with **no VRAM isolation** between tenants (MIG remains the
+  hardware-isolated path) — an explicit, per-slot opt-in, and the editor
+  warns.
+
+The two compose under the **overlay** rule (below): they're orthogonal
+axes (aggregate up vs. share down), and a group deploy is exclusive over
+its members so the interaction stays well-defined.
 
 ## The model decision
 
@@ -34,19 +46,35 @@ rather than inventing a parallel lock: a group deploy locks the
 deployment. The "group" is the durable, named set that (a) gives the UI a
 single deploy target and (b) constrains which GPU combinations are valid.
 
-**Recommended membership semantics — overlay/template (not exclusive):**
-a group is a *named template* over whole GPUs. Member GPUs remain
-individually deployable when no group job runs. Deploying to a group
-requires **all members FREE** at deploy time (else rejected with which
-GPUs are busy); the deploy then locks them together. While a group deploy
-is RESERVED/RUNNING, its members render as occupied-by-group and are not
-independently deployable. This maximises flexibility (GPUs usable solo or
-as a group) with no permanently "reserved-but-idle" cards.
+**Membership semantics — overlay/template (DECIDED 2026-06-16).** A group
+is a *named template* over whole GPUs. Member GPUs **remain individually
+deployable** (per their own use-mode — single or multi-use) when no group
+job runs. Deploying to a group requires **all members fully free** (zero
+occupants) at deploy time (else rejected, naming the busy GPUs); the deploy
+then locks them together. While a group deploy is RESERVED/RUNNING its
+members render as occupied-by-group and are not independently deployable.
+No permanently "reserved-but-idle" cards. (The exclusive alternative —
+grouped GPUs *only* ever group-deployable — was rejected: it strands idle
+GPUs.)
 
-The alternative — **exclusive** membership (grouped GPUs are *only* ever
-group-deployable, never individual) — is simpler to reason about but
-strands GPUs whenever the group is idle. **Recommend overlay; confirm in
-§ Decisions.**
+### Multi-use slots (sharing)
+
+Orthogonal to groups. Each `gpu_slots` row gains a **max-occupant limit**
+(`max_occupants`, default **1** = single-use; `>1` = multi-use). For
+**individual** (non-group) deploys, a slot is deployable while its **active
+occupant count < `max_occupants`**. Occupancy is just the count of active
+deployments referencing that slot in `deployment_slots` — so multi-use
+needs no new state machine, only a count-vs-limit check where today we
+assert "FREE".
+
+Caveats, stated plainly because they're the whole reason this is opt-in:
+- **No VRAM/compute isolation** between co-tenants on a non-MIG GPU — one
+  container can OOM or starve the others. MIG is the isolated way to share;
+  multi-use is the soft way, and the operator owns that trade-off per slot.
+- A **group deploy ignores `max_occupants`** and takes its member GPUs
+  **exclusively** (a training job wants whole cards) — hence "all members
+  at zero occupants" to deploy a group. Overlay + that rule make groups and
+  multi-use coexist without ambiguity.
 
 ## Invariants
 
@@ -55,19 +83,26 @@ strands GPUs whenever the group is idle. **Recommend overlay; confirm in
    (cross-server is meaningless — no NVLink/PCIe peering across hosts).
 2. A GPU belongs to **at most one group** (v1 simplification —
    `UNIQUE(gpu_id)` on membership).
-3. Group deploy is **all-or-nothing**: every member slot must be FREE; the
-   lock and release happen in **one transaction** over all members. A
-   partial failure rolls the whole thing back.
+3. Group deploy is **all-or-nothing**: every member GPU must have **zero
+   occupants**; the lock and release happen in **one transaction** over all
+   members. A partial failure rolls the whole thing back.
 4. Every GPU touched still gets its own slot transition + audit row (the
    trail names every card), plus the single deployment's events.
 5. MIG and grouping are **mutually exclusive** on a GPU: a grouped GPU
    cannot be MIG-enabled, and a MIG-enabled GPU cannot join a group.
-6. Only-touch-managed-containers and UUID-addressed-slots invariants are
+6. A slot hosts at most **`max_occupants`** concurrent **individual**
+   deploys (default 1). Deployability checks the live count, not a binary
+   FREE flag.
+7. A **group deploy is exclusive** over its members — it ignores
+   `max_occupants` and requires/holds the whole GPU.
+8. Only-touch-managed-containers and UUID-addressed-slots invariants are
    unchanged.
 
 ## Non-goals (v1)
 
-- GPU sharing without partitioning (use MIG).
+- **Isolated** sharing beyond what MIG already gives. Multi-use slots are
+  *soft* sharing (a concurrency cap, no VRAM/compute fencing). No MPS
+  orchestration, per-tenant VRAM quotas, or fractional-GPU scheduling.
 - Cross-server groups / multi-node jobs (no NCCL-over-network
   orchestration).
 - Topology-aware placement (NVLink pairing heuristics) — Docker exposes
@@ -99,7 +134,9 @@ CREATE TABLE gpu_group_members (
 );
 ```
 
-Occupancy source of truth — generalise deployment→slot to many:
+Occupancy source of truth — generalise deployment→slot to many (this also
+makes multi-use fall out for free: a slot's occupancy is just the count of
+active rows pointing at it):
 
 ```sql
 CREATE TABLE deployment_slots (
@@ -109,6 +146,20 @@ CREATE TABLE deployment_slots (
     KEY idx_deployment_slots_slot (gpu_slot_id)
 );
 ```
+
+Multi-use — one column on the existing slot table:
+
+```sql
+ALTER TABLE gpu_slots
+    ADD COLUMN max_occupants INT UNSIGNED NOT NULL DEFAULT 1;  -- 1 = single-use
+```
+
+Inventory reconcile must **preserve** `max_occupants` (and group
+membership) across re-inventory — they're operator config, not
+agent-reported facts. A slot's `state` column stays for single-use
+back-compat and display; for multi-use the UI shows `k / max` derived from
+the active `deployment_slots` count (don't try to encode a count in the
+binary state enum).
 
 `deployments` gains `gpu_group_id BINARY(16) NULL FK gpu_groups(id)` (NULL
 = single-GPU deploy). Keep `deployments.gpu_slot_id` as the **denormalised
@@ -124,18 +175,28 @@ occupancy queries can switch over atomically.
 ## Controller changes
 
 - **Group CRUD** — new `repos/gpu_groups.rs` + routes
-  (`GET/POST /api/servers/{id}/gpu-groups`, `DELETE /api/gpu-groups/{id}`).
-  Create validates: ≥2 members (see § Decisions), all on the server, all
-  FULL + MIG-disabled, none already grouped. Delete refused while any
-  member slot is non-FREE under a live group deploy (mirror the
+  (`GET/POST /api/servers/{id}/gpu-groups`, `DELETE /api/gpu-groups/{id}`),
+  **admin-only** (`AdminUser` extractor). Create validates: ≥2 members
+  (see § Decisions), all on the server, all FULL + MIG-disabled, none
+  already grouped. Delete refused while a group deploy is live (mirror the
   volume "refused while mounted" choke point).
-- **`repos/deployments.rs::create`** — when the request targets a group:
-  `SELECT … FOR UPDATE` every member's FULL slot, assert all FREE, then
-  transition each FREE→RESERVED and insert one `deployment_slots` row per
-  member, all in the existing create transaction. Reuse
-  `lifecycle::transition_slot` per slot (the deployment side is unchanged —
-  still one `transition_deployment`). Reject with a precise message naming
-  the busy GPUs.
+- **Slot use-mode** — `PATCH /api/slots/{id}` (or a per-server config
+  route) sets `max_occupants`, **admin-only**. Lowering it below the
+  current occupant count is allowed but does not evict — it just stops new
+  deploys until tenants drain (surface that in the UI).
+- **`repos/deployments.rs::create`** — replace the single "slot is FREE"
+  assert with:
+  - *individual deploy* — `SELECT … FOR UPDATE` the target slot, count its
+    active `deployment_slots` rows, require `count < max_occupants`, then
+    insert the `deployment_slots` row. (Single-use = the count-1 special
+    case, so one code path.)
+  - *group deploy* — `SELECT … FOR UPDATE` every member's FULL slot, assert
+    **each has zero occupants**, then insert a `deployment_slots` row per
+    member, all in the one create transaction.
+  Reject with a precise message naming the busy/at-capacity GPUs. Keep the
+  per-slot `state` transitions for single-use back-compat; for multi-use,
+  occupancy is the count (the `state` enum no longer fully describes a
+  shared slot).
 - **Lifecycle fan-out** — stop/restart/remove/replace and the
   crash/offline reconcile must iterate `deployment_slots` and move **all**
   member slots together (today they touch the single `gpu_slot_id`). Add a
@@ -176,10 +237,15 @@ occupancy queries can switch over atomically.
 
 ## Frontend changes
 
-- **Server config — Group editor** (new section on the server-detail page
-  or settings): list groups, "New group" (name + multi-select of this
-  server's FULL, MIG-disabled, ungrouped GPUs), delete (disabled while in
-  use with the reason). Admin-gated (see § Decisions).
+- **Server config — Groups & slot use-mode** (new section on the
+  server-detail page; **admin-only**, hidden for non-admins):
+  - *Groups*: list, "New group" (name + multi-select of this server's FULL,
+    MIG-disabled, ungrouped GPUs), delete (disabled while in use, with the
+    reason). Warn on heterogeneous members.
+  - *Slot use-mode*: per slot, a **single-use / multi-use** toggle and,
+    when multi-use, a max-occupant number. A loud inline caveat that
+    multi-use shares the GPU **without VRAM isolation** (prefer MIG when
+    isolation matters).
 - **Dashboard grid** ([server-grid.tsx](../../frontend/src/components/server-grid.tsx)):
   render a group as **one cell spanning its member GPUs** — header shows
   `GROUP <name> · N GPUs · <combined VRAM>` and the aggregate silicon
@@ -187,14 +253,20 @@ occupancy queries can switch over atomically.
   ≥1 member is individually busy, the cell shows `unavailable — k/N busy`
   and is not a drop target. Member GPUs that are part of a group no longer
   render their own standalone slot chips (they live under the group cell).
+  - A **multi-use** slot chip shows occupancy as **`k / N`**, stacks its
+    occupant chips (or a compact "+2 more"), and stays a drop target while
+    `k < N`.
 - **Deploy paths** — drag-onto-group and the tap **slot picker**
-  (`slot-picker-dialog.tsx`) list groups as targets; the deploy dialog's
-  GPU/VRAM summary reflects N GPUs. The memory-cap slider (0.31.0) applies
-  per-container as today.
-- **`lib/slots.ts`** — extend `occupantsBySlot` to fold
-  `deployment_slots`, and `slotDeployability` to cover a group target
-  (deployable iff all members FREE; the existing ONLINE/docker/external
-  gates apply per member).
+  (`slot-picker-dialog.tsx`) list groups as targets and treat a
+  not-yet-full multi-use slot as deployable; the deploy dialog's GPU/VRAM
+  summary reflects N GPUs for a group. The memory-cap slider (0.31.0)
+  applies per-container as today (and matters more under sharing — it caps
+  each tenant).
+- **`lib/slots.ts`** — extend `occupantsBySlot` to fold `deployment_slots`
+  (a slot maps to a *list* of occupants); `slotDeployability` becomes
+  count-based for individual deploys (deployable iff active count <
+  `max_occupants`) and all-members-zero for a group target; the existing
+  ONLINE/docker/external gates apply per member/slot.
 
 ## Edge cases & failure modes
 
@@ -216,23 +288,34 @@ occupancy queries can switch over atomically.
 
 ## Security & audit
 
-- Group create/delete: audited; admin/owner-gated (§ Decisions).
+- Group create/delete **and** slot use-mode changes: **admin-only**, both
+  audited (they change what the fleet will schedule).
 - Deploy authz unchanged — the requester still needs a GitLab account on
   the image's instance; `is_admin` never grants deploy.
 - A group deploy writes **one** `deployment_events`/audit row for the
   deployment **plus** a slot event per member, so the trail enumerates
   every GPU locked/freed.
 
-## Decisions to confirm (before coding the lifecycle)
+## Decisions
 
-1. **Membership: overlay vs exclusive.** Recommend **overlay** (members
-   usable individually when no group deploy is active). ← biggest call.
-2. **Min group size** — recommend **≥2** (a 1-GPU "group" is just a normal
+**Locked (2026-06-16):**
+- **Overlay** membership (members usable individually when no group deploy
+  runs).
+- **Admins-only** manage groups *and* slot use-mode (`max_occupants`);
+  deploy-to-group/shared-slot open to any deploy-capable user.
+- **Multi-use slots in scope** — per-slot `max_occupants`, default 1
+  (single-use), soft sharing with no VRAM isolation, explicit opt-in.
+
+**Still open (confirm before coding the lifecycle):**
+1. **Min group size** — recommend **≥2** (a 1-GPU "group" is just a normal
    deploy).
-3. **Who manages groups** — recommend **admins** (server config is an
-   operator concern); deploy-to-group open to any deploy-capable user.
-4. **A GPU in multiple groups** — recommend **no** for v1 (`UNIQUE(gpu_id)`).
-5. **Heterogeneous members** — recommend **allow + warn**.
+2. **A GPU in multiple groups** — recommend **no** for v1 (`UNIQUE(gpu_id)`).
+3. **Heterogeneous members** — recommend **allow + warn**.
+4. **`max_occupants` upper bound** — cap it (e.g. ≤8) so a typo can't
+   oversubscribe a card into uselessness? Recommend a sane max + min 1.
+5. **Mandatory per-tenant memory cap on multi-use?** Since sharing has no
+   isolation, consider **requiring** the 0.31.0 memory cap (not unlimited)
+   when deploying onto a multi-use slot. Recommend: warn, don't force, v1.
 6. **Schema** — keep `deployments.gpu_slot_id` denormalised (recommended,
    less churn) vs fully migrate occupancy to `deployment_slots` only.
 7. **Request shape** — `DeployTarget` enum vs nullable `slot_id` +
@@ -241,16 +324,19 @@ occupancy queries can switch over atomically.
 ## Task breakdown (suggested order)
 
 1. **Schema + DTOs** — migrations (`gpu_groups`, `gpu_group_members`,
-   `deployment_slots`, `deployments.gpu_group_id`; backfill), `shared`
-   newtype + DTOs, `types.ts` mirror. (mysql-schema + controller + frontend)
-2. **Inventory reconcile** — keep groups intact across re-inventory; flag
-   degraded on MIG-enable/member-loss. (gpu-agent + controller)
-3. **Controller** — group CRUD repo+routes; multi-slot atomic lock in
-   `create`; lifecycle fan-out over `deployment_slots`; payload multi-UUID.
+   `deployment_slots`, `deployments.gpu_group_id`, `gpu_slots.max_occupants`;
+   backfill `deployment_slots`), `shared` newtype + DTOs, `types.ts` mirror.
+   (mysql-schema + controller + frontend)
+2. **Inventory reconcile** — preserve groups **and** `max_occupants` across
+   re-inventory; flag degraded on MIG-enable/member-loss. (gpu-agent +
+   controller)
+3. **Controller** — group CRUD + slot use-mode routes (admin-only);
+   count-based + group-atomic locking in `create`; lifecycle fan-out over
+   `deployment_slots`; payload multi-UUID.
 4. **Agent** — widen `DeviceRequest.device_ids`; new labels; payload
    back-comp.
-5. **Frontend** — group editor; grid group cell; deploy/slot-picker +
-   `lib/slots.ts`.
+5. **Frontend** — groups & slot-use-mode editor (server config); grid group
+   cell + multi-use `k/N` chips; deploy/slot-picker + `lib/slots.ts`.
 6. **Docs fold-in + delete this plan** (§ Done means).
 
 ## Acceptance
@@ -264,6 +350,14 @@ occupancy queries can switch over atomically.
 - Deleting a busy group is refused; a member going OFFLINE degrades the
   group and blocks (or fails) the deploy; MIG-enabling a member degrades
   the group.
+- Set a slot to **multi-use, max 3**: three containers deploy onto it
+  concurrently and the chip reads `3 / 3`; a fourth is refused
+  (at-capacity); each shows its own CPU/mem on the chip. Lowering the limit
+  to 2 blocks new deploys but doesn't evict the running three.
+- A group deploy is refused while **any** member has a multi-use tenant
+  (zero-occupant rule); once drained, the group deploys and holds the GPUs
+  exclusively.
+- Group/slot-config endpoints reject non-admins.
 
 ## Done means (cleanup — required)
 
