@@ -76,9 +76,10 @@ panel title.
   stopped — deploys blocked`** (red), and the nginx/HTTP-S badge. On the
   right, just left of the **`N GPUs`** count, the **host readout**
   (`GET /api/metrics/latest`): `cpu <load> / <cores> · mem <used> / <total>
-  GB` — CPU is per-server (1-min load average over logical cores), distinct
-  from the per-GPU silicon stats; hidden while the server is OFFLINE
-  (the last sample would be stale). A
+  GB · disk <used> / <total> GB` — CPU is per-server (1-min load average
+  over logical cores), distinct from the per-GPU silicon stats; disk is the
+  root filesystem; hidden while the server is OFFLINE (the last sample would
+  be stale). A
   server whose Docker daemon is down accepts no deploys (drop targets
   inert; the controller also rejects at create).
 - GPUs render as **cells that split the full row width** (0.10.0,

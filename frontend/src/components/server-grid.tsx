@@ -119,7 +119,7 @@ function ServerRow({
           {host ? (
             <span
               className="flex items-center gap-x-2"
-              title="Host 1-minute load average / logical cores · used / total RAM"
+              title="Host 1-minute load average / logical cores · used / total RAM · root-fs disk used / total"
             >
               <span>
                 <span className="text-[10px] uppercase opacity-70">cpu </span>
@@ -128,6 +128,10 @@ function ServerRow({
               <span>
                 <span className="text-[10px] uppercase opacity-70">mem </span>
                 {formatMemGb(host.mem_used_mb, host.mem_total_mb)}
+              </span>
+              <span>
+                <span className="text-[10px] uppercase opacity-70">disk </span>
+                {host.disk_used_gb.toFixed(0)} / {host.disk_total_gb.toFixed(0)} GB
               </span>
             </span>
           ) : null}
