@@ -17,6 +17,7 @@ in `docs/plans/`.
 | 8 | UI (full dashboard, dark+light themes) | [plans/phase-08.md](plans/phase-08.md) | ⬜ Not started |
 | 9 | Security hardening | [plans/phase-09.md](plans/phase-09.md) | ⬜ Not started |
 | 10 | Production readiness | [plans/phase-10.md](plans/phase-10.md) | ⬜ Not started |
+| 11 | GPU groups (multi-GPU containers) | [plans/gpu-groups.md](plans/gpu-groups.md) | ⬜ Spec'd (2026-06-16), not started — temporary plan, delete on ship |
 
 ## Success Criteria (v1 done)
 
