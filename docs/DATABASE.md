@@ -108,7 +108,39 @@ Schedulable slots (the unit of deployment). Columns: `id`, `gpu_id` FK,
 `slot_type` (FULL_GPU/MIG_SLOT), `mig_uuid` (NVML MIG device UUID, null for
 full GPU), `mig_profile` (e.g. `2g.20gb`, null for full GPU), `name`
 (display, e.g. `0:2`), `capacity_mb`, `state` (see ARCHITECTURE.md § Slot
-states), `last_seen_at`. Unique: `mig_uuid` where present.
+states), `max_occupants` (concurrency cap, default 1 = single-use; `>1`
+= multi-use soft sharing with no VRAM isolation, capped 1–4 by a CHECK;
+operator config, preserved across re-inventory), `last_seen_at`. Unique:
+`mig_uuid` where present. For a multi-use slot, live occupancy is the
+count of active `deployment_slots` rows, not the binary `state` enum (see
+ARCHITECTURE.md § Multi-slot occupancy).
+
+### `gpu_groups`
+A named template over whole GPUs on one server: deploying to it runs one
+container across all members (1 container : N GPUs — DDP/FSDP/NCCL, or a
+model whose VRAM exceeds one card). Columns: `id`, `server_id` FK, `name`,
+`max_occupants` (group use-mode: 1 = single-use exclusive, >1 = multi-use
+soft sharing of the grouped GPUs, capped 1–4 by a CHECK — same idea as
+`gpu_slots.max_occupants`, one level up), `created_by` FK users,
+timestamps. Unique: (`server_id`, `name`).
+
+### `gpu_group_members`
+Group membership (composite PK `group_id`, `gpu_id`; FK `group_id`
+ON DELETE CASCADE; index on `gpu_id` for the reverse "which/how many
+groups is this GPU in" lookup). A GPU **may belong to several groups**
+(overlap allowed — overlapping groups are mutually exclusive at deploy
+time). Members are whole GPUs (FULL slot), MIG-disabled, on one server.
+
+### `deployment_slots`
+Authoritative occupancy: which slots a deployment holds (composite PK
+`deployment_id`, `gpu_slot_id`; index on `gpu_slot_id`). One row for an
+individual deploy, N for a group deploy (one per member GPU). Occupancy
+is the count of rows here whose deployment is non-terminal (`state NOT IN
+('REMOVED','REPLACED','FAILED')`) — that single count drives both the
+multi-use cap check and the group all-members-free rule. Rows are written
+at create and never deleted (like `deployment_ports`); terminal
+deployments simply stop counting. `deployments.gpu_slot_id` stays as the
+denormalised primary (first/only) member for single-slot queries.
 
 ### `enrollment_tokens`
 Single-use server enrollment tokens, bound to a pre-created server
@@ -126,8 +158,12 @@ pullable reference at deploy time), `gitlab_instance_id` FK, `created_by` FK
 users, `state` (see ARCHITECTURE.md § Deployment lifecycle), `container_id`
 (Docker, once created), `container_name`, `mem_limit_mb` null (Docker
 `--memory` cap in MB from the deploy slider, clamped 32–256 GB;
-NULL = unlimited, the default), `replaced_by_deployment_id` FK
-null, `error_message` null, timestamps, `started_at`, `stopped_at`.
+NULL = unlimited, the default), `gpu_group_id` FK gpu_groups null
+(set for a group deploy — NULL = single-GPU; cleared if the group is
+later deleted), `replaced_by_deployment_id` FK null, `error_message`
+null, timestamps, `started_at`, `stopped_at`. `gpu_slot_id` is the
+denormalised primary member; `deployment_slots` is authoritative for the
+full set of GPUs held.
 
 ### `deployment_events`
 Append-only state-transition log. Columns: `id`, `deployment_id` FK,
@@ -233,10 +269,12 @@ null, `created_at`. Never updated or deleted.
 
 18 spec tables + amendments (`gitlab_instances`, `sessions`,
 `local_credentials`, `server_containers`, `server_metrics`,
-`server_volumes`, `deployment_logs`) = 25 tables total: users,
-gitlab_accounts, gitlab_instances, local_credentials, sessions,
-gitlab_projects, registry_repositories, registry_tags, servers,
-server_agents, server_containers, server_metrics, server_volumes, gpus,
-gpu_slots, deployments, deployment_events, deployment_ports,
-deployment_env, deployment_volumes, deployment_logs, agent_tasks,
-agent_task_results, audit_logs, enrollment_tokens.
+`server_volumes`, `deployment_logs`, `gpu_groups`, `gpu_group_members`,
+`deployment_slots`) = 28 tables total: users, gitlab_accounts,
+gitlab_instances, local_credentials, sessions, gitlab_projects,
+registry_repositories, registry_tags, servers, server_agents,
+server_containers, server_metrics, server_volumes, gpus, gpu_slots,
+gpu_groups, gpu_group_members, deployments, deployment_slots,
+deployment_events, deployment_ports, deployment_env, deployment_volumes,
+deployment_logs, agent_tasks, agent_task_results, audit_logs,
+enrollment_tokens.

@@ -13,6 +13,7 @@ import {
 } from "@/hooks/use-deployments"
 import { formatSize } from "@/lib/format"
 import type {
+  CreateDeploymentRequest,
   DeploymentSummary,
   DragTagData,
   DropSlotData,
@@ -92,10 +93,25 @@ const schema = z.object({
 })
 type FormValues = z.infer<typeof schema>
 
+/** A group deploy lands one container across N whole GPUs; the dialog
+ * needs the name + member count + combined VRAM to summarise it. */
+export interface DeployGroupTarget {
+  id: string
+  name: string
+  serverId: string
+  serverName: string
+  memberCount: number
+  vramMb: number
+}
+
+/** Where the deploy dialog is aimed — exactly one of a slot or a group.
+ * Both carry the server context the form needs (volumes, hostname slug). */
 export interface DeployTarget {
   tag: DragTagData
-  slot: DropSlotData
-  /** Present when dropping on an occupied slot → replacement flow. */
+  slot: DropSlotData | null
+  group: DeployGroupTarget | null
+  /** Present when replacing an occupied single-use slot → replacement
+   * flow. Never set for a group (groups require all members free). */
   replaces: DeploymentSummary | null
 }
 
@@ -121,7 +137,10 @@ export function DeployDialog({
 }) {
   const create = useCreateDeployment()
   const replace = useReplaceDeployment()
-  const volumes = useServerVolumes(target?.slot.serverId ?? null)
+  // Both target kinds carry server context; the slot or group supplies it.
+  const serverId = target?.slot?.serverId ?? target?.group?.serverId ?? null
+  const serverName = target?.slot?.serverName ?? target?.group?.serverName ?? ""
+  const volumes = useServerVolumes(serverId)
   const me = useMe()
   const appsDomain = me.data?.apps_domain ?? null
   const discovered = useExposedPorts(target?.tag.registryTagId ?? null)
@@ -141,7 +160,8 @@ export function DeployDialog({
   // user's own edits). Replacements inherit the outgoing deployment's
   // name + port layout so the app URL survives the swap; fresh deploys
   // prefill from the image's EXPOSE list.
-  const prefillKey = target ? `${target.slot.slotId}:${target.tag.registryTagId}` : null
+  const targetKey = target?.slot ? `slot:${target.slot.slotId}` : target?.group ? `group:${target.group.id}` : null
+  const prefillKey = target ? `${targetKey}:${target.tag.registryTagId}` : null
   const prefilled = useRef<string | null>(null)
   useEffect(() => {
     if (!prefillKey) {
@@ -186,7 +206,7 @@ export function DeployDialog({
   // Per-server subdomain label for the hostname preview (mirror of the
   // controller's dns_label) — apps live at <name>.<server>.<domain>.
   const serverSlug =
-    target.slot.serverName
+    serverName
       .toLowerCase()
       .replace(/_/g, "-")
       .replace(/[^a-z0-9-]/g, "")
@@ -196,8 +216,10 @@ export function DeployDialog({
   const memUnlimited = memGb >= MEM_UNLIMITED_GB
 
   const onSubmit = form.handleSubmit((values) => {
-    const req = {
-      slot_id: target.slot.slotId,
+    const req: CreateDeploymentRequest = {
+      target: target.group
+        ? { type: "group", gpu_group_id: target.group.id }
+        : { type: "slot", slot_id: target.slot!.slotId },
       registry_tag_id: target.tag.registryTagId,
       name: values.name.trim() || undefined,
       ports: values.ports.map((p) => ({
@@ -241,7 +263,9 @@ export function DeployDialog({
             </Badge>
           </DialogTitle>
           <DialogDescription>
-            → {target.slot.serverName} · slot {target.slot.slotName}
+            {target.group
+              ? `→ ${target.group.serverName} · group ${target.group.name} · ${target.group.memberCount} GPUs · ${Math.round(target.group.vramMb / 1024)} GB combined`
+              : `→ ${target.slot!.serverName} · slot ${target.slot!.slotName}`}
             {target.tag.sizeBytes != null ? ` · ${formatSize(target.tag.sizeBytes)}` : ""}
           </DialogDescription>
         </DialogHeader>

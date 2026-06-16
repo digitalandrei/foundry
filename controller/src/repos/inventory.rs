@@ -116,20 +116,35 @@ pub async fn apply_snapshot(
 
     // ── Slot ↔ deployment restore pass ──────────────────────────────
     // A slot that came back from OFFLINE was reset to FREE above, but
-    // an active deployment may still hold it (review finding): restore
-    // the slot state from its deployment so nobody double-books the GPU.
+    // active deployments may still hold it (review finding): restore the
+    // slot state from `deployment_slots` so nobody double-books the GPU.
+    // A slot is held by one deployment (single-use), several (multi-use),
+    // or as one member of a group — so aggregate occupants and let the
+    // most-advanced state win (RUNNING > STOPPING > DEPLOYING > other).
     // FAILED is excluded by design (0.11.0 auto-heal): a failed
     // deployment never holds a slot — the slot stays FREE and the
     // failure remains visible only as a deployment log.
     sqlx::query!(
         r#"UPDATE gpu_slots gs
            JOIN gpus g ON g.id = gs.gpu_id
-           JOIN deployments d ON d.gpu_slot_id = gs.id
-                AND d.state NOT IN ('REMOVED','REPLACED','FAILED')
-           SET gs.state = CASE
-                 WHEN d.state = 'RUNNING' THEN 'RUNNING'
-                 WHEN d.state = 'STOPPING' THEN 'STOPPING'
-                 WHEN d.state IN ('PULLING_IMAGE','CREATING_CONTAINER','STARTING') THEN 'DEPLOYING'
+           JOIN (
+               SELECT ds.gpu_slot_id AS slot_id,
+                      MIN(CASE d.state
+                            WHEN 'RUNNING' THEN 1
+                            WHEN 'STOPPING' THEN 2
+                            WHEN 'PULLING_IMAGE' THEN 3
+                            WHEN 'CREATING_CONTAINER' THEN 3
+                            WHEN 'STARTING' THEN 3
+                            ELSE 4 END) AS prio
+               FROM deployment_slots ds
+               JOIN deployments d ON d.id = ds.deployment_id
+                    AND d.state NOT IN ('REMOVED','REPLACED','FAILED')
+               GROUP BY ds.gpu_slot_id
+           ) occ ON occ.slot_id = gs.id
+           SET gs.state = CASE occ.prio
+                 WHEN 1 THEN 'RUNNING'
+                 WHEN 2 THEN 'STOPPING'
+                 WHEN 3 THEN 'DEPLOYING'
                  ELSE 'RESERVED' END,
                gs.updated_at = ?
            WHERE g.server_id = ? AND gs.state = 'FREE'"#,
@@ -180,13 +195,6 @@ pub async fn apply_snapshot(
             )
             .execute(&mut *tx)
             .await?;
-            let slot_id: foundry_shared::SlotId = sqlx::query_scalar!(
-                r#"SELECT gpu_slot_id AS "slot_id: Uuid" FROM deployments WHERE id = ?"#,
-                deployment_id.0
-            )
-            .fetch_one(&mut *tx)
-            .await?
-            .into();
             crate::lifecycle::transition_deployment(
                 &mut tx,
                 deployment_id,
@@ -195,7 +203,10 @@ pub async fn apply_snapshot(
                 Some(serde_json::json!({ "reason": "container missing from snapshot" })),
             )
             .await?;
-            crate::lifecycle::transition_slot(&mut tx, slot_id, SlotState::Free).await?;
+            // Free every member slot (group → all GPUs; a co-tenant on a
+            // multi-use slot keeps it occupied via its own active row).
+            crate::lifecycle::transition_member_slots(&mut tx, deployment_id, SlotState::Free)
+                .await?;
         }
     }
 
@@ -341,6 +352,8 @@ pub async fn gpus_for_server(
 ) -> Result<Vec<foundry_shared::dto::GpuSummary>, AppError> {
     // device UUID → external occupant (unmanaged running containers).
     let external = external_occupants(pool, server_id).await?;
+    // gpu id → the groups it belongs to (overlap allowed → may be many).
+    let mut memberships = super::gpu_groups::memberships_for_server(pool, server_id).await?;
 
     let gpu_rows = sqlx::query!(
         r#"SELECT id AS "id: Uuid", gpu_uuid, display_index, model, memory_mb,
@@ -357,7 +370,8 @@ pub async fn gpus_for_server(
         // LENGTH-first gives natural ordering for g:i names
         // ("0:5" < "0:10").
         let slot_rows = sqlx::query!(
-            r#"SELECT id AS "id: Uuid", name, slot_type, mig_uuid, mig_profile, capacity_mb, state
+            r#"SELECT id AS "id: Uuid", name, slot_type, mig_uuid, mig_profile, capacity_mb, state,
+                      max_occupants AS "max_occupants: u32"
                FROM gpu_slots WHERE gpu_id = ? ORDER BY LENGTH(name), name"#,
             g.id
         )
@@ -376,18 +390,21 @@ pub async fn gpus_for_server(
                     mig_profile: s.mig_profile,
                     capacity_mb: s.capacity_mb,
                     state: s.state.parse().map_err(AppError::internal)?,
+                    max_occupants: s.max_occupants,
                     external: external.get(device).cloned(),
                 })
             })
             .collect::<Result<Vec<_>, AppError>>()?;
+        let gpu_id: foundry_shared::GpuId = g.id.into();
         out.push(foundry_shared::dto::GpuSummary {
-            id: g.id.into(),
+            id: gpu_id,
             gpu_uuid: g.gpu_uuid,
             index: g.display_index,
             model: g.model,
             memory_mb: g.memory_mb,
             mig_enabled: g.mig_enabled,
             slots,
+            groups: memberships.remove(&gpu_id).unwrap_or_default(),
         });
     }
     Ok(out)

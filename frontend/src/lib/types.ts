@@ -106,8 +106,17 @@ export interface SlotSummary {
   mig_profile: string | null
   capacity_mb: number | null
   state: import("./states").SlotState
+  /** Concurrency cap (multi-use). 1 = single-use; >1 = soft sharing with
+   * no VRAM isolation. The grid shows occupancy as `k / max_occupants`. */
+  max_occupants: number
   /** A non-Foundry container running on this slot's GPU/MIG device. */
   external: ExternalOccupant | null
+}
+
+/** A GPU's membership in a group (overlap allowed → may be several). */
+export interface GpuGroupRef {
+  id: string
+  name: string
 }
 
 export interface GpuSummary {
@@ -118,6 +127,48 @@ export interface GpuSummary {
   memory_mb: number | null
   mig_enabled: boolean
   slots: SlotSummary[]
+  /** Groups this GPU belongs to — rendered as `grp A, B` chips. */
+  groups: GpuGroupRef[]
+}
+
+/** Cap on a slot's max_occupants (multi-use). Operator decision: 1…4. */
+export const MAX_OCCUPANTS_MIN = 1
+export const MAX_OCCUPANTS_MAX = 4
+
+/** GET /api/servers/{id}/gpu-groups — one container across N whole GPUs. */
+export interface GpuGroup {
+  id: string
+  server_id: string
+  name: string
+  gpu_ids: string[]
+  combined_vram_mb: number
+  /** Group use-mode: 1 = single-use (one exclusive container across the
+   * GPUs); >1 = multi-use (shared by up to N, no VRAM isolation). 1–4. */
+  max_occupants: number
+  /** Active deployments on this group now (`k` in `k / max_occupants`). */
+  occupants: number
+  /** Deployable iff below its cap and every member is online, eligible,
+   * and free of non-group holders; else `busy_reason` names the blocker. */
+  deployable: boolean
+  busy_reason: string | null
+  created_by_name: string
+  created_at: string
+}
+
+export interface CreateGpuGroupRequest {
+  name: string
+  /** 2…all eligible (FULL, MIG-disabled) GPUs on the server. */
+  gpu_ids: string[]
+}
+
+/** PATCH /api/slots/{id} — admin sets a slot's concurrency cap. */
+export interface SetSlotUseModeRequest {
+  max_occupants: number
+}
+
+/** PATCH /api/gpu-groups/{id} — admin sets a group's concurrency cap. */
+export interface SetGroupUseModeRequest {
+  max_occupants: number
 }
 
 export interface ServerSummary {
@@ -219,8 +270,13 @@ export interface VolumeSpec {
   read_only: boolean
 }
 
+/** Where a deployment lands — exactly one of a slot or a group. */
+export type DeployTarget =
+  | { type: "slot"; slot_id: string }
+  | { type: "group"; gpu_group_id: string }
+
 export interface CreateDeploymentRequest {
-  slot_id: string
+  target: DeployTarget
   registry_tag_id: string
   name?: string
   ports: PortSpec[]
@@ -251,8 +307,15 @@ export interface DeploymentSummary {
   error_message: string | null
   server_id: string
   server_name: string
+  /** Denormalised primary (first/only) member slot. */
   slot_id: string
   slot_name: string
+  /** Every member slot this deployment occupies (1 individual, N group);
+   * the grid folds the occupant across all of these. */
+  slot_ids: string[]
+  /** Set for a group deploy (null = single-GPU); name drives the strip. */
+  gpu_group_id: string | null
+  group_name: string | null
   gpu_label: string
   created_by_name: string
   ports: DeploymentPort[]
@@ -317,12 +380,27 @@ export interface DragTagData {
 }
 
 export interface DropSlotData {
+  kind: "slot"
   slotId: string
   slotName: string
   slotState: import("./states").SlotState
   serverId: string
   serverName: string
 }
+
+/** Drop payload for a GPU-group strip entry (one container : N GPUs). The
+ * `kind` discriminator lets the dashboard tell a group drop from a slot. */
+export interface DropGroupData {
+  kind: "group"
+  groupId: string
+  groupName: string
+  serverId: string
+  serverName: string
+  memberCount: number
+  vramMb: number
+}
+
+export type DropData = DropSlotData | DropGroupData
 
 export interface ServerDetail {
   server: ServerSummary

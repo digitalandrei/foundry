@@ -85,7 +85,8 @@ export function useCreateDeployment() {
         body: JSON.stringify(req),
       }),
     onSuccess: (d) => {
-      toast.success(`Deploying ${d.name} to ${d.server_name} · slot ${d.slot_name}`)
+      const where = d.gpu_group_id ? `group ${d.group_name}` : `slot ${d.slot_name}`
+      toast.success(`Deploying ${d.name} to ${d.server_name} · ${where}`)
       invalidateAll(queryClient)
     },
     onError: (err) => {

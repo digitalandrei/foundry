@@ -5,7 +5,7 @@
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::Json;
-use foundry_shared::dto::{CreateDeploymentRequest, DeploymentSummary, ServerVolume};
+use foundry_shared::dto::{CreateDeploymentRequest, DeployTarget, DeploymentSummary, ServerVolume};
 use foundry_shared::{
     ActorType, DeploymentId, DeploymentState, ServerId, ServerVolumeId, TaskType,
 };
@@ -80,7 +80,7 @@ pub async fn create(
             detail: Some(serde_json::json!({
                 "image_ref": image_ref,
                 "name": new.container_name,
-                "slot_id": req.slot_id.to_string(),
+                "target": serde_json::to_value(&req.target).ok(),
             })),
             ip_address: client_ip(&headers).as_deref(),
         },
@@ -246,7 +246,14 @@ pub async fn replace(
     if old.created_by != user.id && !user.is_admin {
         return Err(AppError::Forbidden);
     }
-    req.slot_id = old.slot_id;
+    // The successor re-locks exactly what the outgoing deployment held —
+    // the same group (re-locks every member GPU) or the same single slot.
+    req.target = match old.gpu_group_id {
+        Some(gpu_group_id) => DeployTarget::Group { gpu_group_id },
+        None => DeployTarget::Slot {
+            slot_id: old.slot_id,
+        },
+    };
 
     let tag = mirror::tag_ref(&state.pool, req.registry_tag_id).await?;
     let image_ref = format!(

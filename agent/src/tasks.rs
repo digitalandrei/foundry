@@ -372,16 +372,42 @@ async fn deploy(
         .stage(DeploymentState::CreatingContainer, "creating container")
         .await;
 
-    // Create with labels, GPU device, ports, env, mounts.
+    // All NVML device UUIDs for this deployment: prefer the plural field
+    // (1 for an individual deploy, N for a group); fall back to the
+    // singular for a payload queued by a one-release-older controller.
+    let device_uuids: Vec<String> = if p.gpu_device_uuids.is_empty() {
+        vec![p.gpu_device_uuid.clone()]
+    } else {
+        p.gpu_device_uuids.clone()
+    };
+    // Member slot ids for the comma-joined label; fall back to the
+    // primary slot for an older controller's payload.
+    let slot_ids_label = if p.slot_ids.is_empty() {
+        p.slot_id.to_string()
+    } else {
+        p.slot_ids
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+
+    // Create with labels, GPU device(s), ports, env, mounts.
     // gpu_uuid + slot make GPU assignment visible host-side:
     // docker ps --format '{{.Names}} {{.Label \"foundry.gpu_uuid\"}}'
-    let labels = HashMap::from([
+    let mut labels = HashMap::from([
         ("foundry.managed".to_string(), "true".to_string()),
         ("foundry.deployment_id".to_string(), deployment_id.clone()),
         ("foundry.slot_id".to_string(), p.slot_id.to_string()),
+        ("foundry.slot_ids".to_string(), slot_ids_label),
         ("foundry.slot".to_string(), p.slot_name.clone()),
         ("foundry.gpu_uuid".to_string(), p.gpu_device_uuid.clone()),
     ]);
+    // Group deploys carry the group id so a host-side `docker ps` reveals
+    // which container spans which group (docs/ARCHITECTURE.md § Labels).
+    if let Some(group_id) = &p.gpu_group_id {
+        labels.insert("foundry.group_id".to_string(), group_id.to_string());
+    }
     let mut port_bindings: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
     let mut exposed: HashMap<String, HashMap<(), ()>> = HashMap::new();
     for port in &p.ports {
@@ -427,7 +453,7 @@ async fn deploy(
             device_requests: Some(vec![DeviceRequest {
                 driver: None,
                 count: None,
-                device_ids: Some(vec![p.gpu_device_uuid.clone()]),
+                device_ids: Some(device_uuids),
                 capabilities: Some(vec![vec!["gpu".to_string()]]),
                 options: None,
             }]),

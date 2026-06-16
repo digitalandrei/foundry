@@ -4,6 +4,7 @@
 mod agent;
 mod audit;
 mod deployments;
+mod gpu_groups;
 mod health;
 mod instances;
 mod me;
@@ -47,6 +48,19 @@ pub fn router(state: AppState) -> Router {
         .route("/api/metrics/latest", get(servers::metrics_latest))
         .route("/api/servers/{server_id}", get(servers::detail))
         .route("/api/servers/{server_id}/metrics", get(servers::metrics))
+        // GPU groups + slot use-mode (admin-only; docs/API.md § GPU groups)
+        .route(
+            "/api/servers/{server_id}/gpu-groups",
+            get(gpu_groups::list).post(gpu_groups::create),
+        )
+        .route(
+            "/api/gpu-groups/{group_id}",
+            axum::routing::delete(gpu_groups::delete).patch(gpu_groups::set_group_use_mode),
+        )
+        .route(
+            "/api/slots/{slot_id}",
+            axum::routing::patch(gpu_groups::set_slot_use_mode),
+        )
         .route(
             "/api/servers/{server_id}/volumes",
             get(deployments::list_volumes),

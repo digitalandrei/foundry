@@ -1,17 +1,21 @@
 import { Link, useNavigate } from "@tanstack/react-router"
 import { useDroppable } from "@dnd-kit/core"
-import { CheckCircle2Icon, ServerOffIcon, TriangleAlertIcon } from "lucide-react"
+import { BoxesIcon, CheckCircle2Icon, ServerOffIcon, TriangleAlertIcon } from "lucide-react"
 
 import { EmptyState } from "@/components/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useDeployments, useLatestMetrics } from "@/hooks/use-deployments"
+import { useServerGroups } from "@/hooks/use-gpu-groups"
 import { useServers } from "@/hooks/use-servers"
 import { formatLoad, formatMemGb } from "@/lib/format"
 import { occupantsBySlot, slotDeployability } from "@/lib/slots"
 import { DEPLOYMENT_STATE_META, SERVER_STATUS_META, SLOT_STATE_META } from "@/lib/states"
 import type {
   DeploymentSummary,
+  DropGroupData,
   DropSlotData,
+  GpuGroup,
   GpuSummary,
   HostMetrics,
   MetricsSample,
@@ -110,7 +114,7 @@ function ServerRow({
   onSelect,
 }: {
   server: ServerSummary
-  occupants: Map<string, DeploymentSummary>
+  occupants: Map<string, DeploymentSummary[]>
   sample: MetricsSample | undefined
   onSelect: (deploymentId: string) => void
 }) {
@@ -188,6 +192,201 @@ function ServerRow({
           ))}
         </div>
       )}
+
+      <GroupSection server={server} occupants={occupants} sample={sample} onSelect={onSelect} />
+    </div>
+  )
+}
+
+/** Per-server GPU-groups deploy affordance (overlay model — the member
+ * GPUs keep their own cells above; a group is a *separate* target that
+ * runs one container across all of them). Each group renders as its own
+ * box (like a GPU cell) listing its member GPUs as slots, so the operator
+ * sees exactly which GPUs a deploy will use. Hidden when the server
+ * defines no groups. */
+function GroupSection({
+  server,
+  occupants,
+  sample,
+  onSelect,
+}: {
+  server: ServerSummary
+  occupants: Map<string, DeploymentSummary[]>
+  sample: MetricsSample | undefined
+  onSelect: (deploymentId: string) => void
+}) {
+  const groups = useServerGroups(server.id)
+  const deployments = useDeployments()
+  if (!groups.data || groups.data.length === 0) return null
+
+  // Live group deploy → the box navigates to it instead of deploying.
+  const activeByGroup = new Map<string, DeploymentSummary>()
+  for (const d of deployments.data ?? []) {
+    if (d.gpu_group_id && d.state !== "REMOVED" && d.state !== "REPLACED") {
+      const cur = activeByGroup.get(d.gpu_group_id)
+      if (!cur || d.created_at > cur.created_at) activeByGroup.set(d.gpu_group_id, d)
+    }
+  }
+
+  return (
+    <div className="mt-3">
+      <p className="mb-1.5 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
+        <BoxesIcon className="size-3.5" aria-hidden /> Groups — one container across every member GPU
+      </p>
+      <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
+        {groups.data.map((group) => (
+          <GroupCell
+            key={group.id}
+            group={group}
+            server={server}
+            occupants={occupants}
+            active={activeByGroup.get(group.id)}
+            sample={sample}
+            onSelect={onSelect}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** A group rendered like a GPU cell: a header (name · N GPUs · combined
+ * VRAM · status) over its member GPUs listed as slot rows. The whole box
+ * is the drop/tap target while deployable (backend `deployable`); a busy
+ * group shows its `busy_reason`; a live group deploy clicks through to its
+ * deployment (and each member row reads "occupied by group"). */
+function GroupCell({
+  group,
+  server,
+  occupants,
+  active,
+  sample,
+  onSelect,
+}: {
+  group: GpuGroup
+  server: ServerSummary
+  occupants: Map<string, DeploymentSummary[]>
+  active: DeploymentSummary | undefined
+  sample: MetricsSample | undefined
+  onSelect: (deploymentId: string) => void
+}) {
+  const vramGb = Math.round(group.combined_vram_mb / 1024)
+  const gpuById = new Map(server.gpus.map((gpu) => [gpu.id, gpu]))
+  const data: DropGroupData = {
+    kind: "group",
+    groupId: group.id,
+    groupName: group.name,
+    serverId: server.id,
+    serverName: server.name,
+    memberCount: group.gpu_ids.length,
+    vramMb: group.combined_vram_mb,
+  }
+  // Don't recompute deployability — the backend already folded the group's
+  // cap, member occupancy, online + eligibility into `deployable` +
+  // `busy_reason`. A multi-use group stays droppable while below its cap
+  // even with a live deploy (hence not `&& !active`).
+  const multi = group.max_occupants > 1
+  const droppable = group.deployable
+  const { setNodeRef, isOver } = useDroppable({ id: `group:${group.id}`, data, disabled: !droppable })
+
+  return (
+    <div
+      ref={setNodeRef}
+      onClick={active ? () => onSelect(active.id) : undefined}
+      role={active ? "button" : undefined}
+      title={
+        active
+          ? `Running ${active.name} — click for details`
+          : droppable
+            ? "Drop a container here to deploy one container across every member GPU"
+            : (group.busy_reason ?? undefined)
+      }
+      className={cn(
+        "flex flex-col rounded-md border bg-card/50 p-2 transition-colors",
+        active && "cursor-pointer border-slot-running/60 bg-slot-running/10 hover:bg-accent/40",
+        !active && droppable && "border-slot-free/50",
+        !active && !droppable && "border-dashed opacity-70",
+        isOver && droppable && "border-2 border-dashed border-slot-free bg-slot-free/15",
+      )}
+    >
+      {/* Header — mirrors the GPU-cell header line. */}
+      <p className="mb-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs font-medium text-muted-foreground">
+        <span className="inline-flex items-center gap-1 text-foreground/80">
+          <BoxesIcon className="size-3.5" aria-hidden /> {group.name}
+        </span>
+        <span>
+          {group.gpu_ids.length} GPUs · {vramGb} GB
+        </span>
+        <span className="ml-auto flex items-center gap-2 font-normal">
+          {multi ? (
+            <span className="tabular-nums" title="single/multi-use — set in server config">
+              {group.occupants} / {group.max_occupants}
+            </span>
+          ) : null}
+          {group.deployable ? (
+            <span className="text-slot-free">{multi ? "drop to deploy" : "Free · drop to deploy"}</span>
+          ) : group.busy_reason ? (
+            <span className="text-slot-reserved" title={group.busy_reason}>
+              {group.busy_reason}
+            </span>
+          ) : null}
+        </span>
+      </p>
+
+      {/* Member GPUs, listed as slots (what this group will occupy). */}
+      <div className="flex flex-col gap-1.5">
+        {group.gpu_ids.map((gpuId) => {
+          const gpu = gpuById.get(gpuId)
+          if (!gpu) {
+            return (
+              <div
+                key={gpuId}
+                className="rounded-md border border-dashed px-3 py-1.5 text-[11px] text-muted-foreground"
+              >
+                a member GPU is not in the latest inventory
+              </div>
+            )
+          }
+          const fullSlot = gpu.slots.find((s) => s.slot_type === "FULL_GPU")
+          const occ = fullSlot ? (occupants.get(fullSlot.id) ?? []) : []
+          // While the group runs, every member shows the group occupant;
+          // otherwise surface any individual occupant (names the blocker).
+          const shown = active ?? occ[0]
+          const usage = containerMetrics(sample, shown?.container_id ?? null)
+          const gpuVram = gpu.memory_mb != null ? `${Math.round(gpu.memory_mb / 1024)} GB` : "? GB"
+          return (
+            <div
+              key={gpuId}
+              className={cn(
+                "flex flex-col gap-0.5 rounded-md border px-3 py-1.5",
+                shown ? "border-slot-running/40 bg-slot-running/5" : "border-border",
+              )}
+            >
+              <span className="flex items-baseline justify-between gap-2">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="shrink-0 font-mono text-xs font-medium">
+                    GPU {gpu.index}
+                    {fullSlot ? ` · SLOT ${fullSlot.name}` : ""}
+                  </span>
+                  {shown ? (
+                    <OccupantName deployment={shown} />
+                  ) : gpu.model ? (
+                    <span className="truncate text-[11px] text-muted-foreground">{gpu.model}</span>
+                  ) : null}
+                </span>
+                <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">{gpuVram}</span>
+              </span>
+              {shown && (shown.status_detail || usage) ? (
+                <span className="truncate pl-3 font-mono text-[10px] text-muted-foreground tabular-nums">
+                  {shown.status_detail
+                    ? shown.status_detail
+                    : `${formatLoad(usage!.cpu_pct / 100, usage!.cpu_cores)} · ${formatMemGb(usage!.mem_used_mb, usage!.mem_limit_mb)}`}
+                </span>
+              ) : null}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -201,7 +400,7 @@ function GpuCell({
 }: {
   gpu: GpuSummary
   server: ServerSummary
-  occupants: Map<string, DeploymentSummary>
+  occupants: Map<string, DeploymentSummary[]>
   sample: MetricsSample | undefined
   onSelect: (deploymentId: string) => void
 }) {
@@ -211,7 +410,7 @@ function GpuCell({
 
   return (
     <div className="rounded-md border bg-card/50 p-2">
-      <p className="mb-1.5 flex flex-wrap items-baseline gap-x-2 text-xs font-medium text-muted-foreground">
+      <p className="mb-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs font-medium text-muted-foreground">
         <span>
           GPU {gpu.index} {gpu.model ? `(${gpu.model})` : ""}
         </span>
@@ -220,6 +419,7 @@ function GpuCell({
         ) : (
           <span>No MIG</span>
         )}
+        <GpuGroupChips groups={gpu.groups} />
         {g ? (
           <span className="ml-auto font-normal tabular-nums">
             {g.util_pct}% · {(g.mem_used_mb / 1024).toFixed(1)}/
@@ -234,7 +434,7 @@ function GpuCell({
             key={slot.id}
             slot={slot}
             server={server}
-            occupant={occupants.get(slot.id)}
+            occupants={occupants.get(slot.id) ?? []}
             sample={sample}
             onSelect={onSelect}
           />
@@ -244,46 +444,106 @@ function GpuCell({
   )
 }
 
-/** Drop target: FREE → deploy; RUNNING → replace (with confirmation in
- * the dialog). Other states don't activate (docs/UI-DESIGN.md). An
- * occupied chip clicks through to the deployment detail dialog. */
+/** Per-GPU group-membership evidence (overlap model): a GPU may sit in
+ * several groups, and that overlap must be visible (docs/UI-DESIGN.md).
+ * Renders `grp A, B`; a tooltip spells the names out in full. */
+function GpuGroupChips({ groups }: { groups: GpuSummary["groups"] }) {
+  if (groups.length === 0) return null
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex items-center gap-1 rounded-sm bg-muted px-1.5 font-normal text-foreground/70">
+          <BoxesIcon className="size-3" aria-hidden />
+          grp {groups.map((gr) => gr.name).join(", ")}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>
+        In {groups.length} group{groups.length === 1 ? "" : "s"}: {groups.map((gr) => gr.name).join(", ")}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+/** Drop target. Single-use: FREE → deploy; RUNNING → replace (confirmed in
+ * the dialog); other states inactive. Multi-use (`max_occupants > 1`):
+ * shows `k / N`, stacks each co-tenant's chip, and stays a drop target
+ * while `k < N` (no "replace"). An occupant chip clicks through to its
+ * deployment detail page (docs/UI-DESIGN.md). */
 function SlotChip({
   slot,
   server,
-  occupant,
+  occupants,
   sample,
   onSelect,
 }: {
   slot: SlotSummary
   server: ServerSummary
-  occupant: DeploymentSummary | undefined
+  occupants: DeploymentSummary[]
   sample: MetricsSample | undefined
   onSelect: (deploymentId: string) => void
 }) {
+  const multi = slot.max_occupants > 1
   const meta = SLOT_STATE_META[slot.state]
-  // A FREE slot shows nothing even if a now-dismissable FAILED
+  // A FREE single-use slot shows nothing even if a now-dismissable FAILED
   // deployment still references it (auto-heal: failures free the slot).
-  const shown = slot.state === "FREE" ? undefined : occupant
-  // External (non-Foundry) container on this device — only surfaced
-  // when Foundry has nothing here. A *running* one holds the GPU (not a
-  // deploy target); a stopped one is shown but leaves the device free.
-  const external = !shown ? slot.external : null
+  // Multi-use occupancy is the live count, independent of the state enum.
+  const active = multi ? occupants : slot.state === "FREE" ? [] : occupants.slice(0, 1)
+  // External (non-Foundry) container on this device — only surfaced when
+  // Foundry holds nothing. A *running* one holds the GPU; a stopped one
+  // shows but leaves the device free.
+  const external = active.length === 0 ? slot.external : null
   const data: DropSlotData = {
+    kind: "slot",
     slotId: slot.id,
     slotName: slot.name,
     slotState: slot.state,
     serverId: server.id,
     serverName: server.name,
   }
-  // Same eligibility the slot picker uses: FREE → deploy, RUNNING →
-  // replace; needs an ONLINE server, Docker up, no external holder.
-  const { deployable } = slotDeployability(slot, server, occupant)
+  const { deployable } = slotDeployability(slot, server, occupants)
   const { setNodeRef, isOver } = useDroppable({ id: slot.id, data, disabled: !deployable })
   const capacity =
     slot.mig_profile ??
     (slot.capacity_mb != null ? `${Math.round(slot.capacity_mb / 1024)} GB` : "")
-  const usage = containerMetrics(sample, shown?.container_id ?? null)
 
+  // Multi-use: a `k / N` header + a stacked chip per co-tenant (compact
+  // "+N more" past two). Each chip routes to its own deployment.
+  if (multi) {
+    const VISIBLE = 2
+    const visible = active.slice(0, VISIBLE)
+    const overflow = active.length - visible.length
+    return (
+      <div
+        ref={setNodeRef}
+        className={cn(
+          "flex min-w-32 flex-1 flex-col gap-1 rounded-md border px-3 py-2 transition-colors",
+          slot.state === "OFFLINE" && "border-dashed opacity-60",
+          active.length > 0 ? "border-slot-running/40" : !external && "border-slot-free/50",
+          external && "border-foreground/25 bg-muted/40",
+          isOver && deployable && "border-2 border-dashed border-slot-free bg-slot-free/15",
+        )}
+        title={`Multi-use slot · soft sharing without VRAM isolation · ${active.length}/${slot.max_occupants} in use`}
+      >
+        <span className="flex items-baseline justify-between gap-2">
+          <span className="font-mono text-xs font-medium">SLOT {slot.name}</span>
+          <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+            {capacity ? `${capacity} · ` : ""}
+            {external ? "External" : `${active.length} / ${slot.max_occupants}`}
+          </span>
+        </span>
+        {visible.map((d) => (
+          <OccupantLine key={d.id} deployment={d} sample={sample} onSelect={onSelect} />
+        ))}
+        {overflow > 0 ? (
+          <span className="pl-3 text-[10px] text-muted-foreground">+{overflow} more</span>
+        ) : null}
+        {active.length === 0 && external ? <ExternalLine external={external} /> : null}
+      </div>
+    )
+  }
+
+  // Single-use: the original one-occupant rendering.
+  const shown = active[0]
   return (
     <div
       ref={setNodeRef}
@@ -304,26 +564,13 @@ function SlotChip({
           slot.state === "RUNNING" &&
           "border-2 border-dashed border-slot-reserved bg-slot-reserved/15",
       )}
-      title={`${meta.label} · ${slot.slot_type}${slot.state === "RUNNING" ? " — drop to replace, click for details" : occupant ? " — click for details" : external ? " — GPU in use by a non-Foundry container" : ""}`}
+      title={`${meta.label} · ${slot.slot_type}${slot.state === "RUNNING" ? " — drop to replace, click for details" : shown ? " — click for details" : external ? " — GPU in use by a non-Foundry container" : ""}`}
     >
-      {/* Slot number, occupant name, and status all on one line. */}
       <span className="flex items-baseline justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="shrink-0 font-mono text-xs font-medium">SLOT {slot.name}</span>
           {shown ? (
-            <span
-              className="flex min-w-0 items-center gap-1 truncate text-xs font-medium"
-              title={shown.image_ref}
-            >
-              <StatusDot
-                running={shown.state === "RUNNING"}
-                className={DEPLOYMENT_STATE_META[shown.state].dotClass}
-              />
-              <span className="truncate">{shown.name}</span>
-              <span className="shrink-0 text-[10px] font-normal text-muted-foreground">
-                {shown.state === "RUNNING" ? "running" : shown.state.toLowerCase().replace(/_/g, " ")}
-              </span>
-            </span>
+            <OccupantName deployment={shown} />
           ) : external ? (
             <span
               className="flex min-w-0 items-center gap-1 truncate text-xs font-medium"
@@ -342,24 +589,104 @@ function SlotChip({
           {external ? "External" : meta.label}
         </span>
       </span>
-      {/* Second line only when there's live detail: deploy progress, or the
-          container's own CPU/mem usage, or the external image. Run-state
-          moved inline above. */}
-      {shown && (shown.status_detail || usage) ? (
-        <span
-          className="truncate pl-3 font-mono text-[10px] text-muted-foreground tabular-nums"
-          title={usage ? "Container CPU usage (cores) / allotted cores · used / limit RAM" : undefined}
-        >
-          {shown.status_detail
-            ? shown.status_detail
-            : `${formatLoad(usage!.cpu_pct / 100, usage!.cpu_cores)} · ${formatMemGb(usage!.mem_used_mb, usage!.mem_limit_mb)}`}
-        </span>
+      {shown ? (
+        <OccupantUsageLine deployment={shown} sample={sample} />
       ) : external ? (
         <span className="truncate pl-3 font-mono text-[10px] text-muted-foreground" title={external.image}>
           {external.image}
         </span>
       ) : null}
     </div>
+  )
+}
+
+/** Occupant name + run-state, with a group deploy spelled out so every
+ * member cell reads "occupied by group · {name}" consistently. */
+function OccupantName({ deployment }: { deployment: DeploymentSummary }) {
+  const grouped = deployment.gpu_group_id != null
+  return (
+    <span
+      className="flex min-w-0 items-center gap-1 truncate text-xs font-medium"
+      title={grouped ? `Group ${deployment.group_name} — ${deployment.image_ref}` : deployment.image_ref}
+    >
+      <StatusDot
+        running={deployment.state === "RUNNING"}
+        className={DEPLOYMENT_STATE_META[deployment.state].dotClass}
+      />
+      <span className="truncate">{deployment.name}</span>
+      <span className="shrink-0 text-[10px] font-normal text-muted-foreground">
+        {grouped
+          ? `group · ${deployment.group_name}`
+          : deployment.state === "RUNNING"
+            ? "running"
+            : deployment.state.toLowerCase().replace(/_/g, " ")}
+      </span>
+    </span>
+  )
+}
+
+/** Second line for a single-use occupant: deploy progress or live CPU/mem. */
+function OccupantUsageLine({
+  deployment,
+  sample,
+}: {
+  deployment: DeploymentSummary
+  sample: MetricsSample | undefined
+}) {
+  const usage = containerMetrics(sample, deployment.container_id)
+  if (!deployment.status_detail && !usage) return null
+  return (
+    <span
+      className="truncate pl-3 font-mono text-[10px] text-muted-foreground tabular-nums"
+      title={usage ? "Container CPU usage (cores) / allotted cores · used / limit RAM" : undefined}
+    >
+      {deployment.status_detail
+        ? deployment.status_detail
+        : `${formatLoad(usage!.cpu_pct / 100, usage!.cpu_cores)} · ${formatMemGb(usage!.mem_used_mb, usage!.mem_limit_mb)}`}
+    </span>
+  )
+}
+
+/** One co-tenant row inside a multi-use slot: name + run-state + usage,
+ * clickable through to the deployment. */
+function OccupantLine({
+  deployment,
+  sample,
+  onSelect,
+}: {
+  deployment: DeploymentSummary
+  sample: MetricsSample | undefined
+  onSelect: (deploymentId: string) => void
+}) {
+  const usage = containerMetrics(sample, deployment.container_id)
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(deployment.id)}
+      className="flex min-w-0 flex-col items-start gap-0.5 rounded-sm px-1 py-0.5 text-left transition-colors hover:bg-accent/40"
+    >
+      <OccupantName deployment={deployment} />
+      {deployment.status_detail || usage ? (
+        <span className="truncate pl-3 font-mono text-[10px] text-muted-foreground tabular-nums">
+          {deployment.status_detail
+            ? deployment.status_detail
+            : `${formatLoad(usage!.cpu_pct / 100, usage!.cpu_cores)} · ${formatMemGb(usage!.mem_used_mb, usage!.mem_limit_mb)}`}
+        </span>
+      ) : null}
+    </button>
+  )
+}
+
+/** External (non-Foundry) container line inside a multi-use slot. */
+function ExternalLine({ external }: { external: NonNullable<SlotSummary["external"]> }) {
+  return (
+    <span className="flex min-w-0 items-center gap-1 truncate pl-1 text-xs font-medium" title={external.image}>
+      <StatusDot running={external.running} />
+      <span className="truncate">{external.name}</span>
+      <span className="shrink-0 text-[10px] font-normal text-muted-foreground">
+        {external.running ? "running" : "stopped"}
+      </span>
+    </span>
   )
 }
 

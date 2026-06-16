@@ -3,6 +3,7 @@
 //! (docs/RUST_RULES.md § sqlx / MySQL).
 
 pub mod deployments;
+pub mod gpu_groups;
 pub mod instances;
 pub mod inventory;
 pub mod local_admins;
@@ -10,6 +11,7 @@ pub mod logs;
 pub mod metrics;
 pub mod mirror;
 pub mod servers;
+pub mod slots;
 pub mod tasks;
 pub mod users;
 pub mod volumes;

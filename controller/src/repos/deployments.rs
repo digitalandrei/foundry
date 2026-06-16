@@ -2,11 +2,12 @@
 //! allocator (plans/phase-06.md § Networking conditions 1–2, 6).
 
 use foundry_shared::dto::{
-    CreateDeploymentRequest, DeploymentPort, DeploymentSummary, EnvSpec, PortSpec,
+    CreateDeploymentRequest, DeployTarget, DeploymentPort, DeploymentSummary, EnvSpec, PortSpec,
     MEM_LIMIT_MAX_MB, MEM_LIMIT_MIN_MB,
 };
 use foundry_shared::{
-    DeploymentId, DeploymentState, PortKind, ServerId, SlotId, SlotState, TaskType, UserId,
+    DeploymentId, DeploymentState, GpuGroupId, PortKind, ServerId, SlotId, SlotState, TaskType,
+    UserId,
 };
 use sqlx::{MySqlConnection, MySqlPool};
 use uuid::Uuid;
@@ -25,9 +26,10 @@ pub struct NewDeployment {
     pub container_name: String,
 }
 
-/// Validate + insert a deployment in one transaction: slot must be
-/// FREE (locked), ports allocated conflict-free, env stored (secrets
-/// encrypted), slot → RESERVED, state PENDING → VALIDATING.
+/// Validate + insert a deployment in one transaction: the target's
+/// slot(s) are locked and checked for occupancy (count < cap), ports
+/// allocated conflict-free, env stored (secrets encrypted), member slots
+/// → RESERVED, state PENDING → VALIDATING.
 #[allow(clippy::too_many_arguments)]
 pub async fn create(
     pool: &MySqlPool,
@@ -44,34 +46,27 @@ pub async fn create(
     let now = chrono::Utc::now().naive_utc();
     let mut tx = pool.begin().await?;
 
-    // Slot: lock and check.
-    let slot = sqlx::query!(
-        r#"SELECT gs.id AS "id: Uuid", gs.state, gs.name AS slot_name,
-                  g.server_id AS "server_id: Uuid",
-                  s.status AS server_status, s.name AS server_name,
-                  s.app_publishing_ready AS "app_publishing_ready: bool", s.nginx_status,
-                  s.docker_ok AS "docker_ok: bool"
-           FROM gpu_slots gs
-           JOIN gpus g ON g.id = gs.gpu_id
-           JOIN servers s ON s.id = g.server_id
-           WHERE gs.id = ? FOR UPDATE"#,
-        req.slot_id.0
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or(AppError::NotFound("slot not found"))?;
+    // Resolve the deploy target into its member slots (locked FOR UPDATE)
+    // and enforce occupancy: an individual deploy needs the slot below its
+    // `max_occupants`; a group deploy needs the group below its cap and
+    // every member free of non-group holders (single-use = exclusive). A
+    // replacement excludes its own outgoing deployment from these counts.
+    let target = resolve_target(&mut tx, &req.target, replaces).await?;
+    let server_id = target.server_id;
 
-    if slot.server_status != "ONLINE" {
+    // Server-level prechecks (online, Docker up, app publishing for web).
+    let server = fetch_server_precheck(&mut tx, server_id).await?;
+    if server.status != "ONLINE" {
         return Err(AppError::BadRequest("server is not online".into()));
     }
     // Docker must be running on the target server — a deploy is a
     // `docker pull`/`create`/`start` the agent could only fail. Only
     // blocks when the agent has explicitly reported the daemon down
     // (NULL = no inventory yet → don't second-guess).
-    if slot.docker_ok == Some(false) {
+    if server.docker_ok == Some(false) {
         return Err(AppError::BadRequest(format!(
             "Docker isn't running on {} — start the Docker daemon on the server, then redeploy.",
-            slot.server_name,
+            server.name,
         )));
     }
     // HTTP/S deploys need app publishing on the target server. Fail fast
@@ -82,31 +77,18 @@ pub async fn create(
         .ports
         .iter()
         .any(|p| matches!(p.kind, PortKind::Http | PortKind::Https));
-    if wants_web && slot.app_publishing_ready == Some(false) {
+    if wants_web && server.app_publishing_ready == Some(false) {
         return Err(AppError::BadRequest(format!(
             "HTTP/S publishing isn't ready on {}: {}. Fix it on the server, then redeploy.",
-            slot.server_name,
-            nginx_status_hint(slot.nginx_status.as_deref()),
+            server.name,
+            nginx_status_hint(server.nginx_status.as_deref()),
         )));
     }
-    let slot_state: SlotState = slot.state.parse().map_err(AppError::internal)?;
-    // Replacements deploy onto a slot still occupied by the outgoing
-    // deployment (RUNNING/RESERVED); fresh deploys need FREE.
-    let slot_ok = match replaces {
-        None => slot_state == SlotState::Free,
-        Some(_) => matches!(slot_state, SlotState::Running | SlotState::Reserved),
-    };
-    if !slot_ok {
-        return Err(AppError::BadRequest(format!(
-            "slot is {slot_state}, not available for this operation"
-        )));
-    }
-    let server_id: ServerId = slot.server_id.into();
 
-    // Name: sanitize or generate.
+    // Name: sanitize or generate (primary member slot is the GPU hint).
     let container_name = match req.name.as_deref().map(str::trim) {
         Some(n) if !n.is_empty() => sanitize_name(n)?,
-        _ => generate_name(image_ref, &slot.slot_name),
+        _ => generate_name(image_ref, &target.primary_slot_name),
     };
 
     let mut allocated = allocate_ports(&mut tx, server_id, &req.ports).await?;
@@ -114,7 +96,7 @@ pub async fn create(
         &mut tx,
         &mut allocated,
         &container_name,
-        &slot.server_name,
+        &server.name,
         apps_domain,
         replaces,
     )
@@ -130,11 +112,12 @@ pub async fn create(
     let id = DeploymentId::new();
     sqlx::query!(
         r#"INSERT INTO deployments
-           (id, gpu_slot_id, server_id, registry_tag_id, gitlab_instance_id, image_ref,
+           (id, gpu_slot_id, gpu_group_id, server_id, registry_tag_id, gitlab_instance_id, image_ref,
             created_by, state, container_name, mem_limit_mb, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?)"#,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?)"#,
         id.0,
-        req.slot_id.0,
+        target.primary_slot_id.0,
+        target.group_id.map(|g| g.0),
         server_id.0,
         req.registry_tag_id.0,
         instance_id.0,
@@ -147,6 +130,19 @@ pub async fn create(
     )
     .execute(&mut *tx)
     .await?;
+
+    // Occupancy is the count of active rows here — one per member slot
+    // (1 for an individual deploy, N for a group). Authoritative for both
+    // the multi-use cap and the group atomic lock.
+    for slot_id in &target.member_slot_ids {
+        sqlx::query!(
+            "INSERT INTO deployment_slots (deployment_id, gpu_slot_id) VALUES (?, ?)",
+            id.0,
+            slot_id.0,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     for p in &allocated {
         sqlx::query!(
@@ -226,7 +222,7 @@ pub async fn create(
 
     match replaces {
         None => {
-            lifecycle::transition_slot(&mut tx, req.slot_id, SlotState::Reserved).await?;
+            lifecycle::transition_member_slots(&mut tx, id, SlotState::Reserved).await?;
         }
         Some(old_id) => {
             // Replacement orchestration is atomic with the successor's
@@ -266,7 +262,9 @@ pub async fn create(
             lifecycle::transition_deployment(&mut tx, old_id, to, &Actor::user(created_by), None)
                 .await?;
             if task_type == TaskType::StopContainer {
-                lifecycle::transition_slot(&mut tx, req.slot_id, SlotState::Stopping).await?;
+                // Fan out over the outgoing deployment's member slots —
+                // the same physical slots the successor just claimed.
+                lifecycle::transition_member_slots(&mut tx, old_id, SlotState::Stopping).await?;
             }
             super::tasks::enqueue(
                 &mut tx,
@@ -295,6 +293,142 @@ pub async fn create(
 
     tx.commit().await?;
     Ok(NewDeployment { id, container_name })
+}
+
+/// A deploy target resolved to its locked member slots.
+struct ResolvedTarget {
+    server_id: ServerId,
+    /// Denormalised primary slot (first member) for `deployments.gpu_slot_id`.
+    primary_slot_id: SlotId,
+    /// GPU-index hint for the generated container name.
+    primary_slot_name: String,
+    member_slot_ids: Vec<SlotId>,
+    group_id: Option<GpuGroupId>,
+}
+
+/// Lock the target's slot(s) and enforce occupancy. `replaces` is the
+/// outgoing deployment of a replacement, excluded from occupancy counts
+/// (its successor reuses the same slots).
+async fn resolve_target(
+    tx: &mut MySqlConnection,
+    target: &DeployTarget,
+    replaces: Option<DeploymentId>,
+) -> Result<ResolvedTarget, AppError> {
+    let exclude = replaces.map(|d| d.0).unwrap_or_else(Uuid::nil);
+    match target {
+        DeployTarget::Slot { slot_id } => {
+            let slot = sqlx::query!(
+                r#"SELECT gs.name AS slot_name, gs.state,
+                          gs.max_occupants AS "max_occupants: u32",
+                          g.server_id AS "server_id: Uuid"
+                   FROM gpu_slots gs JOIN gpus g ON g.id = gs.gpu_id
+                   WHERE gs.id = ? FOR UPDATE"#,
+                slot_id.0
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(AppError::NotFound("slot not found"))?;
+            let slot_state: SlotState = slot.state.parse().map_err(AppError::internal)?;
+            if slot_state == SlotState::Offline {
+                return Err(AppError::BadRequest("slot is offline".into()));
+            }
+            // Count-based deployability: active occupants below the cap.
+            // Single-use (cap 1) is just the count-0 special case.
+            let occupants: i64 = sqlx::query_scalar!(
+                r#"SELECT COUNT(*) FROM deployment_slots ds
+                   JOIN deployments d ON d.id = ds.deployment_id
+                   WHERE ds.gpu_slot_id = ? AND d.id <> ?
+                     AND d.state NOT IN ('REMOVED','REPLACED','FAILED')"#,
+                slot_id.0,
+                exclude,
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            if occupants as u32 >= slot.max_occupants {
+                return Err(AppError::BadRequest(format!(
+                    "slot is at capacity ({}/{})",
+                    occupants, slot.max_occupants
+                )));
+            }
+            Ok(ResolvedTarget {
+                server_id: slot.server_id.into(),
+                primary_slot_id: *slot_id,
+                primary_slot_name: slot.slot_name,
+                member_slot_ids: vec![*slot_id],
+                group_id: None,
+            })
+        }
+        DeployTarget::Group { gpu_group_id } => {
+            let ctx =
+                super::gpu_groups::member_slots_for_deploy(tx, *gpu_group_id, replaces).await?;
+            // Group concurrency cap (multi-use): up to `max_occupants`
+            // containers share the grouped GPUs (single-use = 1 = exclusive).
+            if ctx.group_occupants as u32 >= ctx.max_occupants {
+                return Err(AppError::BadRequest(format!(
+                    "group is at capacity ({}/{})",
+                    ctx.group_occupants, ctx.max_occupants
+                )));
+            }
+            // A group takes its whole GPUs from outsiders: no member may be
+            // held by a non-group deploy. Members must also be online and
+            // MIG-disabled. Name the blockers (an overlapping group or an
+            // individual deploy may be the holder).
+            let mut busy = Vec::new();
+            for m in &ctx.members {
+                if m.slot_state == "OFFLINE" {
+                    busy.push(format!("GPU {} (offline)", m.gpu_index));
+                } else if m.mig_enabled {
+                    busy.push(format!("GPU {} (MIG enabled)", m.gpu_index));
+                } else if m.foreign_occupants > 0 {
+                    busy.push(format!("GPU {} (in individual use)", m.gpu_index));
+                }
+            }
+            if !busy.is_empty() {
+                return Err(AppError::BadRequest(format!(
+                    "group not deployable — {}",
+                    busy.join(", ")
+                )));
+            }
+            Ok(ResolvedTarget {
+                server_id: ctx.server_id,
+                primary_slot_id: ctx.members[0].slot_id,
+                primary_slot_name: ctx.members[0].gpu_index.to_string(),
+                member_slot_ids: ctx.members.iter().map(|m| m.slot_id).collect(),
+                group_id: Some(*gpu_group_id),
+            })
+        }
+    }
+}
+
+struct ServerPrecheck {
+    status: String,
+    name: String,
+    app_publishing_ready: Option<bool>,
+    nginx_status: Option<String>,
+    docker_ok: Option<bool>,
+}
+
+async fn fetch_server_precheck(
+    tx: &mut MySqlConnection,
+    server_id: ServerId,
+) -> Result<ServerPrecheck, AppError> {
+    let r = sqlx::query!(
+        r#"SELECT status, name,
+                  app_publishing_ready AS "app_publishing_ready: bool", nginx_status,
+                  docker_ok AS "docker_ok: bool"
+           FROM servers WHERE id = ?"#,
+        server_id.0
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound("server not found"))?;
+    Ok(ServerPrecheck {
+        status: r.status,
+        name: r.name,
+        app_publishing_ready: r.app_publishing_ready,
+        nginx_status: r.nginx_status,
+        docker_ok: r.docker_ok,
+    })
 }
 
 /// Operator-readable reason behind a not-ready app-publishing server.
@@ -607,6 +741,9 @@ pub struct DeploymentRow {
     pub state: DeploymentState,
     pub server_id: ServerId,
     pub slot_id: SlotId,
+    /// Set when this was a group deploy — the replacement targets the
+    /// same group so the successor re-locks the same member GPUs.
+    pub gpu_group_id: Option<GpuGroupId>,
     pub instance_id: foundry_shared::GitlabInstanceId,
     pub created_by: UserId,
 }
@@ -618,8 +755,7 @@ pub struct DeploymentRow {
 pub async fn dismiss(pool: &MySqlPool, id: DeploymentId) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
     let row = sqlx::query!(
-        r#"SELECT state, gpu_slot_id AS "slot_id: Uuid" FROM deployments
-           WHERE id = ? FOR UPDATE"#,
+        "SELECT state FROM deployments WHERE id = ? FOR UPDATE",
         id.0
     )
     .fetch_optional(&mut *tx)
@@ -631,7 +767,6 @@ pub async fn dismiss(pool: &MySqlPool, id: DeploymentId) -> Result<(), AppError>
             "only a failed deployment can be dismissed".into(),
         ));
     }
-    let slot_id: SlotId = row.slot_id.into();
     lifecycle::transition_deployment(
         &mut tx,
         id,
@@ -640,13 +775,16 @@ pub async fn dismiss(pool: &MySqlPool, id: DeploymentId) -> Result<(), AppError>
         Some(serde_json::json!({ "reason": "dismissed by operator" })),
     )
     .await?;
-    // Only a still-FAILED slot is freed — never steal one another
-    // deployment has since taken (it would be RUNNING/RESERVED/etc).
+    // Free every member slot that is still FAILED — never steal one
+    // another deployment has since taken (RUNNING/RESERVED/etc). A
+    // multi-use slot a co-tenant still holds won't be FAILED, so it is
+    // left alone.
     sqlx::query!(
-        "UPDATE gpu_slots SET state = 'FREE', updated_at = ?
-         WHERE id = ? AND state = 'FAILED'",
+        "UPDATE gpu_slots gs JOIN deployment_slots ds ON ds.gpu_slot_id = gs.id
+         SET gs.state = 'FREE', gs.updated_at = ?
+         WHERE ds.deployment_id = ? AND gs.state = 'FAILED'",
         chrono::Utc::now().naive_utc(),
-        slot_id.0,
+        id.0,
     )
     .execute(&mut *tx)
     .await?;
@@ -658,6 +796,7 @@ pub async fn get(pool: &MySqlPool, id: DeploymentId) -> Result<DeploymentRow, Ap
     let r = sqlx::query!(
         r#"SELECT id AS "id: Uuid", state, server_id AS "server_id: Uuid",
                   gpu_slot_id AS "slot_id: Uuid",
+                  gpu_group_id AS "gpu_group_id: Uuid",
                   gitlab_instance_id AS "instance_id: Uuid",
                   created_by AS "created_by: Uuid"
            FROM deployments WHERE id = ?"#,
@@ -671,6 +810,7 @@ pub async fn get(pool: &MySqlPool, id: DeploymentId) -> Result<DeploymentRow, Ap
         state: r.state.parse().map_err(AppError::internal)?,
         server_id: r.server_id.into(),
         slot_id: r.slot_id.into(),
+        gpu_group_id: r.gpu_group_id.map(Into::into),
         instance_id: r.instance_id.into(),
         created_by: r.created_by.into(),
     })
@@ -692,6 +832,7 @@ async fn summaries(
                   d.created_at, d.started_at,
                   d.server_id AS "server_id: Uuid", s.name AS server_name,
                   d.gpu_slot_id AS "slot_id: Uuid", gs.name AS slot_name,
+                  d.gpu_group_id AS "gpu_group_id: Uuid", gg.name AS "group_name?",
                   g.display_index AS gpu_index, g.model AS gpu_model,
                   u.display_name AS created_by_name
            FROM deployments d
@@ -699,6 +840,7 @@ async fn summaries(
            JOIN gpu_slots gs ON gs.id = d.gpu_slot_id
            JOIN gpus g ON g.id = gs.gpu_id
            JOIN users u ON u.id = d.created_by
+           LEFT JOIN gpu_groups gg ON gg.id = d.gpu_group_id
            WHERE (? IS NULL AND d.state <> 'REMOVED') OR d.id = ?
            ORDER BY d.created_at DESC
            LIMIT 200"#,
@@ -718,6 +860,17 @@ async fn summaries(
         )
         .fetch_all(pool)
         .await?;
+        // Every member slot this deployment occupies — the grid folds the
+        // occupant chip across all of them (group → each member cell).
+        let slot_ids: Vec<SlotId> = sqlx::query_scalar!(
+            r#"SELECT gpu_slot_id AS "id: Uuid" FROM deployment_slots WHERE deployment_id = ?"#,
+            id.0
+        )
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(Into::into)
+        .collect();
         out.push(DeploymentSummary {
             id,
             name: r.container_name.unwrap_or_default(),
@@ -732,6 +885,15 @@ async fn summaries(
             server_name: r.server_name,
             slot_id: r.slot_id.into(),
             slot_name: r.slot_name,
+            // Fall back to the primary when the join table has no rows
+            // (defensive — every live deploy writes at least one).
+            slot_ids: if slot_ids.is_empty() {
+                vec![r.slot_id.into()]
+            } else {
+                slot_ids
+            },
+            gpu_group_id: r.gpu_group_id.map(Into::into),
+            group_name: r.group_name,
             gpu_label: format!(
                 "GPU {}{}",
                 r.gpu_index,

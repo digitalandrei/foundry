@@ -153,6 +153,55 @@ any → OFFLINE (agent lost / server down; restored on inventory)
 
 (Color semantics mirror `UI-DESIGN.md`; keep the two documents in sync.)
 
+### GPU groups & multi-slot occupancy (0.35.0)
+
+Two **independent**, admin-configured capabilities lift the "one
+container, one whole GPU" limit from opposite ends. They compose: groups
+aggregate up, multi-use shares down, and a group deploy is exclusive over
+its members so the interaction stays well-defined.
+
+- **GPU groups (aggregation, 1 container : N GPUs).** A named set of whole
+  GPUs on one server (`gpu_groups` + `gpu_group_members`). Deploying to a
+  group runs **one** container across all members (`nvidia-smi` lists N) —
+  one Docker `DeviceRequest` over every member's NVML UUID. Membership is
+  **overlay**: members stay individually deployable when no group job
+  runs. A group itself has a **use-mode** (`gpu_groups.max_occupants`,
+  1–4): single-use (one exclusive container across the GPUs — the default)
+  or multi-use (the grouped GPUs shared by up to N containers, soft
+  sharing — same idea as a multi-use slot, one level up). A group deploy
+  requires the group **below its cap** and every member **free of
+  non-group holders** (a multi-use group's own concurrent deploys share
+  its members; outsiders may not); single-use = exclusive. While a group
+  deploy is live its members render occupied-by-group. A GPU may be in
+  **several** groups (overlap) — mutually exclusive at deploy time.
+  Members are whole GPUs, MIG-disabled, on one server (no cross-host
+  NVLink/PCIe peering). Group create/delete and use-mode changes are
+  admin-only and audited.
+
+- **Multi-use slots (sharing, N containers : 1 GPU).** `gpu_slots.max_occupants`
+  (default 1 = single-use; 1–4) lets several containers share one GPU.
+  This is **soft** sharing — **no VRAM/compute isolation** between
+  co-tenants (MIG remains the hardware-isolated path); an explicit
+  per-slot opt-in, and the editor warns.
+
+**Occupancy is one count.** `deployment_slots` generalises deployment→slot
+to many. A slot's live occupancy is the number of active rows pointing at
+it (deployment non-terminal). That single count replaces the old "assert
+the slot is FREE": an individual deploy needs `count < max_occupants`; a
+group deploy needs every member's count `== 0` and writes one row per
+member, all in **one transaction** (`SELECT … FOR UPDATE` over the member
+slots, ordered by GPU index for a deterministic lock order). Every member
+slot still gets its own state transition + the deployment's events, so the
+audit trail enumerates every GPU locked/freed. The per-slot `state` enum
+stays exact for single-use; for a multi-use slot it is best-effort display
+(the inventory restore pass re-derives it from the most-advanced active
+occupant) — deployability is the count, not the flag. The whole lifecycle
+(stop/restart/remove/replace, crash/offline reconcile, dismiss) fans out
+over `deployment_slots`, so a group's GPUs free atomically. Group
+create/delete and slot use-mode changes are **admin-only and audited**;
+deploy authz is unchanged (a GitLab account on the image's instance —
+`is_admin` never grants deploy).
+
 ## Deployment Lifecycle
 
 ```
@@ -213,9 +262,11 @@ The agent manages **only** containers carrying Foundry labels:
 ```
 foundry.managed=true
 foundry.deployment_id=<uuid>
-foundry.slot_id=<uuid>
+foundry.slot_id=<uuid>                          # primary (first) member
+foundry.slot_ids=<uuid[,uuid…]>                 # all member slots (group → N)
 foundry.slot=<display name, e.g. 0 or 0:3>     # hint (operator request)
 foundry.gpu_uuid=<GPU-… or MIG-…>              # hint (operator request)
+foundry.group_id=<uuid>                         # group deploys only
 ```
 
 The two hint labels make GPU assignment visible host-side

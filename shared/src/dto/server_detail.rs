@@ -4,6 +4,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use super::GpuGroupRef;
 use crate::{GpuId, SlotId, SlotState, SlotType};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,6 +18,10 @@ pub struct GpuSummary {
     pub memory_mb: Option<u32>,
     pub mig_enabled: bool,
     pub slots: Vec<SlotSummary>,
+    /// Groups this GPU belongs to (may be several — overlap is allowed).
+    /// Surfaced on the cell as `grp A, B` chips so overlap is visible.
+    #[serde(default)]
+    pub groups: Vec<GpuGroupRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,11 +32,21 @@ pub struct SlotSummary {
     pub mig_profile: Option<String>,
     pub capacity_mb: Option<u32>,
     pub state: SlotState,
+    /// Concurrency cap (multi-use). 1 = single-use; >1 = soft sharing,
+    /// no VRAM isolation. The grid shows occupancy as `k / max_occupants`
+    /// where k is the live count of active deployments on the slot.
+    #[serde(default = "one")]
+    pub max_occupants: u32,
     /// A non-Foundry container occupying this slot's GPU/MIG device
     /// (mapped from inventory). Present → the GPU is in external use;
     /// the dashboard surfaces it and the slot is not a deploy target.
     #[serde(default)]
     pub external: Option<ExternalOccupant>,
+}
+
+/// Serde default for `SlotSummary.max_occupants` (single-use).
+fn one() -> u32 {
+    1
 }
 
 /// A container Foundry did not create, mapped to a slot's device.

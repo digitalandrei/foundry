@@ -2,6 +2,8 @@ import { Link, useParams } from "@tanstack/react-router"
 import { ArrowLeftIcon } from "lucide-react"
 
 import { MetricSparkline } from "@/components/metric-sparkline"
+import { ServerGpuConfig } from "@/components/server-gpu-config"
+import { useMe } from "@/hooks/use-auth"
 import { useServerDetail, useServerMetrics } from "@/hooks/use-servers"
 import { formatLoad, formatMemGb, formatSize } from "@/lib/format"
 import { SERVER_STATUS_META } from "@/lib/states"
@@ -27,6 +29,7 @@ export function ServerDetailPage() {
   const { serverId } = useParams({ from: "/app/servers/$serverId" })
   const detail = useServerDetail(serverId)
   const metrics = useServerMetrics(serverId)
+  const me = useMe()
 
   const latest = metrics.data?.at(-1)?.sample
 
@@ -119,6 +122,9 @@ export function ServerDetailPage() {
           ))}
         </div>
       ) : null}
+
+      {/* GPU groups & slot-sharing config — admin-only. */}
+      {detail.data && me.data?.is_admin ? <ServerGpuConfig server={detail.data.server} /> : null}
 
       {/* Containers */}
       <Card>

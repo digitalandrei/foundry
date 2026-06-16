@@ -55,6 +55,7 @@ id_type!(ServerId);
 id_type!(ServerAgentId);
 id_type!(GpuId);
 id_type!(SlotId);
+id_type!(GpuGroupId);
 id_type!(EnrollmentTokenId);
 id_type!(DeploymentId);
 id_type!(TaskId);

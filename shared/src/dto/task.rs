@@ -39,11 +39,27 @@ pub struct DeployPayload {
     /// Full pullable reference, e.g. `g.protv.ro:5050/grp/proj:tag`.
     pub image_ref: String,
     pub container_name: String,
-    /// NVML UUID for Docker DeviceRequests (GPU-… or MIG-…).
+    /// NVML UUID for Docker DeviceRequests (GPU-… or MIG-…). Primary
+    /// (first) device — kept populated so a payload queued by a newer
+    /// controller still deploys on a one-release-older agent.
     pub gpu_device_uuid: String,
+    /// All NVML device UUIDs for this deployment (1 for an individual
+    /// deploy, N for a group). The executor builds one `DeviceRequest`
+    /// over the whole vec; it falls back to `[gpu_device_uuid]` when the
+    /// vec is absent (older controller). Defaulted for that rollback.
+    #[serde(default)]
+    pub gpu_device_uuids: Vec<String>,
     /// For the `foundry.slot_id` container label
-    /// (docs/ARCHITECTURE.md § Container Labels).
+    /// (docs/ARCHITECTURE.md § Container Labels). Primary member slot.
     pub slot_id: crate::SlotId,
+    /// Every member slot id — the comma-joined `foundry.slot_ids` label.
+    /// Defaulted (= `[slot_id]`) for payloads from an older controller.
+    #[serde(default)]
+    pub slot_ids: Vec<crate::SlotId>,
+    /// Group this deploy belongs to → the `foundry.group_id` label.
+    /// `None` for an individual deploy.
+    #[serde(default)]
+    pub gpu_group_id: Option<crate::GpuGroupId>,
     /// Display slot name (`0`, `0:3`) — the `foundry.slot` hint label.
     pub slot_name: String,
     pub ports: Vec<PortBinding>,

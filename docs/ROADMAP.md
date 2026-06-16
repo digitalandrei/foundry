@@ -43,6 +43,28 @@ A user can:
 Scope/architecture changes agreed after the original spec — each must be
 reflected in the affected docs in the same commit set:
 
+- **2026-06-16** (0.35.0) — **GPU groups + multi-use slots** (operator:
+  lift the "one container, one whole GPU" limit from both ends). Two
+  independent, admin-configured capabilities. **GPU groups** — a named
+  set of whole GPUs on one server (`gpu_groups`, `gpu_group_members`);
+  deploying to a group runs one container across all members
+  (`nvidia-smi` lists N — DDP/FSDP/NCCL, or a model exceeding one card's
+  VRAM). Overlay membership: members stay individually deployable when no
+  group job runs; a group deploy needs every member zero-occupant and
+  locks them atomically; a GPU may overlap several groups. **Multi-use
+  slots** — `gpu_slots.max_occupants` (1 = single-use, 1–4) lets several
+  containers share a GPU (soft sharing, no VRAM isolation; MIG stays the
+  isolated path). Both are operator/admin config and audited. New
+  `deployment_slots` join table makes occupancy a single count (active
+  rows per slot) and the whole lifecycle fans out over it; the agent
+  builds one Docker `DeviceRequest` over all member UUIDs. `DeployTarget`
+  enum (slot or group) replaces the bare `slot_id`. Decisions locked with
+  the operator: overlay membership; admins-only manage groups + slot
+  use-mode; size 2…all; overlap allowed; heterogeneous members fine; no
+  forced per-tenant memory cap; `max_occupants` capped at 4; `gpu_slot_id`
+  kept denormalised; `DeployTarget` enum. Affects DATABASE, API,
+  ARCHITECTURE, UI-DESIGN. Plan `docs/plans/gpu-groups.md` retired.
+
 - **2026-06-15** (0.27.0) — **New-image notifications** (operator: "when a
   new container image is uploaded and we're in the app, pop a message and
   show it in the listing"). While authenticated, the SPA polls

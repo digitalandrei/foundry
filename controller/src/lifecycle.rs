@@ -190,6 +190,33 @@ pub async fn transition_slot(
     Ok(())
 }
 
+/// Move **every** member slot of a deployment to `to`, in one pass over
+/// `deployment_slots` (1 slot for an individual deploy, N for a group).
+/// The deployment lifecycle (deploy/stop/remove/fail/replace) routes all
+/// of its slot transitions through here so a group's GPUs lock and free
+/// atomically (docs/ARCHITECTURE.md § Multi-slot occupancy). For a
+/// multi-use slot the resulting `state` is best-effort display — live
+/// deployability is the count of active occupants, not this flag.
+pub async fn transition_member_slots(
+    tx: &mut MySqlConnection,
+    deployment_id: DeploymentId,
+    to: SlotState,
+) -> Result<(), AppError> {
+    let now = chrono::Utc::now().naive_utc();
+    sqlx::query!(
+        "UPDATE gpu_slots gs
+           JOIN deployment_slots ds ON ds.gpu_slot_id = gs.id
+         SET gs.state = ?, gs.updated_at = ?
+         WHERE ds.deployment_id = ?",
+        to.as_str(),
+        now,
+        deployment_id.0,
+    )
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

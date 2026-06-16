@@ -4,7 +4,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{DeploymentState, PortKind, RegistryTagId, ServerId, SlotId};
+use crate::{DeploymentState, GpuGroupId, PortKind, RegistryTagId, ServerId, SlotId};
 
 /// Docker memory-cap slider bounds (MB). Operator request (2026-06-16):
 /// min 32 GB, max 256 GB, or unlimited (the default — `None`). When a
@@ -43,9 +43,20 @@ pub struct VolumeSpec {
     pub read_only: bool,
 }
 
+/// Where a deployment lands: a single slot (individual deploy, honours
+/// the slot's `max_occupants`) or a GPU group (one container across all
+/// members, exclusive). Exactly one — the enum makes "both/neither"
+/// unrepresentable on the wire.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DeployTarget {
+    Slot { slot_id: SlotId },
+    Group { gpu_group_id: GpuGroupId },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateDeploymentRequest {
-    pub slot_id: SlotId,
+    pub target: DeployTarget,
     pub registry_tag_id: RegistryTagId,
     /// Container/deployment name; generated (`image-xxxx`) when empty.
     pub name: Option<String>,
@@ -100,8 +111,18 @@ pub struct DeploymentSummary {
     pub error_message: Option<String>,
     pub server_id: ServerId,
     pub server_name: String,
+    /// Denormalised primary (first/only) member slot — kept for the
+    /// single-slot detail UI and back-compat.
     pub slot_id: SlotId,
     pub slot_name: String,
+    /// Every member slot this deployment occupies (1 for an individual
+    /// deploy, N for a group). The grid folds each occupant across all
+    /// of these so every member cell shows occupied-by-group.
+    pub slot_ids: Vec<SlotId>,
+    /// Set for a group deploy (NULL = single-GPU); `group_name` is the
+    /// group's display name for the grid strip click-through.
+    pub gpu_group_id: Option<GpuGroupId>,
+    pub group_name: Option<String>,
     pub gpu_label: String,
     pub created_by_name: String,
     pub ports: Vec<DeploymentPort>,

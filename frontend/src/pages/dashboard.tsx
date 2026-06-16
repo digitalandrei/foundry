@@ -18,14 +18,14 @@ import { toast } from "sonner"
 
 import { ContainersPanel } from "@/components/containers-panel"
 import { DeployPickProvider } from "@/components/deploy-pick-context"
-import { DeployDialog, type DeployTarget } from "@/components/deploy-dialog"
+import { DeployDialog, type DeployGroupTarget, type DeployTarget } from "@/components/deploy-dialog"
 import { ServerGrid } from "@/components/server-grid"
 import { SlotPickerDialog } from "@/components/slot-picker-dialog"
 import { SlotLegend } from "@/components/slot-legend"
 import { useDeployments } from "@/hooks/use-deployments"
 import { useServers } from "@/hooks/use-servers"
 import { formatSize } from "@/lib/format"
-import type { DragTagData, DropSlotData } from "@/lib/types"
+import type { DragTagData, DropData, DropGroupData } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
@@ -72,22 +72,44 @@ export function DashboardPage() {
     useSensor(KeyboardSensor),
   )
 
-  // Resolve a (tag, slot) pair into a deploy/replace target — shared by
-  // the drag-drop path and the tap-to-deploy slot picker.
-  const openTarget = (tag: DragTagData, slot: DropSlotData) => {
-    if (slot.slotState === "FREE") {
-      setTarget({ tag, slot, replaces: null })
+  // Resolve a (tag, drop-target) pair into a deploy/replace target —
+  // shared by the drag-drop path and the tap-to-deploy slot picker.
+  const openTarget = (tag: DragTagData, drop: DropData) => {
+    if (drop.kind === "group") {
+      openGroupTarget(tag, drop)
       return
     }
-    // Occupied slot → replacement: confirm against what's running.
+    const slot = drop
+    if (slot.slotState === "FREE") {
+      setTarget({ tag, slot, group: null, replaces: null })
+      return
+    }
+    // Occupied single-use slot → replacement: confirm against what's
+    // running. (Multi-use slots only ever offer free capacity, never a
+    // RUNNING-state drop target, so they land in the FREE branch.)
     const current = (deployments.data ?? []).find(
-      (d) => d.slot_id === slot.slotId && d.state === "RUNNING",
+      (d) => (d.slot_ids.length ? d.slot_ids.includes(slot.slotId) : d.slot_id === slot.slotId) &&
+        d.state === "RUNNING",
     )
     if (!current) {
       toast.error("Slot is busy with an operation in progress — try again shortly.")
       return
     }
-    setTarget({ tag, slot, replaces: current })
+    setTarget({ tag, slot, group: null, replaces: current })
+  }
+
+  // A group deploy needs every member free (the strip only activates a
+  // deployable group), so it never replaces — straight to the dialog.
+  const openGroupTarget = (tag: DragTagData, group: DropGroupData) => {
+    const grp: DeployGroupTarget = {
+      id: group.groupId,
+      name: group.groupName,
+      serverId: group.serverId,
+      serverName: group.serverName,
+      memberCount: group.memberCount,
+      vramMb: group.vramMb,
+    }
+    setTarget({ tag, slot: null, group: grp, replaces: null })
   }
 
   const onDragStart = (e: DragStartEvent) => {
@@ -96,9 +118,9 @@ export function DashboardPage() {
   const onDragEnd = (e: DragEndEvent) => {
     setDragging(null)
     const tag = e.active.data.current as DragTagData | undefined
-    const slot = e.over?.data.current as DropSlotData | undefined
-    if (!tag || !slot) return
-    openTarget(tag, slot)
+    const drop = e.over?.data.current as DropData | undefined
+    if (!tag || !drop) return
+    openTarget(tag, drop)
   }
 
   return (
@@ -161,9 +183,9 @@ export function DashboardPage() {
     <SlotPickerDialog
       tag={picking}
       onClose={() => setPicking(null)}
-      onSelect={(tag, slot) => {
+      onSelect={(tag, drop) => {
         setPicking(null)
-        openTarget(tag, slot)
+        openTarget(tag, drop)
       }}
     />
     <DeployDialog target={target} onClose={() => setTarget(null)} />

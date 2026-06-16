@@ -124,6 +124,24 @@ panel title.
     Disconnects from the title line, and Reconnects after a session ends.
     Each box's actions sit on its title line, with Expand last. Lifecycle
     actions stay on the Deployments page.
+  - **GPU groups (overlay model).** Member GPUs keep their own cells and
+    stay individually deployable when no group job runs; each cell header
+    carries small **`grp <names>` membership chips** (a GPU may be in
+    several groups — overlap is shown, with a tooltip spelling the names).
+    Groups are a **separate deploy affordance**: a per-server **Groups
+    strip** below the GPU cells lists each group as `<name> · N GPUs ·
+    <combined VRAM> GB`. A deployable group (all members free, computed
+    server-side) is a drop + tap target; a blocked one shows its
+    `busy_reason` (which names the holder for an overlapping group); a group
+    with a live deploy clicks through to that deployment. Deployability is
+    never recomputed client-side — the `deployable`/`busy_reason` from the
+    API are authoritative.
+  - **Multi-use slots (soft sharing).** A slot's `max_occupants` (1 =
+    single-use; 2…4 = multi-use) is operator config. A multi-use chip shows
+    occupancy as **`k / N`**, stacks each co-tenant's name/run-state/usage
+    (compact `+N more` past two, each clickable through to its deployment),
+    and stays a drop/tap target while `k < N` — it never offers "replace".
+    Sharing has **no VRAM isolation** (MIG is the isolated path).
 - **Deploy interaction**: two equivalent paths into the same config dialog.
   **Drag** a container card over a valid `FREE` slot to show a dashed
   highlighted drop target (mockup: dashed green outline with a floating card
@@ -131,9 +149,11 @@ panel title.
   config dialog, and dropping on an occupied slot opens the replacement
   confirmation (see `ARCHITECTURE.md` § Replacement workflow). **Tap** (the
   touch/keyboard path, primary on mobile) opens a **slot picker** dialog
-  listing every server's GPUs and slots — free slots deploy, running slots
-  replace, ineligible slots show disabled with the reason. Both paths honor
-  the same eligibility from one source (`lib/slots.ts`). The dnd sensors
+  listing every server's GPUs, slots, **and groups** — free slots deploy,
+  multi-use slots add a co-tenant (showing `k / N`), running slots replace,
+  deployable groups deploy across their members, ineligible targets show
+  disabled with the reason. Both paths honor the same eligibility from one
+  source (`lib/slots.ts`); groups use the API's `deployable`/`busy_reason`. The dnd sensors
   keep a tap from registering as a drag and let a vertical swipe still
   scroll the container list. The config dialog carries a **Memory limit**
   slider (32–256 GB; slide fully right or tick *Unlimited* for no Docker
@@ -212,7 +232,15 @@ mockup — final token mapping fixed when the palette lands in Phase 8).
   pinned 0–100; capacity-bound graphs (memory, disk, GPU memory) are
   pinned 0–capacity; only truly unbounded series (network rates,
   power) auto-scale. Each GPU card groups four graphs: usage, memory,
-  temperature (0–100 °C), power.
+  temperature (0–100 °C), power. **Admin-only — GPU groups & slot
+  sharing** (hidden for non-admins): below the GPU cards, a section to
+  manage **groups** (list with member GPUs + combined VRAM +
+  deployable/busy state + delete, disabled with the reason while a deploy
+  is live; "New group" = name + a multi-select of this server's full-GPU,
+  MIG-disabled cards, 2…all, overlap allowed with current memberships shown
+  inline) and **per-slot use-mode** (single-use / multi-use with a
+  max-occupant 2…4, behind a loud no-VRAM-isolation caveat; lowering the
+  cap below current occupants stops new deploys but does not evict).
 - **Audit Logs**: filterable audit table (actor, action, subject, time).
 - **Settings**: GitLab instances (admin), enrollment tokens, theme, profile.
 - **Help**: `/help/gitlab-oauth` — GitLab OAuth app setup guide (steps,

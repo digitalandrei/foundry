@@ -5,7 +5,7 @@
 
 use foundry_shared::dto::{TaskPayload, TaskProgressReport, TaskResultReport};
 use foundry_shared::{
-    DeploymentId, DeploymentState, ServerId, SlotState, TaskId, TaskType, UserId,
+    DeploymentId, DeploymentState, ServerId, SlotId, SlotState, TaskId, TaskType, UserId,
 };
 use sqlx::{MySqlConnection, MySqlPool};
 use uuid::Uuid;
@@ -257,15 +257,13 @@ async fn advance_deployment(
     };
     let actor = Actor::agent();
     let d = sqlx::query!(
-        r#"SELECT gpu_slot_id AS "slot_id: Uuid",
-                  replaced_by_deployment_id AS "replaced_by: Uuid", state
+        r#"SELECT replaced_by_deployment_id AS "replaced_by: Uuid", state
            FROM deployments WHERE id = ? FOR UPDATE"#,
         deployment_id.0
     )
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(AppError::NotFound("deployment vanished"))?;
-    let slot_id: foundry_shared::SlotId = d.slot_id.into();
     let detail = report
         .error
         .as_ref()
@@ -291,11 +289,11 @@ async fn advance_deployment(
                 detail,
             )
             .await?;
-            lifecycle::transition_slot(tx, slot_id, SlotState::Running).await?;
+            lifecycle::transition_member_slots(tx, deployment_id, SlotState::Running).await?;
         }
         (TaskType::DeployContainer, false) => {
-            // Nothing got deployed — free the slot so it auto-heals.
-            fail_deployment(tx, deployment_id, slot_id, report, &actor, true).await?;
+            // Nothing got deployed — free the slot(s) so they auto-heal.
+            fail_deployment(tx, deployment_id, report, &actor, true).await?;
         }
         (TaskType::StopContainer, true) => {
             lifecycle::transition_deployment(
@@ -306,8 +304,8 @@ async fn advance_deployment(
                 detail,
             )
             .await?;
-            // Stopped container still holds the slot.
-            lifecycle::transition_slot(tx, slot_id, SlotState::Reserved).await?;
+            // Stopped container still holds its slot(s).
+            lifecycle::transition_member_slots(tx, deployment_id, SlotState::Reserved).await?;
             // Replacement chain: stopped because a successor waits →
             // remove the old container next (chain continues at REMOVE
             // success).
@@ -325,8 +323,8 @@ async fn advance_deployment(
             }
         }
         (TaskType::StopContainer, false) => {
-            // The container may still be running — keep the slot FAILED.
-            fail_deployment(tx, deployment_id, slot_id, report, &actor, false).await?;
+            // The container may still be running — keep the slot(s) FAILED.
+            fail_deployment(tx, deployment_id, report, &actor, false).await?;
         }
         (TaskType::RestartContainer, success) => {
             let to = if success {
@@ -335,9 +333,9 @@ async fn advance_deployment(
                 DeploymentState::Failed
             };
             lifecycle::transition_deployment(tx, deployment_id, to, &actor, detail).await?;
-            lifecycle::transition_slot(
+            lifecycle::transition_member_slots(
                 tx,
-                slot_id,
+                deployment_id,
                 if success {
                     SlotState::Running
                 } else {
@@ -359,7 +357,8 @@ async fn advance_deployment(
                         Some(serde_json::json!({ "replaced_by": new_id.to_string() })),
                     )
                     .await?;
-                    lifecycle::transition_slot(tx, slot_id, SlotState::Reserved).await?;
+                    lifecycle::transition_member_slots(tx, deployment_id, SlotState::Reserved)
+                        .await?;
                     enqueue_deploy(tx, new_id.into()).await?;
                 }
                 None => {
@@ -371,13 +370,13 @@ async fn advance_deployment(
                         detail,
                     )
                     .await?;
-                    lifecycle::transition_slot(tx, slot_id, SlotState::Free).await?;
+                    lifecycle::transition_member_slots(tx, deployment_id, SlotState::Free).await?;
                 }
             }
         }
         (TaskType::RemoveContainer, false) => {
-            // The container may still be present — keep the slot FAILED.
-            fail_deployment(tx, deployment_id, slot_id, report, &actor, false).await?;
+            // The container may still be present — keep the slot(s) FAILED.
+            fail_deployment(tx, deployment_id, report, &actor, false).await?;
             // Replacement chain: don't leave the successor wedged in
             // VALIDATING forever (review finding) — fail it too with a
             // clear, actionable error.
@@ -416,7 +415,6 @@ async fn advance_deployment(
 async fn fail_deployment(
     tx: &mut MySqlConnection,
     deployment_id: DeploymentId,
-    slot_id: foundry_shared::SlotId,
     report: &TaskResultReport,
     actor: &Actor,
     free_slot: bool,
@@ -438,9 +436,10 @@ async fn fail_deployment(
         Some(serde_json::json!({ "error": error })),
     )
     .await?;
-    lifecycle::transition_slot(
+    // Fan out over every member slot (1 individual, N group).
+    lifecycle::transition_member_slots(
         tx,
-        slot_id,
+        deployment_id,
         if free_slot {
             SlotState::Free
         } else {
@@ -462,6 +461,7 @@ pub async fn enqueue_deploy(
     let d = sqlx::query!(
         r#"SELECT d.server_id AS "server_id: Uuid", d.image_ref, d.container_name,
                   d.gpu_slot_id AS "slot_id: Uuid", gs.name AS slot_name,
+                  d.gpu_group_id AS "gpu_group_id: Uuid",
                   d.mem_limit_mb AS "mem_limit_mb?: u32",
                   COALESCE(gs.mig_uuid, g.gpu_uuid) AS "gpu_device_uuid!"
            FROM deployments d
@@ -473,6 +473,24 @@ pub async fn enqueue_deploy(
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(AppError::NotFound("deployment not found"))?;
+
+    // All member slots + their NVML device UUIDs, GPU-index ordered so
+    // `nvidia-smi` lists them predictably (1 for an individual deploy,
+    // N for a group → one DeviceRequest over the whole set).
+    let members = sqlx::query!(
+        r#"SELECT gs.id AS "slot_id: Uuid",
+                  COALESCE(gs.mig_uuid, g.gpu_uuid) AS "device_uuid!"
+           FROM deployment_slots ds
+           JOIN gpu_slots gs ON gs.id = ds.gpu_slot_id
+           JOIN gpus g ON g.id = gs.gpu_id
+           WHERE ds.deployment_id = ?
+           ORDER BY g.display_index, gs.id"#,
+        deployment_id.0
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    let gpu_device_uuids: Vec<String> = members.iter().map(|m| m.device_uuid.clone()).collect();
+    let slot_ids: Vec<SlotId> = members.iter().map(|m| m.slot_id.into()).collect();
 
     let ports = sqlx::query!(
         "SELECT container_port, host_port, protocol, kind, hostname FROM deployment_ports
@@ -513,7 +531,10 @@ pub async fn enqueue_deploy(
         image_ref: d.image_ref,
         container_name: d.container_name.unwrap_or_default(),
         gpu_device_uuid: d.gpu_device_uuid,
+        gpu_device_uuids,
         slot_id: d.slot_id.into(),
+        slot_ids,
+        gpu_group_id: d.gpu_group_id.map(Into::into),
         slot_name: d.slot_name,
         ports,
         env: Vec::new(), // injected at dispatch
@@ -549,7 +570,7 @@ pub async fn enqueue_lifecycle(
         task_type,
         TaskType::StopContainer | TaskType::RemoveContainer
     ) {
-        lifecycle::transition_slot(&mut tx, deployment.slot_id, SlotState::Stopping).await?;
+        lifecycle::transition_member_slots(&mut tx, deployment.id, SlotState::Stopping).await?;
     }
     let payload = TaskPayload::Container(foundry_shared::dto::ContainerTarget {
         deployment_id: deployment.id,
