@@ -73,7 +73,12 @@ panel title.
 - Header with state legend: **Free / Running / Reserved / Offline**.
 - One row per server: status dot, name (`gpu-server-01`), IP, OS, plus
   per-server health badges — **`docker: active`** (green) or **`Docker
-  stopped — deploys blocked`** (red), and the nginx/HTTP-S badge. A
+  stopped — deploys blocked`** (red), and the nginx/HTTP-S badge. On the
+  right, just left of the **`N GPUs`** count, the **host readout**
+  (`GET /api/metrics/latest`): `cpu <load> / <cores> · mem <used> / <total>
+  GB` — CPU is per-server (1-min load average over logical cores), distinct
+  from the per-GPU silicon stats; hidden while the server is OFFLINE
+  (the last sample would be stale). A
   server whose Docker daemon is down accepts no deploys (drop targets
   inert; the controller also rejects at create).
 - GPUs render as **cells that split the full row width** (0.10.0,
@@ -89,9 +94,10 @@ panel title.
     its **run-state inline** (`running` / `stopped` / `deploying` …), and
     on the right the slot state label (Free / Locked / Deploying /
     Running / Freeing / …) + capacity/MIG profile. A second line appears
-    only when there's live detail: `CPU 12%` when running (the container's
-    **memory is not repeated** — VRAM lives on the GPU header), or the
-    in-flight progress text while deploying (`pulling: 3/7 layers …`). The
+    only when there's live detail: the container's **own** stats when
+    running — `<cpu cores> / <allotted cores> · <used> / <limit> GB`
+    (RAM, not VRAM; VRAM lives on the GPU header) — or the in-flight
+    progress text while deploying (`pulling: 3/7 layers …`). The
     server row shows the hostname only when it differs from the name.
   - **Clicking an occupied chip opens the dedicated deployment page**
     (`/deployments/{id}`, `deployment-detail.tsx`, backed by

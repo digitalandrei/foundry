@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useDeployments, useLatestMetrics } from "@/hooks/use-deployments"
 import { useServers } from "@/hooks/use-servers"
+import { formatLoad, formatMemGb } from "@/lib/format"
 import { occupantsBySlot, slotDeployability } from "@/lib/slots"
 import { DEPLOYMENT_STATE_META, SERVER_STATUS_META, SLOT_STATE_META } from "@/lib/states"
 import type {
@@ -91,6 +92,9 @@ function ServerRow({
 }) {
   const meta = SERVER_STATUS_META[server.status]
   const offline = server.status === "OFFLINE"
+  // Per-server host telemetry (CPU load / cores · used / total RAM).
+  // Hidden when offline — the last sample would be stale.
+  const host = !offline ? sample?.host : undefined
 
   return (
     <div className={cn("rounded-lg border p-3", offline && "opacity-60")}>
@@ -111,8 +115,25 @@ function ServerRow({
         ) : null}
         <DockerStatus ok={server.docker_ok} />
         <NginxStatus status={server.nginx_status} ready={server.app_publishing_ready} />
-        <span className="ml-auto text-xs text-muted-foreground">
-          {server.gpus.length} GPU{server.gpus.length === 1 ? "" : "s"}
+        <span className="ml-auto flex items-center gap-x-3 text-xs text-muted-foreground tabular-nums">
+          {host ? (
+            <span
+              className="flex items-center gap-x-2"
+              title="Host 1-minute load average / logical cores · used / total RAM"
+            >
+              <span>
+                <span className="text-[10px] uppercase opacity-70">cpu </span>
+                {formatLoad(host.load_avg_1m, host.cpu_cores)}
+              </span>
+              <span>
+                <span className="text-[10px] uppercase opacity-70">mem </span>
+                {formatMemGb(host.mem_used_mb, host.mem_total_mb)}
+              </span>
+            </span>
+          ) : null}
+          <span className="shrink-0">
+            {server.gpus.length} GPU{server.gpus.length === 1 ? "" : "s"}
+          </span>
         </span>
       </div>
 
@@ -291,11 +312,17 @@ function SlotChip({
           {external ? "External" : meta.label}
         </span>
       </span>
-      {/* Second line only when there's live detail: deploy progress or CPU,
-          or the external image. Run-state moved inline above. */}
+      {/* Second line only when there's live detail: deploy progress, or the
+          container's own CPU/mem usage, or the external image. Run-state
+          moved inline above. */}
       {shown && (shown.status_detail || usage) ? (
-        <span className="truncate pl-3 font-mono text-[10px] text-muted-foreground tabular-nums">
-          {shown.status_detail ? shown.status_detail : `CPU ${usage!.cpu_pct.toFixed(0)}%`}
+        <span
+          className="truncate pl-3 font-mono text-[10px] text-muted-foreground tabular-nums"
+          title={usage ? "Container CPU usage (cores) / allotted cores · used / limit RAM" : undefined}
+        >
+          {shown.status_detail
+            ? shown.status_detail
+            : `${formatLoad(usage!.cpu_pct / 100, usage!.cpu_cores)} · ${formatMemGb(usage!.mem_used_mb, usage!.mem_limit_mb)}`}
         </span>
       ) : external ? (
         <span className="truncate pl-3 font-mono text-[10px] text-muted-foreground" title={external.image}>
