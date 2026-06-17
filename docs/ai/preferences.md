@@ -91,4 +91,7 @@ without a docs change. It informs; it does not block.
   gates on Cargo.toml ↔ frontend/package.json version parity, rebuilds
   *both* backend and frontend on every deploy, and replaces the served
   SPA wholesale so no stale hashed bundles accumulate. A version bump
-  always reships the GUI.
+  always reships the GUI. **Run it as the normal user, never
+  `sudo ./scripts/deploy.sh`** — the script `sudo`s its own privileged
+  steps; running the whole thing as root puts `cargo` off `PATH` and it
+  dies with `cargo: command not found` (see DEPLOYMENT.md § Deploy Flow).

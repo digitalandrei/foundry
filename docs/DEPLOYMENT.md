@@ -81,19 +81,25 @@ and modest to stay within proxy limits.
 
 ## Deploy Flow (live)
 
-**One command — `scripts/deploy.sh`** (run from the repo root, needs
-sudo). It is the canonical path: it gates on Cargo.toml ↔
-frontend/package.json version parity, **rebuilds both the
-controller/agent and the frontend** (a version bump never ships a stale
-GUI), **replaces the SPA tree wholesale** (no leftover hashed bundles
-accumulating under `/srv/foundry/frontend/assets`), installs the
-controller + agent binaries, restarts the service, and verifies
-`/health` reports the new version.
+**One command — `scripts/deploy.sh`** (run from the repo root). It is the
+canonical path: it gates on Cargo.toml ↔ frontend/package.json version
+parity, **rebuilds both the controller/agent and the frontend** (a version
+bump never ships a stale GUI), **replaces the SPA tree wholesale** (no
+leftover hashed bundles accumulating under `/srv/foundry/frontend/assets`),
+installs the controller + agent binaries, restarts the service, and
+verifies `/health` reports the new version. Schema migrations apply on the
+controller's boot (`sqlx::migrate!`) when the restarted service comes up.
+
+> **Run it as your normal user — NOT `sudo ./scripts/deploy.sh`.** The
+> script `sudo`s only the privileged steps (SPA copy, binary install,
+> `systemctl restart`) itself; the `cargo`/`npm` builds must run as you.
+> Under `sudo` the whole script runs as root, where `cargo` is not on
+> `PATH`, and it dies at the build step with `cargo: command not found`.
 
 ```bash
 cd /opt/foundry
 # bump the workspace + frontend version together first (operator rule)
-./scripts/deploy.sh
+./scripts/deploy.sh          # as your user — it sudos the privileged steps
 curl -fsS https://foundry.cloudcraft.ro/health   # end-to-end through Cloudflare
 ```
 
