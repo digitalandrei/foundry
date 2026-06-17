@@ -26,9 +26,13 @@ Controls contract: `docs/SECURITY.md`; topology: `docs/DEPLOYMENT.md`.
 
 ## Credential Model
 
-- **Enrollment token**: single-use, expiring, admin-generated, hash-stored
-  (`enrollment_tokens`). Only valid call: `POST /agent/enroll`. Burned on
-  use (`used_at`, `used_by_server_id`).
+- **Enrollment token (SERVER)**: single-use, expiring, admin-generated,
+  hash-stored (`enrollment_tokens.kind='SERVER'`). Only valid call:
+  `POST /agent/enroll`. Burned on use (`used_at`, `used_by_server_id`).
+- **Fleet key (FLEET)**: reusable, time-limited, admin-minted
+  (`kind='FLEET'`, NULL `server_id`, `max_uses`/`uses`). Call:
+  `POST /agent/enroll/fleet` — auto-creates/re-enrolls the server by its
+  unique hostname. Bounded by TTL + use budget, not burned per use (0.42.0).
 - **Agent identity**: agent id + high-entropy secret issued at enrollment;
   stored hashed in `server_agents.token_hash`; presented on every request
   (Authorization header). Constant-time comparison on verify.

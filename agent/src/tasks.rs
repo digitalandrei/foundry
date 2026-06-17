@@ -277,6 +277,43 @@ async fn find_managed(
     }))
 }
 
+/// Find any container by (short) docker id — the adopted-container path,
+/// which deliberately ignores the `foundry.managed` label gate (the
+/// container was created outside Foundry; the controller authorised this).
+async fn find_by_id(docker: &Docker, short_id: &str) -> Result<Option<(String, String)>, String> {
+    let list = docker
+        .list_containers(Some(bollard::query_parameters::ListContainersOptions {
+            all: true,
+            ..Default::default()
+        }))
+        .await
+        .map_err(|e| format!("container listing failed: {e}"))?;
+    Ok(list.into_iter().find_map(|c| {
+        let id = c.id.clone().unwrap_or_default();
+        if !id.starts_with(short_id) {
+            return None;
+        }
+        Some((
+            id,
+            c.state
+                .map(|s| format!("{s:?}").to_lowercase())
+                .unwrap_or_default(),
+        ))
+    }))
+}
+
+/// Resolve a lifecycle target's container: by docker id for an adopted
+/// container, else by the managed label for a Foundry deployment.
+async fn resolve_target(
+    docker: &Docker,
+    t: &ContainerTarget,
+) -> Result<Option<(String, String)>, String> {
+    match &t.container_id {
+        Some(cid) => find_by_id(docker, cid).await,
+        None => find_managed(docker, &t.deployment_id.to_string()).await,
+    }
+}
+
 async fn deploy(
     p: DeployPayload,
     progress: &mut ProgressReporter<'_>,
@@ -567,7 +604,7 @@ async fn reclaim_image(docker: &Docker, image: &str) {
 
 async fn stop(t: ContainerTarget) -> Result<(), String> {
     let docker = docker()?;
-    let Some((id, state)) = find_managed(&docker, &t.deployment_id.to_string()).await? else {
+    let Some((id, state)) = resolve_target(&docker, &t).await? else {
         return Ok(()); // already gone — idempotent success
     };
     // Capture the image while the container still exists so we can reclaim
@@ -607,7 +644,7 @@ async fn stop(t: ContainerTarget) -> Result<(), String> {
 
 async fn restart(t: ContainerTarget) -> Result<(), String> {
     let docker = docker()?;
-    let Some((id, state)) = find_managed(&docker, &t.deployment_id.to_string()).await? else {
+    let Some((id, state)) = resolve_target(&docker, &t).await? else {
         return Err("managed container not found on host".into());
     };
     if state == "running" {
@@ -637,7 +674,7 @@ async fn remove(t: ContainerTarget) -> Result<(), String> {
     // Vhost first (drain traffic before the upstream disappears); also
     // runs on re-delivery when the container is already gone.
     crate::vhost::remove(&t.deployment_id.to_string()).await?;
-    let Some((id, _)) = find_managed(&docker, &t.deployment_id.to_string()).await? else {
+    let Some((id, _)) = resolve_target(&docker, &t).await? else {
         return Ok(()); // already gone — idempotent success
     };
     let image = container_image(&docker, &id).await;

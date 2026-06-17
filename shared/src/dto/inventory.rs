@@ -75,6 +75,23 @@ pub struct ContainerInfo {
     /// non-Foundry containers onto the slot whose GPU they occupy.
     #[serde(default)]
     pub gpu_uuids: Vec<String>,
+    /// Volume mounts resolved from container inspect. Visibility only —
+    /// surfaced so operators can see what a pre-running container has
+    /// bind-mounted before adopting it. `default` for pre-mount agents.
+    #[serde(default)]
+    pub mounts: Vec<ContainerMount>,
+}
+
+/// A resolved container mount (bind / volume / tmpfs).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContainerMount {
+    /// Host path or named-volume source (empty for tmpfs/anonymous).
+    pub source: String,
+    /// Mount point inside the container.
+    pub destination: String,
+    pub read_only: bool,
+    /// `bind` / `volume` / `tmpfs` (Docker mount type, lowercased).
+    pub mount_type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

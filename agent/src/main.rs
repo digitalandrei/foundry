@@ -25,6 +25,7 @@ use foundry_shared::dto::HeartbeatRequest;
 const USAGE: &str = "\
 usage: foundry-agent                                   run (enrolled servers)
        foundry-agent --register --url <controller> --token <token> [--force]
+       foundry-agent --register --url <controller> --fleet-token <key> [--force]
        foundry-agent --setup-apps                      (re)install binary + nginx app publishing
        foundry-agent --version";
 
@@ -44,13 +45,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .and_then(|i| args.get(i + 1))
                 .cloned()
         };
-        let (Some(url), Some(token)) = (get("--url"), get("--token")) else {
+        let Some(url) = get("--url") else {
             eprintln!("{USAGE}");
-            return Err("--register requires --url and --token".into());
+            return Err("--register requires --url".into());
+        };
+        // Exactly one of --token (server-bound, single-use) or
+        // --fleet-token (reusable fleet key; auto-creates the server).
+        let (token, fleet) = match (get("--token"), get("--fleet-token")) {
+            (Some(t), None) => (t, false),
+            (None, Some(t)) => (t, true),
+            _ => {
+                eprintln!("{USAGE}");
+                return Err("--register requires exactly one of --token or --fleet-token".into());
+            }
         };
         return register::run(register::RegisterArgs {
             url,
             token,
+            fleet,
             force: args.iter().any(|a| a == "--force"),
         })
         .await;
@@ -114,6 +126,11 @@ async fn heartbeat_loop(client: &reqwest::Client, config: &config::AgentConfig) 
     let mut logs_interval = tokio::time::interval(Duration::from_secs(10));
     logs_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut healthy: Option<bool> = None;
+    // Adopted (externally-created) containers the controller tracks, learned
+    // on each heartbeat — short docker id → deployment id, so the log
+    // collector can ship their logs (they carry no foundry.managed label).
+    let mut adopted: std::collections::HashMap<String, foundry_shared::DeploymentId> =
+        std::collections::HashMap::new();
 
     loop {
         tokio::select! {
@@ -133,7 +150,7 @@ async fn heartbeat_loop(client: &reqwest::Client, config: &config::AgentConfig) 
                 }
             }
             _ = logs_interval.tick() => {
-                let chunks = log_collector.collect().await;
+                let chunks = log_collector.collect(&adopted).await;
                 if !chunks.is_empty() {
                     let result = client
                         .post(&logs_url)
@@ -185,6 +202,16 @@ async fn heartbeat_loop(client: &reqwest::Client, config: &config::AgentConfig) 
                         if healthy != Some(true) {
                             tracing::info!("heartbeat ok — controller reachable");
                             healthy = Some(true);
+                        }
+                        // Refresh the adopted-container set for log capture.
+                        if let Ok(hb) =
+                            resp.json::<foundry_shared::dto::HeartbeatResponse>().await
+                        {
+                            adopted = hb
+                                .adopted_containers
+                                .into_iter()
+                                .map(|a| (a.container_id, a.deployment_id))
+                                .collect();
                         }
                     }
                     Ok(resp) if resp.status() == reqwest::StatusCode::UNAUTHORIZED => {

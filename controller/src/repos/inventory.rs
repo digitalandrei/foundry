@@ -96,8 +96,8 @@ pub async fn apply_snapshot(
         sqlx::query!(
             r#"INSERT INTO server_containers
                (id, server_id, container_id, name, image, state, status, managed, ports,
-                gpu_uuids, reported_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+                gpu_uuids, mounts, reported_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
             Uuid::now_v7(),
             server_id.0,
             c.container_id,
@@ -108,6 +108,7 @@ pub async fn apply_snapshot(
             c.managed,
             serde_json::to_string(&c.ports).map_err(AppError::internal)?,
             serde_json::to_string(&c.gpu_uuids).map_err(AppError::internal)?,
+            serde_json::to_string(&c.mounts).map_err(AppError::internal)?,
             now,
         )
         .execute(&mut *tx)
@@ -161,10 +162,13 @@ pub async fn apply_snapshot(
     // confirms nothing is on the GPU, so it auto-heals — 0.11.0). 90s
     // grace avoids racing a snapshot collected before the start was
     // reported.
+    // All running containers, managed or not — an adopted deployment wraps
+    // an unmanaged container, so the liveness check below must see those too
+    // (else adopted RUNNING deployments would be falsely marked FAILED).
     let running_short_ids: std::collections::HashSet<String> = snap
         .containers
         .iter()
-        .filter(|c| c.managed && c.state == "running")
+        .filter(|c| c.state == "running")
         .map(|c| c.container_id.chars().take(12).collect())
         .collect();
     let grace = (Utc::now() - chrono::Duration::seconds(90)).naive_utc();
@@ -418,11 +422,20 @@ async fn external_occupants(
     pool: &MySqlPool,
     server_id: ServerId,
 ) -> Result<std::collections::HashMap<String, foundry_shared::dto::ExternalOccupant>, AppError> {
+    // Adopted containers (those wrapped by an active deployment) are no
+    // longer "foreign" — they show as their managed deployment on the slot,
+    // so exclude them here to avoid a double occupant on the same device.
     let rows = sqlx::query!(
-        r#"SELECT name, image, gpu_uuids, (state = 'running') AS "running: bool"
-           FROM server_containers
-           WHERE server_id = ? AND managed = 0
-           ORDER BY (state = 'running') DESC, name"#,
+        r#"SELECT sc.name, sc.image, sc.gpu_uuids, (sc.state = 'running') AS "running: bool"
+           FROM server_containers sc
+           WHERE sc.server_id = ? AND sc.managed = 0
+             AND NOT EXISTS (
+                 SELECT 1 FROM deployments d
+                 WHERE d.server_id = sc.server_id
+                   AND d.adopted_container_id = sc.container_id
+                   AND d.state NOT IN ('REMOVED','REPLACED','FAILED','STOPPED')
+             )
+           ORDER BY (sc.state = 'running') DESC, sc.name"#,
         server_id.0
     )
     .fetch_all(pool)
@@ -452,7 +465,7 @@ pub async fn containers_for_server(
 ) -> Result<Vec<ServerContainer>, AppError> {
     let rows = sqlx::query!(
         r#"SELECT container_id, name, image, state, status, managed AS "managed: bool",
-                  ports, reported_at
+                  ports, mounts, reported_at
            FROM server_containers WHERE server_id = ?
            ORDER BY managed DESC, name"#,
         server_id.0
@@ -472,6 +485,11 @@ pub async fn containers_for_server(
                 .ports
                 .as_deref()
                 .and_then(|p| serde_json::from_slice(p).ok())
+                .unwrap_or_default(),
+            mounts: r
+                .mounts
+                .as_deref()
+                .and_then(|m| serde_json::from_str(m).ok())
                 .unwrap_or_default(),
             reported_at: r.reported_at.and_utc(),
         })

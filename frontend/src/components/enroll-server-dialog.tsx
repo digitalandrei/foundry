@@ -16,17 +16,51 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
-/** One-time registration command block (also used by the regenerate
- * flow). The token is only ever shown here. */
-export function RegistrationCommand({ result }: { result: EnrollmentTokenResponse }) {
+/** A copyable command line with a one-shot copy button. Shared by the
+ * server-token and fleet-key flows. */
+export function CopyableCommand({ command }: { command: string }) {
   const [copied, setCopied] = useState(false)
 
   const copy = async () => {
-    await navigator.clipboard.writeText(result.command)
+    await navigator.clipboard.writeText(command)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
 
+  return (
+    <div className="relative">
+      <pre className="overflow-x-auto rounded-md bg-muted p-3 pr-10 font-mono text-xs whitespace-pre-wrap break-all">
+        {command}
+      </pre>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="absolute top-1.5 right-1.5 size-7"
+        onClick={copy}
+        aria-label="Copy command"
+      >
+        {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+      </Button>
+    </div>
+  )
+}
+
+/** Hint line: how to fetch the agent binary onto a host before enrolling. */
+function BinaryHint() {
+  return (
+    <p className="text-xs text-muted-foreground">
+      Get the binary first:{" "}
+      <code className="font-mono">
+        curl -fsSLo /usr/local/bin/foundry-agent {window.location.origin}/downloads/foundry-agent
+        &amp;&amp; chmod +x /usr/local/bin/foundry-agent
+      </code>
+    </p>
+  )
+}
+
+/** One-time registration command block (also used by the regenerate
+ * flow). The token is only ever shown here. */
+export function RegistrationCommand({ result }: { result: EnrollmentTokenResponse }) {
   return (
     <div className="space-y-2">
       <p className="text-sm">
@@ -34,27 +68,8 @@ export function RegistrationCommand({ result }: { result: EnrollmentTokenRespons
         is single-use and shown only once; it expires{" "}
         {new Date(result.expires_at).toLocaleString()}.
       </p>
-      <div className="relative">
-        <pre className="overflow-x-auto rounded-md bg-muted p-3 pr-10 font-mono text-xs whitespace-pre-wrap break-all">
-          {result.command}
-        </pre>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="absolute top-1.5 right-1.5 size-7"
-          onClick={copy}
-          aria-label="Copy command"
-        >
-          {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
-        </Button>
-      </div>
-      <p className="text-xs text-muted-foreground">
-        Get the binary first:{" "}
-        <code className="font-mono">
-          curl -fsSLo /usr/local/bin/foundry-agent {window.location.origin}/downloads/foundry-agent
-          &amp;&amp; chmod +x /usr/local/bin/foundry-agent
-        </code>
-      </p>
+      <CopyableCommand command={result.command} />
+      <BinaryHint />
     </div>
   )
 }

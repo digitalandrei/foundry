@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ServerId;
+use crate::{DeploymentId, ServerId};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentEnrollRequest {
@@ -27,4 +27,21 @@ pub struct AgentEnrollResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeartbeatRequest {
     pub agent_version: String,
+}
+
+/// Heartbeat reply. Carries the set of adopted (externally-created)
+/// containers the controller currently tracks for this server, so the
+/// agent's log collector can ship their logs too (they have no
+/// `foundry.managed` label to key on).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HeartbeatResponse {
+    #[serde(default)]
+    pub adopted_containers: Vec<AdoptedContainerRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdoptedContainerRef {
+    /// Short (12-char) docker id, as reported in inventory.
+    pub container_id: String,
+    pub deployment_id: DeploymentId,
 }

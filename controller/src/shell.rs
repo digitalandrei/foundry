@@ -46,6 +46,9 @@ pub enum Frame {
 pub struct PendingShell {
     server_id: ServerId,
     deployment_id: DeploymentId,
+    /// Adopted (externally-created) container id — the agent execs into it
+    /// directly. `None` for a managed deployment (resolved by label).
+    container_id: Option<String>,
     /// Set once the agent has been handed this session (no re-dispatch).
     dispatched: bool,
     created_at: Instant,
@@ -102,7 +105,10 @@ pub async fn browser(
     .await?;
 
     let session_id = Uuid::now_v7();
-    Ok(ws.on_upgrade(move |socket| browser_session(state, socket, session_id, d.server_id, id)))
+    let container_id = d.adopted_container_id;
+    Ok(ws.on_upgrade(move |socket| {
+        browser_session(state, socket, session_id, d.server_id, id, container_id)
+    }))
 }
 
 async fn browser_session(
@@ -111,6 +117,7 @@ async fn browser_session(
     session_id: Uuid,
     server_id: ServerId,
     deployment_id: DeploymentId,
+    container_id: Option<String>,
 ) {
     let (to_agent_tx, to_agent_rx) = mpsc::channel::<Frame>(CHANNEL_CAP);
     let (to_browser_tx, mut to_browser_rx) = mpsc::channel::<Frame>(CHANNEL_CAP);
@@ -120,6 +127,7 @@ async fn browser_session(
         PendingShell {
             server_id,
             deployment_id,
+            container_id,
             dispatched: false,
             created_at: Instant::now(),
             to_agent_rx: Some(to_agent_rx),
@@ -212,6 +220,7 @@ fn take_pending(registry: &ShellRegistry, server_id: ServerId) -> Option<ShellRe
     Some(ShellRequest {
         session_id: *id,
         deployment_id: pending.deployment_id,
+        container_id: pending.container_id.clone(),
     })
 }
 

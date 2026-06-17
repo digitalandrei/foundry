@@ -73,9 +73,15 @@ async fn poll_next(
 
 async fn handle(config: &AgentConfig, req: ShellRequest) -> Result<(), String> {
     let docker = Docker::connect_with_local_defaults().map_err(|e| format!("docker: {e}"))?;
-    let container = find_running_managed(&docker, &req.deployment_id.to_string())
-        .await
-        .ok_or_else(|| "no running managed container for this deployment".to_string())?;
+    let container = match &req.container_id {
+        // Adopted (externally-created) container — exec by docker id.
+        Some(cid) => find_running_by_id(&docker, cid)
+            .await
+            .ok_or_else(|| "adopted container is not running".to_string())?,
+        None => find_running_managed(&docker, &req.deployment_id.to_string())
+            .await
+            .ok_or_else(|| "no running managed container for this deployment".to_string())?,
+    };
 
     // Create + start the exec with a PTY attached to all three streams.
     let exec = docker
@@ -199,6 +205,18 @@ fn ws_url(controller_url: &str, session_id: uuid::Uuid) -> String {
         base.to_string()
     };
     format!("{base}/agent/shell/attach/{session_id}")
+}
+
+/// A running container by (short) docker id — the adopted-container path.
+async fn find_running_by_id(docker: &Docker, short_id: &str) -> Option<String> {
+    let list = docker
+        .list_containers(Some(ListContainersOptions::default())) // running only
+        .await
+        .ok()?;
+    list.into_iter().find_map(|c| {
+        let id = c.id?;
+        id.starts_with(short_id).then_some(id)
+    })
 }
 
 /// The running managed container for a deployment (by label, never name).

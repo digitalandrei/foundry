@@ -70,6 +70,8 @@ pub struct ServerContainer {
     pub managed: bool,
     #[serde(default)]
     pub ports: Vec<super::PortMapping>,
+    #[serde(default)]
+    pub mounts: Vec<super::ContainerMount>,
     pub reported_at: DateTime<Utc>,
 }
 

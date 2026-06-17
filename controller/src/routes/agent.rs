@@ -5,7 +5,9 @@
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
-use foundry_shared::dto::{AgentEnrollRequest, AgentEnrollResponse, HeartbeatRequest};
+use foundry_shared::dto::{
+    AgentEnrollRequest, AgentEnrollResponse, HeartbeatRequest, HeartbeatResponse,
+};
 use foundry_shared::ActorType;
 
 use crate::audit::{self, AuditEntry};
@@ -54,22 +56,71 @@ pub async fn enroll(
     .await?;
     tracing::info!(server = %enrolled.server_name, %hostname, "agent enrolled");
 
-    Ok(Json(AgentEnrollResponse {
-        agent_id: enrolled.agent_id.to_string(),
-        agent_secret: enrolled.agent_secret,
-        server_id: enrolled.server_id,
-        server_name: enrolled.server_name,
+    Ok(Json(enroll_response(enrolled)))
+}
+
+/// Fleet auto-enrollment: a reusable, time-limited key (not bound to a
+/// pre-created server) enrols the calling host under its hostname
+/// (docs/ARCHITECTURE.md § Fleet Enrollment).
+pub async fn enroll_fleet(
+    State(state): State<AppState>,
+    Json(req): Json<AgentEnrollRequest>,
+) -> Result<Json<AgentEnrollResponse>, AppError> {
+    let hostname = req.hostname.trim();
+    if hostname.is_empty() || hostname.len() > 255 {
+        return Err(AppError::BadRequest("hostname is required".into()));
+    }
+
+    let enrolled = servers::enroll_fleet(
+        &state.pool,
+        req.token.trim(),
+        hostname,
+        req.agent_version.trim(),
+        req.os_version.as_deref(),
+    )
+    .await?;
+
+    audit::record(
+        &state.pool,
+        AuditEntry {
+            actor_type: ActorType::Agent,
+            actor_id: None,
+            action: "AGENT_FLEET_ENROLLED",
+            subject_type: Some("server"),
+            subject_id: Some(enrolled.server_id.0),
+            detail: Some(serde_json::json!({
+                "server": enrolled.server_name,
+                "hostname": hostname,
+                "agent_version": req.agent_version,
+            })),
+            ip_address: None,
+        },
+    )
+    .await?;
+    tracing::info!(server = %enrolled.server_name, %hostname, "agent fleet-enrolled");
+
+    Ok(Json(enroll_response(enrolled)))
+}
+
+fn enroll_response(e: servers::EnrolledAgent) -> AgentEnrollResponse {
+    AgentEnrollResponse {
+        agent_id: e.agent_id.to_string(),
+        agent_secret: e.agent_secret,
+        server_id: e.server_id,
+        server_name: e.server_name,
         poll_interval_secs: POLL_INTERVAL_SECS,
-    }))
+    }
 }
 
 pub async fn heartbeat(
     State(state): State<AppState>,
     AuthenticatedAgent(ctx): AuthenticatedAgent,
     Json(req): Json<HeartbeatRequest>,
-) -> Result<StatusCode, AppError> {
+) -> Result<Json<HeartbeatResponse>, AppError> {
     servers::record_heartbeat(&state.pool, ctx.server_id, req.agent_version.trim()).await?;
-    Ok(StatusCode::NO_CONTENT)
+    let adopted_containers =
+        crate::repos::deployments::adopted_for_server(&state.pool, ctx.server_id).await?;
+    Ok(Json(HeartbeatResponse { adopted_containers }))
 }
 
 /// Long-poll for the next task (docs/API.md § Agent API): hold up to
@@ -139,17 +190,20 @@ async fn enrich_deploy_payload(
     let d = crate::repos::deployments::get(&state.pool, p.deployment_id).await?;
     p.env = crate::repos::deployments::env_for_payload(&state.pool, &state.secrets, d.id).await?;
 
+    // A DEPLOY task always targets a registry image, so the deployment has
+    // a GitLab instance (adopted deployments never produce a DEPLOY task).
+    let Some(instance_id) = d.instance_id else {
+        tracing::warn!(deployment = %d.id, "deploy enrich for a deployment without a GitLab instance — anonymous pull");
+        return Ok(());
+    };
     let accounts =
         crate::repos::users::account_tokens(&state.pool, &state.secrets, d.created_by).await?;
-    let Some(account) = accounts
-        .into_iter()
-        .find(|a| a.instance_id == d.instance_id)
-    else {
+    let Some(account) = accounts.into_iter().find(|a| a.instance_id == instance_id) else {
         tracing::warn!(deployment = %d.id, "deployer's GitLab account vanished after create (disabled/revoked) — anonymous pull");
         return Ok(());
     };
     let instance =
-        crate::repos::instances::fetch_config(&state.pool, &state.secrets, d.instance_id).await?;
+        crate::repos::instances::fetch_config(&state.pool, &state.secrets, instance_id).await?;
     let access = crate::gitlab::tokens::ensure_fresh(state, &instance, &account).await?;
     // image_ref = host/path:tag → repo path for the token scope.
     let repo_path = p

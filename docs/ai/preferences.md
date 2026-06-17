@@ -58,7 +58,11 @@ sidebar (frontend).
 
 - Pull-only agents; controller never connects to GPU servers; no SSH; no
   remote Docker socket.
-- Only containers labeled `foundry.managed=true` are touched.
+- Foundry only acts on containers it created (`foundry.managed=true`) **or**
+  ones an operator has explicitly **adopted** (a deployment row with
+  `adopted_container_id`, resolved by docker id). It never mutates a foreign
+  container blind; adopting + destructive ops on adopted containers are
+  audited and double-confirmed in the UI.
 - Slots are UUID-addressed; never GPU indexes.
 - GitLab is the source of truth for permissions; multiple instances
   supported.

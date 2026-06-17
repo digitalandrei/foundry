@@ -4,7 +4,10 @@
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::Json;
-use foundry_shared::dto::{CreateServerRequest, EnrollmentTokenResponse, ServerSummary};
+use foundry_shared::dto::{
+    CreateFleetTokenRequest, CreateServerRequest, EnrollmentTokenResponse, FleetTokenResponse,
+    ServerSummary,
+};
 use foundry_shared::{ActorType, ServerId};
 
 use crate::audit::{self, AuditEntry};
@@ -71,6 +74,90 @@ pub async fn detail(
 
 fn registration_command(public_url: &str, token: &str) -> String {
     format!("sudo foundry-agent --register --url {public_url} --token {token}")
+}
+
+fn fleet_registration_command(public_url: &str, token: &str) -> String {
+    format!("sudo foundry-agent --register --url {public_url} --fleet-token {token}")
+}
+
+/// Adopt an externally-created container into a managed deployment (admin
+/// only) — gives it Foundry's control surface (logs, console, stop, delete,
+/// replace). The container must occupy a GPU slot (docs/API.md § Adopt).
+pub async fn adopt_container(
+    State(state): State<AppState>,
+    AdminUser(admin): AdminUser,
+    headers: HeaderMap,
+    Path((server_id, container_id)): Path<(ServerId, String)>,
+) -> Result<Json<foundry_shared::dto::DeploymentSummary>, AppError> {
+    let container_id = container_id.trim();
+    let dep_id =
+        crate::repos::deployments::adopt(&state.pool, server_id, container_id, admin.id).await?;
+
+    audit::record(
+        &state.pool,
+        AuditEntry {
+            actor_type: ActorType::User,
+            actor_id: Some(admin.id),
+            action: "CONTAINER_ADOPTED",
+            subject_type: Some("deployment"),
+            subject_id: Some(dep_id.0),
+            detail: Some(serde_json::json!({
+                "server_id": server_id,
+                "container_id": container_id,
+            })),
+            ip_address: client_ip(&headers).as_deref(),
+        },
+    )
+    .await?;
+
+    let detail = crate::repos::deployments::detail(&state.pool, dep_id).await?;
+    Ok(Json(detail.summary))
+}
+
+/// Mint a reusable, time-limited fleet enrollment key (admin only). Agents
+/// presenting it auto-enroll under their own hostname (docs/API.md § Fleet
+/// Enrollment).
+pub async fn create_fleet_token(
+    State(state): State<AppState>,
+    AdminUser(admin): AdminUser,
+    headers: HeaderMap,
+    Json(req): Json<CreateFleetTokenRequest>,
+) -> Result<Json<FleetTokenResponse>, AppError> {
+    let ttl_hours = req.ttl_hours.clamp(1, 24 * 30);
+    if let Some(max) = req.max_uses {
+        if max == 0 {
+            return Err(AppError::BadRequest(
+                "max_uses must be at least 1 (omit for unlimited)".into(),
+            ));
+        }
+    }
+
+    let (token, expires_at) =
+        servers::issue_fleet_token(&state.pool, ttl_hours, req.max_uses, admin.id).await?;
+
+    audit::record(
+        &state.pool,
+        AuditEntry {
+            actor_type: ActorType::User,
+            actor_id: Some(admin.id),
+            action: "FLEET_TOKEN_CREATED",
+            subject_type: None,
+            subject_id: None,
+            detail: Some(serde_json::json!({
+                "ttl_hours": ttl_hours,
+                "max_uses": req.max_uses,
+            })),
+            ip_address: client_ip(&headers).as_deref(),
+        },
+    )
+    .await?;
+
+    Ok(Json(FleetTokenResponse {
+        command: fleet_registration_command(&state.public_url, &token),
+        token,
+        expires_at,
+        max_uses: req.max_uses,
+    }))
 }
 
 pub async fn create(

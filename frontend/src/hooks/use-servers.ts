@@ -4,6 +4,7 @@ import { toast } from "sonner"
 import { api, ApiError, queryKeys } from "@/lib/api"
 import type {
   EnrollmentTokenResponse,
+  FleetTokenResponse,
   MetricsPoint,
   ServerDetail,
   ServerSummary,
@@ -48,6 +49,21 @@ export function useCreateServer() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.servers }),
     onError: (err) => {
       toast.error(err instanceof ApiError ? err.message : "Failed to create server")
+    },
+  })
+}
+
+/** Mint a reusable fleet enrollment key (admin only). Not server-scoped,
+ * so it does not invalidate the server list. */
+export function useCreateFleetToken() {
+  return useMutation({
+    mutationFn: (req: { ttl_hours: number; max_uses: number | null }) =>
+      api<FleetTokenResponse>("/api/fleet-tokens", {
+        method: "POST",
+        body: JSON.stringify(req),
+      }),
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Failed to mint fleet key")
     },
   })
 }

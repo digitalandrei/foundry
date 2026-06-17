@@ -16,4 +16,9 @@ use crate::DeploymentId;
 pub struct ShellRequest {
     pub session_id: uuid::Uuid,
     pub deployment_id: DeploymentId,
+    /// Set for an *adopted* (externally-created) container: the agent
+    /// execs into this docker id directly instead of resolving a managed
+    /// container by label. `None` → managed container (label lookup).
+    #[serde(default)]
+    pub container_id: Option<String>,
 }

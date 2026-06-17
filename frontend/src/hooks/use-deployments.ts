@@ -95,6 +95,26 @@ export function useCreateDeployment() {
   })
 }
 
+/** Adopt an externally-created container into a managed deployment so it
+ * gets Foundry's control surface (admin only). */
+export function useAdoptContainer() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ serverId, containerId }: { serverId: string; containerId: string }) =>
+      api<DeploymentSummary>(
+        `/api/servers/${serverId}/containers/${containerId}/adopt`,
+        { method: "POST" },
+      ),
+    onSuccess: (d) => {
+      toast.success(`Adopted ${d.name} — now controllable like a deployment`)
+      invalidateAll(queryClient)
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Could not adopt container")
+    },
+  })
+}
+
 export function useReplaceDeployment() {
   const queryClient = useQueryClient()
   return useMutation({

@@ -16,10 +16,15 @@ socket). The Docker API is never exposed remotely
 
 ## The Prime Directive
 
-Foundry manages **only** containers labeled `foundry.managed=true`. Every
-list/stop/remove operation filters on that label. Containers without it do
-not exist as far as Foundry is concerned — never enumerate them into
-inventory, never touch them.
+Foundry manages containers it created (`foundry.managed=true`) **and**
+containers an operator has explicitly **adopted** (0.42.0). Managed
+containers resolve by the `foundry.managed`/`foundry.deployment_id` labels;
+an adopted container — created outside Foundry, so unrelabelable — resolves
+by docker id carried on the task/shell payload (`ContainerTarget.container_id`,
+`ShellRequest.container_id`). Inventory enumerates **all** containers for
+visibility (with a `managed` flag), but a stop/remove/exec only ever targets
+a managed-by-label or explicitly-adopted-by-id container — never a foreign
+container blind.
 
 ## Labels on Create
 

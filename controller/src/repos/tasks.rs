@@ -257,7 +257,8 @@ async fn advance_deployment(
     };
     let actor = Actor::agent();
     let d = sqlx::query!(
-        r#"SELECT replaced_by_deployment_id AS "replaced_by: Uuid", state
+        r#"SELECT replaced_by_deployment_id AS "replaced_by: Uuid", state,
+                  adopted_container_id
            FROM deployments WHERE id = ? FOR UPDATE"#,
         deployment_id.0
     )
@@ -310,8 +311,10 @@ async fn advance_deployment(
             // remove the old container next (chain continues at REMOVE
             // success).
             if d.replaced_by.is_some() {
-                let payload =
-                    TaskPayload::Container(foundry_shared::dto::ContainerTarget { deployment_id });
+                let payload = TaskPayload::Container(foundry_shared::dto::ContainerTarget {
+                    deployment_id,
+                    container_id: d.adopted_container_id.clone(),
+                });
                 enqueue(
                     tx,
                     task.server_id,
@@ -574,6 +577,7 @@ pub async fn enqueue_lifecycle(
     }
     let payload = TaskPayload::Container(foundry_shared::dto::ContainerTarget {
         deployment_id: deployment.id,
+        container_id: deployment.adopted_container_id.clone(),
     });
     enqueue(
         &mut tx,

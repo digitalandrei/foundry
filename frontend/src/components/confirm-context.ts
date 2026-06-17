@@ -10,6 +10,10 @@ export type ConfirmOptions = {
   /** Defaults to "CONFIRM". */
   confirmLabel?: string
   destructive?: boolean
+  /** When set, the operator must type this exact string to enable the
+   * confirm button — a double-confirmation for high-risk actions (e.g.
+   * stopping/deleting a container Foundry did not create). */
+  requireConfirmText?: string
 }
 
 export type ConfirmFn = (opts: ConfirmOptions) => Promise<boolean>

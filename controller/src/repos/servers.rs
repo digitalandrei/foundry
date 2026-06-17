@@ -36,7 +36,7 @@ pub async fn list(pool: &MySqlPool) -> Result<Vec<ServerSummary>, AppError> {
         out.push(ServerSummary {
             id,
             name: r.name,
-            hostname: (!r.hostname.is_empty()).then_some(r.hostname),
+            hostname: r.hostname.filter(|h| !h.is_empty()),
             status,
             last_heartbeat_at: r.last_heartbeat_at.map(|t| t.and_utc()),
             agent_version: r.agent_version,
@@ -79,9 +79,11 @@ pub async fn get_summary(pool: &MySqlPool, id: ServerId) -> Result<ServerSummary
 pub async fn create(pool: &MySqlPool, name: &str) -> Result<ServerId, AppError> {
     let id = Uuid::now_v7();
     let now = Utc::now().naive_utc();
+    // hostname is left NULL until the agent enrolls (it is the fleet
+    // identity and carries a UNIQUE index, so empty strings can't share it).
     sqlx::query!(
-        r#"INSERT INTO servers (id, name, hostname, status, created_at, updated_at)
-           VALUES (?, ?, '', 'OFFLINE', ?, ?)"#,
+        r#"INSERT INTO servers (id, name, status, created_at, updated_at)
+           VALUES (?, ?, 'OFFLINE', ?, ?)"#,
         id,
         name,
         now,
@@ -137,6 +139,39 @@ pub async fn issue_enrollment_token(
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
+    Ok((token, expires_at))
+}
+
+/// Mint a reusable, time-limited FLEET enrollment key (docs/ARCHITECTURE.md
+/// § Fleet Enrollment). Unlike a server-bound token it is not tied to a
+/// pre-created server: any agent presenting it within the TTL and use
+/// budget auto-enrolls under its own hostname. `max_uses = None` means
+/// unlimited within the TTL. Returns the raw key — shown once, stored
+/// hashed.
+pub async fn issue_fleet_token(
+    pool: &MySqlPool,
+    ttl_hours: i64,
+    max_uses: Option<u32>,
+    created_by: foundry_shared::UserId,
+) -> Result<(String, chrono::DateTime<Utc>), AppError> {
+    let token = random_token();
+    let now = Utc::now();
+    let expires_at = now + Duration::hours(ttl_hours);
+    sqlx::query!(
+        r#"INSERT INTO enrollment_tokens
+           (id, token_hash, server_id, kind, max_uses, uses, created_by,
+            expires_at, created_at, updated_at)
+           VALUES (?, ?, NULL, 'FLEET', ?, 0, ?, ?, ?, ?)"#,
+        Uuid::now_v7(),
+        token_hash(&token),
+        max_uses,
+        created_by.0,
+        expires_at.naive_utc(),
+        now.naive_utc(),
+        now.naive_utc(),
+    )
+    .execute(pool)
+    .await?;
     Ok((token, expires_at))
 }
 
@@ -224,6 +259,126 @@ pub async fn enroll(
         agent_secret: secret,
         server_id: server_id.into(),
         server_name: row.name,
+    })
+}
+
+/// Consume one use of a FLEET key and enrol the calling host. The agent's
+/// hostname is the identity: an existing server with that hostname is
+/// re-enrolled (credential replaced, as with server-bound re-enrollment);
+/// otherwise a new server is created named after the hostname. The unique
+/// index on `servers.hostname` makes a concurrent first-enroll race fail
+/// safely.
+pub async fn enroll_fleet(
+    pool: &MySqlPool,
+    token: &str,
+    hostname: &str,
+    agent_version: &str,
+    os_version: Option<&str>,
+) -> Result<EnrolledAgent, AppError> {
+    let now = Utc::now().naive_utc();
+    let mut tx = pool.begin().await?;
+
+    let tok = sqlx::query!(
+        r#"SELECT id AS "id: Uuid", max_uses, uses
+           FROM enrollment_tokens
+           WHERE token_hash = ? AND kind = 'FLEET'
+                 AND used_at IS NULL AND expires_at > ?
+           FOR UPDATE"#,
+        token_hash(token),
+        now,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::Unauthorized)?;
+
+    // Use budget (None = unlimited within TTL). The FOR UPDATE above
+    // serialises concurrent enrollments on the same key.
+    if let Some(max) = tok.max_uses {
+        if tok.uses >= max {
+            return Err(AppError::Unauthorized);
+        }
+    }
+    sqlx::query!(
+        "UPDATE enrollment_tokens SET uses = uses + 1, updated_at = ? WHERE id = ?",
+        now,
+        tok.id,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Hostname is the identity. Find-or-create the server row.
+    let existing = sqlx::query!(
+        r#"SELECT id AS "id: Uuid", name FROM servers WHERE hostname = ? FOR UPDATE"#,
+        hostname,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let (server_id, server_name) = match existing {
+        Some(r) => (r.id, r.name),
+        None => {
+            let id = Uuid::now_v7();
+            // name defaults to the hostname; servers.name is unique, so a
+            // hostname clashing with an existing server *name* is rejected.
+            sqlx::query!(
+                r#"INSERT INTO servers (id, name, hostname, status, created_at, updated_at)
+                   VALUES (?, ?, ?, 'OFFLINE', ?, ?)"#,
+                id,
+                hostname,
+                hostname,
+                now,
+                now,
+            )
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| match &e {
+                sqlx::Error::Database(db) if db.is_unique_violation() => AppError::BadRequest(
+                    "a server with this hostname or name already exists".into(),
+                ),
+                _ => AppError::Db(e),
+            })?;
+            (id, hostname.to_string())
+        }
+    };
+
+    // One agent row per server: replace the credential on re-enroll.
+    let secret = random_token();
+    let secret_hash = token_hash(&secret);
+    sqlx::query!("DELETE FROM server_agents WHERE server_id = ?", server_id)
+        .execute(&mut *tx)
+        .await?;
+    let agent_id = Uuid::now_v7();
+    sqlx::query!(
+        r#"INSERT INTO server_agents
+           (id, server_id, agent_version, token_hash, enrolled_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)"#,
+        agent_id,
+        server_id,
+        agent_version,
+        secret_hash,
+        now,
+        now,
+        now,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE servers SET hostname = ?, os_version = ?, updated_at = ? WHERE id = ?",
+        hostname,
+        os_version,
+        now,
+        server_id,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(EnrolledAgent {
+        agent_id,
+        agent_secret: secret,
+        server_id: server_id.into(),
+        server_name,
     })
 }
 

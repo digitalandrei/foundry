@@ -29,6 +29,10 @@ const NGINX_BOOTSTRAP: &str = "/etc/nginx/conf.d/foundry-apps.conf";
 pub struct RegisterArgs {
     pub url: String,
     pub token: String,
+    /// `true` when the token is a reusable fleet key (`--fleet-token`):
+    /// enroll via `/agent/enroll/fleet`, which auto-creates the server
+    /// from this host's hostname instead of consuming a server-bound token.
+    pub fleet: bool,
     pub force: bool,
 }
 
@@ -55,12 +59,17 @@ pub async fn run(args: RegisterArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     // 1. Enroll.
     let url = args.url.trim_end_matches('/').to_string();
+    let endpoint = if args.fleet {
+        "/agent/enroll/fleet"
+    } else {
+        "/agent/enroll"
+    };
     let hostname = read_hostname();
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()?;
     let resp = client
-        .post(format!("{url}/agent/enroll"))
+        .post(format!("{url}{endpoint}"))
         .json(&AgentEnrollRequest {
             token: args.token.clone(),
             hostname: hostname.clone(),
@@ -72,11 +81,12 @@ pub async fn run(args: RegisterArgs) -> Result<(), Box<dyn std::error::Error>> {
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(format!(
-            "enrollment rejected ({status}): {body} — tokens are single-use; \
-             generate a fresh one in the Foundry UI"
-        )
-        .into());
+        let hint = if args.fleet {
+            "fleet keys expire and have a use budget — mint a fresh one in the Foundry UI"
+        } else {
+            "tokens are single-use; generate a fresh one in the Foundry UI"
+        };
+        return Err(format!("enrollment rejected ({status}): {body} — {hint}").into());
     }
     let enrolled: AgentEnrollResponse = resp.json().await?;
     println!(

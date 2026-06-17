@@ -43,6 +43,31 @@ A user can:
 Scope/architecture changes agreed after the original spec — each must be
 reflected in the affected docs in the same commit set:
 
+- **2026-06-17** (0.42.0) — **Fleet auto-enrollment + adopt & control of
+  pre-running containers** (operator: agents on a launched fleet should
+  self-enroll, and pre-running ComfyUI containers should be controllable
+  like Foundry's own). Three additive capabilities. **Fleet enrollment** —
+  a reusable, time-limited key (`enrollment_tokens.kind='FLEET'`,
+  `max_uses`/`uses`, NULL `server_id`) that an agent presents via
+  `--fleet-token` → `POST /agent/enroll/fleet`; the host auto-creates its
+  server keyed by a now-unique `servers.hostname`, staying enrolled until
+  removed. **Container mounts** — inventory now reports each container's
+  volume mounts (`server_containers.mounts`), alongside the ports it
+  already reported. **Adopt & control** — an operator adopts an
+  externally-created container that occupies a GPU slot into a RUNNING
+  deployment (`deployments.adopted_container_id`; `registry_tag_id` /
+  `gitlab_instance_id` now nullable); lifecycle/shell/logs resolve it by
+  docker id instead of the `foundry.managed` label, so it gets the full
+  control surface (logs, console/bash, stop, delete, replace). Destructive
+  ops on adopted containers are type-to-confirm and audited; the
+  managed-only invariant is deliberately, auditably relaxed — never a blind
+  mutation of a foreign container. The agent learns adopted ids from the
+  heartbeat response. GPU telemetry was already end-to-end (phase-05) — no
+  change. EC2/AMI/Terraform provisioning is explicitly out of scope (the
+  operator's infra). Affects DATABASE, API, ARCHITECTURE, SECURITY,
+  UI-DESIGN, preferences. Plan
+  `~/.claude/plans/can-we-also-publish-snappy-hedgehog.md`.
+
 - **2026-06-16** (0.35.0) — **GPU groups + multi-use slots** (operator:
   lift the "one container, one whole GPU" limit from both ends). Two
   independent, admin-configured capabilities. **GPU groups** — a named

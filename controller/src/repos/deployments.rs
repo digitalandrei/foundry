@@ -231,7 +231,7 @@ pub async fn create(
             // crash can no longer strand a linked successor without a
             // queued task.
             let old = sqlx::query!(
-                "SELECT state FROM deployments WHERE id = ? FOR UPDATE",
+                "SELECT state, adopted_container_id FROM deployments WHERE id = ? FOR UPDATE",
                 old_id.0
             )
             .fetch_optional(&mut *tx)
@@ -274,6 +274,7 @@ pub async fn create(
                 &foundry_shared::dto::TaskPayload::Container(
                     foundry_shared::dto::ContainerTarget {
                         deployment_id: old_id,
+                        container_id: old.adopted_container_id.clone(),
                     },
                 ),
             )
@@ -293,6 +294,137 @@ pub async fn create(
 
     tx.commit().await?;
     Ok(NewDeployment { id, container_name })
+}
+
+/// Adopt an externally-created container into a RUNNING deployment so it
+/// gets Foundry's control surface (logs, console, stop/delete, replace).
+/// The container must currently occupy at least one GPU slot (resolved
+/// from its device UUIDs) — that slot becomes the deployment's. Resolved
+/// by docker id thereafter, never by label. Admin-gated at the route.
+pub async fn adopt(
+    pool: &MySqlPool,
+    server_id: ServerId,
+    container_id: &str,
+    created_by: UserId,
+) -> Result<DeploymentId, AppError> {
+    let now = chrono::Utc::now().naive_utc();
+    let mut tx = pool.begin().await?;
+
+    let c = sqlx::query!(
+        r#"SELECT name, image, gpu_uuids, managed AS "managed: bool"
+           FROM server_containers WHERE server_id = ? AND container_id = ?"#,
+        server_id.0,
+        container_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound(
+        "container not found in the latest snapshot",
+    ))?;
+    if c.managed {
+        return Err(AppError::BadRequest(
+            "this container is already managed by Foundry".into(),
+        ));
+    }
+    let already = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) FROM deployments
+           WHERE server_id = ? AND adopted_container_id = ?
+             AND state NOT IN ('REMOVED','REPLACED','FAILED','STOPPED')"#,
+        server_id.0,
+        container_id,
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if already > 0 {
+        return Err(AppError::BadRequest(
+            "this container is already adopted".into(),
+        ));
+    }
+
+    // Resolve the GPU slot(s) the container occupies from its device UUIDs.
+    let uuids: Vec<String> = c
+        .gpu_uuids
+        .as_deref()
+        .and_then(|j| serde_json::from_str(j).ok())
+        .unwrap_or_default();
+    if uuids.is_empty() {
+        return Err(AppError::BadRequest(
+            "only a container occupying a GPU can be adopted".into(),
+        ));
+    }
+    let mut member_slot_ids: Vec<SlotId> = Vec::new();
+    for u in &uuids {
+        if let Some(s) = sqlx::query!(
+            r#"SELECT gs.id AS "id: Uuid"
+               FROM gpu_slots gs JOIN gpus g ON g.id = gs.gpu_id
+               WHERE g.server_id = ? AND COALESCE(gs.mig_uuid, g.gpu_uuid) = ?
+               FOR UPDATE"#,
+            server_id.0,
+            u,
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        {
+            member_slot_ids.push(s.id.into());
+        }
+    }
+    if member_slot_ids.is_empty() {
+        return Err(AppError::BadRequest(
+            "the container's GPU does not map to any known slot on this server".into(),
+        ));
+    }
+    let primary_slot_id = member_slot_ids[0];
+
+    let id = DeploymentId::new();
+    sqlx::query!(
+        r#"INSERT INTO deployments
+           (id, gpu_slot_id, server_id, image_ref, created_by, state, container_name,
+            container_id, adopted_container_id, started_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'RUNNING', ?, ?, ?, ?, ?, ?)"#,
+        id.0,
+        primary_slot_id.0,
+        server_id.0,
+        c.image.chars().take(1024).collect::<String>(),
+        created_by.0,
+        c.name.chars().take(255).collect::<String>(),
+        container_id,
+        container_id,
+        now,
+        now,
+        now,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    for slot_id in &member_slot_ids {
+        sqlx::query!(
+            "INSERT INTO deployment_slots (deployment_id, gpu_slot_id) VALUES (?, ?)",
+            id.0,
+            slot_id.0,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    lifecycle::transition_member_slots(&mut tx, id, SlotState::Running).await?;
+
+    // The row starts at RUNNING (the container already runs), so record the
+    // initial event/audit directly rather than via a from→to transition.
+    sqlx::query!(
+        r#"INSERT INTO deployment_events
+           (id, deployment_id, from_state, to_state, actor_type, actor_id, detail, created_at)
+           VALUES (?, ?, NULL, 'RUNNING', 'User', ?, ?, ?)"#,
+        Uuid::now_v7(),
+        id.0,
+        created_by.0,
+        serde_json::to_string(&serde_json::json!({ "adopted_container_id": container_id }))
+            .map_err(AppError::internal)?,
+        now,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(id)
 }
 
 /// A deploy target resolved to its locked member slots.
@@ -744,8 +876,13 @@ pub struct DeploymentRow {
     /// Set when this was a group deploy — the replacement targets the
     /// same group so the successor re-locks the same member GPUs.
     pub gpu_group_id: Option<GpuGroupId>,
-    pub instance_id: foundry_shared::GitlabInstanceId,
+    /// `None` for an adopted (externally-created) deployment — it has no
+    /// registry origin.
+    pub instance_id: Option<foundry_shared::GitlabInstanceId>,
     pub created_by: UserId,
+    /// Set when this deployment wraps an externally-created container:
+    /// lifecycle/shell target it by this docker id, not by label.
+    pub adopted_container_id: Option<String>,
 }
 
 /// Dismiss a FAILED deployment: mark it REMOVED (clears it from the
@@ -798,6 +935,7 @@ pub async fn get(pool: &MySqlPool, id: DeploymentId) -> Result<DeploymentRow, Ap
                   gpu_slot_id AS "slot_id: Uuid",
                   gpu_group_id AS "gpu_group_id: Uuid",
                   gitlab_instance_id AS "instance_id: Uuid",
+                  adopted_container_id,
                   created_by AS "created_by: Uuid"
            FROM deployments WHERE id = ?"#,
         id.0
@@ -811,13 +949,39 @@ pub async fn get(pool: &MySqlPool, id: DeploymentId) -> Result<DeploymentRow, Ap
         server_id: r.server_id.into(),
         slot_id: r.slot_id.into(),
         gpu_group_id: r.gpu_group_id.map(Into::into),
-        instance_id: r.instance_id.into(),
+        instance_id: r.instance_id.map(Into::into),
         created_by: r.created_by.into(),
+        adopted_container_id: r.adopted_container_id,
     })
 }
 
 pub async fn list(pool: &MySqlPool) -> Result<Vec<DeploymentSummary>, AppError> {
     summaries(pool, None).await
+}
+
+/// Adopted (externally-created) containers the controller actively tracks
+/// for a server — handed to the agent on heartbeat so it ships their logs
+/// (they carry no `foundry.managed` label to key on).
+pub async fn adopted_for_server(
+    pool: &MySqlPool,
+    server_id: ServerId,
+) -> Result<Vec<foundry_shared::dto::AdoptedContainerRef>, AppError> {
+    let rows = sqlx::query!(
+        r#"SELECT id AS "id: Uuid", adopted_container_id AS "cid!"
+           FROM deployments
+           WHERE server_id = ? AND adopted_container_id IS NOT NULL
+             AND state NOT IN ('REMOVED','REPLACED','FAILED','STOPPED')"#,
+        server_id.0
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| foundry_shared::dto::AdoptedContainerRef {
+            container_id: r.cid,
+            deployment_id: r.id.into(),
+        })
+        .collect())
 }
 
 /// One query serves both the list (recent, REMOVED filtered) and the
@@ -829,6 +993,7 @@ async fn summaries(
     let rows = sqlx::query!(
         r#"SELECT d.id AS "id: Uuid", d.container_name, d.image_ref, d.state,
                   d.error_message, d.container_id,
+                  (d.adopted_container_id IS NOT NULL) AS "adopted: bool",
                   d.created_at, d.started_at,
                   d.server_id AS "server_id: Uuid", s.name AS server_name,
                   d.gpu_slot_id AS "slot_id: Uuid", gs.name AS slot_name,
@@ -900,6 +1065,7 @@ async fn summaries(
                 r.gpu_model.map(|m| format!(" ({m})")).unwrap_or_default()
             ),
             created_by_name: r.created_by_name,
+            adopted: r.adopted,
             ports: port_rows
                 .into_iter()
                 .map(|p| {

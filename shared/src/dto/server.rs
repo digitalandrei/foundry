@@ -51,3 +51,22 @@ pub struct EnrollmentTokenResponse {
     pub command: String,
     pub expires_at: DateTime<Utc>,
 }
+
+/// Mint a reusable fleet enrollment key (admin only). `max_uses = None`
+/// means unlimited within the TTL.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateFleetTokenRequest {
+    pub ttl_hours: i64,
+    pub max_uses: Option<u32>,
+}
+
+/// Returned exactly once, at fleet-key creation — not bound to any server;
+/// agents auto-enroll under their own hostname.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FleetTokenResponse {
+    pub token: String,
+    /// Ready-to-paste registration command for a fleet host.
+    pub command: String,
+    pub expires_at: DateTime<Utc>,
+    pub max_uses: Option<u32>,
+}

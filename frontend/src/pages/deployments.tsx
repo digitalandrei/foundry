@@ -86,7 +86,14 @@ function DeploymentRow({ deployment: d }: { deployment: DeploymentSummary }) {
       role="button"
       aria-label={`Open ${d.name}`}
     >
-      <TableCell className="font-medium">{d.name}</TableCell>
+      <TableCell className="font-medium">
+        {d.name}
+        {d.adopted ? (
+          <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground align-middle">
+            adopted
+          </span>
+        ) : null}
+      </TableCell>
       <TableCell
         className="max-w-52 truncate font-mono text-xs text-muted-foreground"
         title={d.image_ref}

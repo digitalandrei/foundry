@@ -4,6 +4,7 @@ import { ArrowLeftIcon } from "lucide-react"
 import { MetricSparkline } from "@/components/metric-sparkline"
 import { ServerGpuConfig } from "@/components/server-gpu-config"
 import { useMe } from "@/hooks/use-auth"
+import { useAdoptContainer } from "@/hooks/use-deployments"
 import { useServerDetail, useServerMetrics } from "@/hooks/use-servers"
 import { formatLoad, formatMemGb, formatSize } from "@/lib/format"
 import { SERVER_STATUS_META } from "@/lib/states"
@@ -135,7 +136,12 @@ export function ServerDetailPage() {
         </CardHeader>
         <CardContent>
           {detail.data ? (
-            <ContainersTable containers={detail.data.containers} latest={latest} />
+            <ContainersTable
+              containers={detail.data.containers}
+              latest={latest}
+              serverId={detail.data.server.id}
+              isAdmin={me.data?.is_admin ?? false}
+            />
           ) : (
             <Skeleton className="h-24 w-full" />
           )}
@@ -270,10 +276,15 @@ function GpuCard({ gpu, metrics }: { gpu: GpuSummary; metrics: MetricsPoint[] | 
 function ContainersTable({
   containers,
   latest,
+  serverId,
+  isAdmin,
 }: {
   containers: ServerContainer[]
   latest: MetricsPoint["sample"] | undefined
+  serverId: string
+  isAdmin: boolean
 }) {
+  const adopt = useAdoptContainer()
   if (containers.length === 0) {
     return <p className="text-sm text-muted-foreground">No containers reported.</p>
   }
@@ -287,6 +298,7 @@ function ContainersTable({
           <TableHead>Load</TableHead>
           <TableHead>Memory</TableHead>
           <TableHead>Ports</TableHead>
+          <TableHead>Mounts</TableHead>
           <TableHead />
         </TableRow>
       </TableHeader>
@@ -326,8 +338,39 @@ function ContainersTable({
                       </span>
                     ))}
               </TableCell>
-              <TableCell>
-                {c.managed ? <Badge variant="secondary">foundry</Badge> : null}
+              <TableCell className="max-w-56 font-mono text-xs text-muted-foreground">
+                {c.mounts.length === 0 ? (
+                  "—"
+                ) : (
+                  <div className="space-y-0.5">
+                    {c.mounts.map((mt) => (
+                      <div
+                        key={`${mt.source}:${mt.destination}`}
+                        className="truncate"
+                        title={`${mt.source || mt.mount_type} → ${mt.destination}${mt.read_only ? " (ro)" : ""}`}
+                      >
+                        {mt.source || mt.mount_type}→{mt.destination}
+                        {mt.read_only ? " (ro)" : ""}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </TableCell>
+              <TableCell className="text-right">
+                {c.managed ? (
+                  <Badge variant="secondary">foundry</Badge>
+                ) : isAdmin ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7"
+                    disabled={adopt.isPending}
+                    onClick={() => adopt.mutate({ serverId, containerId: c.container_id })}
+                    title="Adopt this container so Foundry can control it (logs, console, stop, delete)"
+                  >
+                    Adopt
+                  </Button>
+                ) : null}
               </TableCell>
             </TableRow>
           )

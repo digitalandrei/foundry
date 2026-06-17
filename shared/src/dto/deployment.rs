@@ -128,6 +128,11 @@ pub struct DeploymentSummary {
     pub ports: Vec<DeploymentPort>,
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
+    /// True when this deployment wraps an *adopted* (externally-created)
+    /// container — Foundry did not create it. The UI badges it and
+    /// double-confirms destructive actions (docs/SECURITY.md).
+    #[serde(default)]
+    pub adopted: bool,
 }
 
 /// `GET /api/deployments/{id}` — the slot/deployment detail dialog:

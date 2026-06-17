@@ -115,6 +115,13 @@ pub enum RegistryAuth {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerTarget {
     pub deployment_id: DeploymentId,
+    /// Set for an *adopted* (externally-created) container: the agent
+    /// resolves the target by this docker id directly, bypassing the
+    /// `foundry.managed`/`foundry.deployment_id` label gate. `None` →
+    /// a normal Foundry-managed container, resolved by label. Defaulted
+    /// so payloads queued by an older controller still deserialize.
+    #[serde(default)]
+    pub container_id: Option<String>,
 }
 
 /// `POST /agent/tasks/result`.

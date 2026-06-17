@@ -274,8 +274,27 @@ The two hint labels make GPU assignment visible host-side
 generated container names also embed the slot (`procms-g0-x7f2`).
 Identity remains `deployment_id`/`slot_id`.
 
-Any container without `foundry.managed=true` is invisible to Foundry — never
-stopped, never removed, never reported as a Foundry deployment.
+Any container without `foundry.managed=true` is invisible to Foundry —
+reported in inventory for visibility (ports, mounts, GPU mapping) but never
+stopped, removed, or reported as a deployment **unless an operator adopts it**
+(see § Adopted containers).
+
+### Adopted containers (0.42.0 — operator requirement)
+
+A pre-running container Foundry did **not** create (e.g. a ComfyUI image
+started at boot on a fleet host) can be **adopted** into a RUNNING deployment
+so it gets the full control surface — logs, console/bash, stop, delete,
+replace. Because Docker labels are immutable once a container runs, an adopted
+container cannot be relabeled; instead the deployment row carries
+`adopted_container_id` (the docker id) and the agent resolves the target **by
+id**, bypassing the `foundry.managed` label gate. Adoption requires the
+container to occupy a GPU slot (resolved from its device UUIDs) — that slot
+becomes the deployment's; the registry columns (`registry_tag_id`,
+`gitlab_instance_id`) are NULL for adopted rows. The agent learns the set of
+adopted container ids from the **heartbeat response** so its log collector
+ships their logs too. The managed-only rule is thus relaxed only by an
+explicit, audited operator action — never a blind mutation of a foreign
+container; destructive ops are type-to-confirm in the UI (see `SECURITY.md`).
 
 ## Agent Tasks
 
@@ -427,6 +446,20 @@ carries a clear running/stopped indicator.
    secret), and stores config at `/etc/foundry-agent/config.toml`.
 4. From then on the agent authenticates every request with its identity;
    tokens are rotatable (see `SECURITY.md`).
+
+### Fleet enrollment (0.42.0 — operator requirement)
+
+For a launched fleet there is no per-host hand-enrollment. An admin mints a
+**fleet key** (`POST /api/fleet-tokens`): a reusable, time-limited token
+(`enrollment_tokens.kind='FLEET'`, optional `max_uses`, no bound server). A
+host runs `foundry-agent --register --fleet-token <key>`, which calls
+`/agent/enroll/fleet`; the controller **auto-creates the server** keyed by the
+agent's hostname (now `UNIQUE` on `servers.hostname`) — or re-enrols an
+existing one with that hostname — and issues the same permanent identity. Once
+enrolled a host stays enrolled until an operator removes it. Hostnames must be
+unique across the fleet (set each instance's hostname to a stable unique value,
+e.g. its cloud instance id). Provisioning the hosts themselves (AMIs, cloud
+fleets) is out of scope — the operator's infra.
 
 ## API Surface
 

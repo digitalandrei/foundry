@@ -9,7 +9,9 @@ use std::collections::HashMap;
 
 use bollard::query_parameters::ListContainersOptions;
 use bollard::Docker;
-use foundry_shared::dto::{ContainerInfo, GpuInfo, InventorySnapshot, MigDeviceInfo};
+use foundry_shared::dto::{
+    ContainerInfo, ContainerMount, GpuInfo, InventorySnapshot, MigDeviceInfo,
+};
 use nvml_wrapper::Nvml;
 
 pub async fn collect() -> InventorySnapshot {
@@ -102,19 +104,19 @@ async fn collect_docker(
             .state
             .map(|s| format!("{s:?}").to_lowercase())
             .unwrap_or_default();
-        let gpu_uuids = if state == "running" {
-            inspect_gpu_uuids(&docker, &id_full, gpu_index).await
+        let (gpu_uuids, mounts) = if state == "running" {
+            inspect_container_details(&docker, &id_full, gpu_index).await
         } else if stopped_budget > 0 {
             stopped_budget -= 1;
             if stopped_budget == 0 {
                 tracing::debug!(
-                    "stopped-container GPU inspection budget reached — \
-                     further exited containers are reported without GPU mapping"
+                    "stopped-container inspection budget reached — \
+                     further exited containers are reported without GPU/mount detail"
                 );
             }
-            inspect_gpu_uuids(&docker, &id_full, gpu_index).await
+            inspect_container_details(&docker, &id_full, gpu_index).await
         } else {
-            Vec::new()
+            (Vec::new(), Vec::new())
         };
 
         containers.push(ContainerInfo {
@@ -131,20 +133,25 @@ async fn collect_docker(
             managed,
             ports,
             gpu_uuids,
+            mounts,
         });
     }
     (version, true, containers)
 }
 
-/// Resolve a container's GPU/MIG device UUIDs from its inspect data:
-/// `--gpus` device requests and `NVIDIA_VISIBLE_DEVICES`. Numeric
-/// indices are mapped to UUIDs via the NVML index map; `GPU-…`/`MIG-…`
-/// refs pass through; `all`/`count=-1` expands to every GPU.
-async fn inspect_gpu_uuids(
+/// Inspect a container once and resolve both its GPU/MIG device UUIDs and
+/// its volume mounts.
+///
+/// GPU UUIDs come from `--gpus` device requests and
+/// `NVIDIA_VISIBLE_DEVICES`: numeric indices map to UUIDs via the NVML
+/// index map; `GPU-…`/`MIG-…` refs pass through; `all`/`count=-1` expands
+/// to every GPU. Mounts come from the resolved `Mounts` list (bind /
+/// volume / tmpfs), surfaced for visibility/adoption.
+async fn inspect_container_details(
     docker: &Docker,
     id: &str,
     gpu_index: &HashMap<u32, String>,
-) -> Vec<String> {
+) -> (Vec<String>, Vec<ContainerMount>) {
     let info = match docker
         .inspect_container(
             id,
@@ -155,9 +162,26 @@ async fn inspect_gpu_uuids(
         Ok(i) => i,
         Err(err) => {
             tracing::debug!(%err, container = id, "container inspect failed");
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         }
     };
+
+    let mounts = info
+        .mounts
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .map(|m| ContainerMount {
+            source: m.source.clone().unwrap_or_default(),
+            destination: m.destination.clone().unwrap_or_default(),
+            // Docker reports `RW`; absence is treated as writable.
+            read_only: !m.rw.unwrap_or(true),
+            mount_type: m
+                .typ
+                .map(|t| format!("{t:?}").to_lowercase())
+                .unwrap_or_else(|| "bind".into()),
+        })
+        .collect();
 
     // BTreeSet → deterministic, deduped.
     let mut uuids = std::collections::BTreeSet::new();
@@ -209,7 +233,7 @@ async fn inspect_gpu_uuids(
         }
     }
 
-    uuids.into_iter().collect()
+    (uuids.into_iter().collect(), mounts)
 }
 
 /// A device reference is a UUID (`GPU-…`/`MIG-…`, used as-is) or an NVML

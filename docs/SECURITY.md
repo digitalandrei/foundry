@@ -49,6 +49,12 @@ protocol, tokens, or deployment execution.
 
 - Enrollment: single-use, 72h-expiring tokens bound to a named server,
   admin-generated, hash-stored; re-minting revokes unused older tokens.
+- **Fleet keys** (0.42.0): reusable, time-limited, admin-minted keys
+  (hash-stored, bounded by an explicit TTL and optional `max_uses`) for
+  auto-enrolling a fleet. A presenting agent auto-creates/re-enrolls its
+  server by a now-unique hostname; the key never yields more than the
+  permanent per-server identity and expires on its own. Keep TTLs short and
+  prefer a use budget for one-shot rollouts.
 - Permanent identity: agent id + secret issued at enrollment
   (`X-Foundry-Agent-Id` + `Authorization: Bearer`); secret stored
   hashed (`server_agents.token_hash`), verified constant-time; sent
@@ -105,15 +111,35 @@ capability and keep its controls tight:
   agent dials back over an outbound WSS authenticated with its own agent
   credential, and the controller checks the session belongs to that
   agent's `server_id`. No SSH, no inbound port, no remote Docker socket.
-- **Scope**: only `foundry.managed=true` containers can be targeted (the
-  agent resolves the container by deployment-id label). The exec runs as
-  the container's own user — typically root *inside the container*, the
-  same blast radius as the workload already has; it is not host root.
+- **Scope**: Foundry-created containers (resolved by the deployment-id
+  label) **and** operator-**adopted** containers (resolved by docker id —
+  see § Adopted containers) can be targeted. The exec runs as the
+  container's own user — typically root *inside the container*, the same
+  blast radius as the workload already has; it is not host root.
 - **No persistence**: sessions live only as an in-memory socket pair; a
   controller restart drops them. Bytes are bridged, never logged.
 - Residual risk accepted: a shell is as powerful as the container. The
   mitigations are the owner/admin gate + audit trail; tighten by limiting
   who can deploy (deploy rights already come from GitLab membership).
+
+## Adopted containers
+
+Foundry's core invariant is that it only mutates containers it created
+(`foundry.managed=true`). Adoption (0.42.0) is a deliberate, bounded
+relaxation, not a removal of that rule:
+
+- **Explicit & admin-gated**: a foreign container is only ever acted on
+  after an admin adopts it (`POST …/adopt`), creating a deployment row with
+  `adopted_container_id`. The agent never touches a foreign container that
+  has not been adopted — there is no blind sweep.
+- **Resolved by id, not label**: lifecycle/shell/logs target the adopted
+  container by its docker id (the agent can't relabel a running container);
+  the resolution path is otherwise the same authenticated, pull-only one.
+- **Double-confirmed destructive ops**: stopping/deleting an adopted
+  container is a type-to-confirm action in the UI (the operator must type
+  the container name) — it removes a container Foundry did not create.
+- **Audited**: adoption (`CONTAINER_ADOPTED`) and every subsequent
+  lifecycle transition are recorded with actor, subject, and detail.
 
 ## Audit Logging
 

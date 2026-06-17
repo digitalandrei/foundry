@@ -200,6 +200,13 @@ export interface PortMapping {
   protocol: string
 }
 
+export interface ContainerMount {
+  source: string
+  destination: string
+  read_only: boolean
+  mount_type: string
+}
+
 export interface ServerContainer {
   container_id: string
   name: string
@@ -208,6 +215,7 @@ export interface ServerContainer {
   status: string
   managed: boolean
   ports: PortMapping[]
+  mounts: ContainerMount[]
   reported_at: string
 }
 
@@ -321,6 +329,9 @@ export interface DeploymentSummary {
   ports: DeploymentPort[]
   created_at: string
   started_at: string | null
+  /** True when this wraps an adopted (externally-created) container —
+   * the UI badges it and double-confirms destructive actions. */
+  adopted: boolean
 }
 
 export interface DeploymentMount {
@@ -420,6 +431,15 @@ export interface EnrollmentTokenResponse {
   token: string
   command: string
   expires_at: string
+}
+
+/** Reusable fleet enrollment key (POST /api/fleet-tokens). Not bound to a
+ * server — agents auto-enroll under their own hostname. */
+export interface FleetTokenResponse {
+  token: string
+  command: string
+  expires_at: string
+  max_uses: number | null
 }
 
 /** One row of the append-only audit trail (GET /api/audit). Mirrors

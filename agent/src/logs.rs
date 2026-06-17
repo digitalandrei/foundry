@@ -38,10 +38,16 @@ impl LogCollector {
         Self::default()
     }
 
-    /// One capture round: a chunk per managed running container that
-    /// produced new output. Best-effort — a docker hiccup yields an
-    /// empty batch, never an error (logs must never disrupt the agent).
-    pub async fn collect(&mut self) -> Vec<DeploymentLogChunk> {
+    /// One capture round: a chunk per running container Foundry tracks —
+    /// managed (by `foundry.deployment_id` label) or adopted (by docker id
+    /// in `adopted`) — that produced new output. Best-effort: a docker
+    /// hiccup yields an empty batch, never an error (logs must never
+    /// disrupt the agent). Cursors are keyed by deployment id, uniform
+    /// across both kinds.
+    pub async fn collect(
+        &mut self,
+        adopted: &HashMap<String, DeploymentId>,
+    ) -> Vec<DeploymentLogChunk> {
         let Ok(docker) = Docker::connect_with_local_defaults() else {
             return Vec::new();
         };
@@ -55,20 +61,30 @@ impl LogCollector {
         let mut out = Vec::new();
         let mut seen = HashSet::new();
         for c in list {
+            let Some(container_id) = c.id.clone() else {
+                continue;
+            };
             let labels = c.labels.unwrap_or_default();
-            if labels.get("foundry.managed").map(String::as_str) != Some("true") {
-                continue;
-            }
-            let Some(dep_label) = labels.get("foundry.deployment_id").cloned() else {
-                continue;
+            let deployment_id = if labels.get("foundry.managed").map(String::as_str) == Some("true")
+            {
+                match labels
+                    .get("foundry.deployment_id")
+                    .and_then(|d| uuid::Uuid::parse_str(d).ok())
+                    .map(DeploymentId::from)
+                {
+                    Some(d) => d,
+                    None => continue,
+                }
+            } else {
+                // Adopted container — match by short docker id.
+                let short: String = container_id.chars().take(12).collect();
+                match adopted.get(&short) {
+                    Some(d) => *d,
+                    None => continue,
+                }
             };
-            let Some(container_id) = c.id else { continue };
-            let Some(deployment_id) = uuid::Uuid::parse_str(&dep_label)
-                .ok()
-                .map(DeploymentId::from)
-            else {
-                continue;
-            };
+            // Cursor key = deployment id (stable for managed and adopted).
+            let dep_label = deployment_id.to_string();
             seen.insert(dep_label.clone());
 
             if let Some(chunk) = self

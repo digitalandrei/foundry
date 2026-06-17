@@ -21,10 +21,16 @@ export function DeploymentActions({
   deployment: d,
   onRemoved,
 }: {
-  deployment: { id: string; name: string; state: DeploymentState }
+  deployment: { id: string; name: string; state: DeploymentState; adopted?: boolean }
   onRemoved?: () => void
 }) {
   const confirm = useConfirm()
+  // Adopted (externally-created) containers get a double-confirmation:
+  // Foundry did not create them, so stop/delete is type-to-confirm.
+  const adoptedNote = d.adopted
+    ? " This is an adopted container Foundry did not create — stopping it affects whatever started it."
+    : ""
+  const requireConfirmText = d.adopted ? d.name : undefined
   const stop = useStopDeployment()
   const restart = useRestartDeployment()
   const remove = useRemoveDeployment()
@@ -45,8 +51,10 @@ export function DeploymentActions({
               await confirm({
                 title: `Stop "${d.name}"?`,
                 description:
-                  "The container is removed; restarting it re-deploys from the stored spec.",
+                  "The container is removed; restarting it re-deploys from the stored spec." +
+                  adoptedNote,
                 destructive: true,
+                requireConfirmText,
               })
             )
               stop.mutate(d.id)
@@ -80,8 +88,10 @@ export function DeploymentActions({
                 await confirm({
                   title: `Delete "${d.name}"?`,
                   description:
-                    "The container and its image are deleted and its captured logs are purged. Persistent volumes survive.",
+                    "The container and its image are deleted and its captured logs are purged. Persistent volumes survive." +
+                    adoptedNote,
                   destructive: true,
+                  requireConfirmText,
                 })
               )
                 remove.mutate(d.id, terminal)

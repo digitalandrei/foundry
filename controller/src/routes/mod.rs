@@ -88,8 +88,14 @@ pub fn router(state: AppState) -> Router {
             "/api/servers/{server_id}/enrollment-token",
             post(servers::regenerate_token),
         )
+        .route("/api/fleet-tokens", post(servers::create_fleet_token))
+        .route(
+            "/api/servers/{server_id}/containers/{container_id}/adopt",
+            post(servers::adopt_container),
+        )
         // Agent protocol (docs/API.md § Agent API)
         .route("/agent/enroll", post(agent::enroll))
+        .route("/agent/enroll/fleet", post(agent::enroll_fleet))
         .route("/agent/heartbeat", post(agent::heartbeat))
         .route("/agent/inventory", post(agent::inventory))
         .route("/agent/metrics", post(agent::metrics))

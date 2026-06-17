@@ -61,7 +61,10 @@ access control.
 ## Infrastructure
 
 ### `servers`
-Enrolled GPU servers. Columns: `id`, `name`, `hostname`, `ip_address`,
+Enrolled GPU servers. `hostname` is **UNIQUE** and nullable (0.42.0 —
+the fleet identity: a fleet-enrolling agent auto-creates/re-enrolls its
+server by hostname; NULL until enrolled, so name-first servers don't
+collide). Columns: `id`, `name`, `hostname`, `ip_address`,
 `os_version`, `nvidia_driver_version`, `docker_version`, `status`
 (ONLINE/OFFLINE/DEGRADED), `last_heartbeat_at`,
 `app_publishing_ready` (BOOL null — HTTP/S publishing readiness from
@@ -87,7 +90,10 @@ FK, `container_id` (short), `name`, `image`, `state`, `status`,
 `managed`, `ports` (JSON list of `{container_port, host_port,
 protocol}` — a container may expose any number), `gpu_uuids` (JSON
 array of GPU/MIG device UUIDs the container is bound to — resolved by
-the agent; maps even non-Foundry containers onto a slot), `reported_at`.
+the agent; maps even non-Foundry containers onto a slot), `mounts`
+(JSON list of `{source, destination, read_only, mount_type}` — resolved
+volume mounts, surfaced so an operator can inspect a container before
+adopting it; 0.42.0), `reported_at`.
 
 ### `server_metrics`
 > Added in the telemetry build (0.5.0).
@@ -143,20 +149,30 @@ deployments simply stop counting. `deployments.gpu_slot_id` stays as the
 denormalised primary (first/only) member for single-slot queries.
 
 ### `enrollment_tokens`
-Single-use server enrollment tokens, bound to a pre-created server
-(GitLab-agent style; amendment 2026-06-11). Columns: `id`, `token_hash`,
-`server_id` FK (the intended server), `created_by` FK users,
-`expires_at` (72h; re-minting revokes unused older tokens), `used_at`,
-`used_by_server_id` FK null (consumption record), timestamps.
+Server enrollment tokens. `kind` (0.42.0) discriminates **SERVER** tokens
+— single-use, bound to a pre-created server (GitLab-agent style; amendment
+2026-06-11) — from **FLEET** keys — reusable within a TTL, `server_id`
+NULL, bounded by `max_uses`/`uses`, consumed by `/agent/enroll/fleet`
+which auto-creates the server by hostname. Columns: `id`, `token_hash`,
+`server_id` FK null (the intended server; NULL for FLEET), `kind`
+(SERVER/FLEET), `max_uses` null + `uses` (FLEET budget; NULL = unlimited
+within TTL), `created_by` FK users, `expires_at` (SERVER: 72h, re-minting
+revokes unused older tokens), `used_at`, `used_by_server_id` FK null
+(SERVER consumption record), timestamps.
 
 ## Deployments
 
 ### `deployments`
 One row per deployment attempt onto a slot. Columns: `id`, `gpu_slot_id` FK,
-`server_id` FK, `registry_tag_id` FK (plus denormalized `image_ref` — full
-pullable reference at deploy time), `gitlab_instance_id` FK, `created_by` FK
+`server_id` FK, `registry_tag_id` FK **null** + `gitlab_instance_id` FK
+**null** (both NULL for an *adopted* deployment — no registry origin; 0.42.0)
+plus denormalized `image_ref` — full pullable reference at deploy time (the
+observed image for an adopted container), `created_by` FK
 users, `state` (see ARCHITECTURE.md § Deployment lifecycle), `container_id`
-(Docker, once created), `container_name`, `mem_limit_mb` null (Docker
+(Docker, once created), `container_name`, `adopted_container_id` null (set
+when this wraps an externally-created container — lifecycle/shell/logs
+resolve it by this docker id, not by the `foundry.managed` label; 0.42.0),
+`mem_limit_mb` null (Docker
 `--memory` cap in MB from the deploy slider, clamped 32–256 GB;
 NULL = unlimited, the default), `gpu_group_id` FK gpu_groups null
 (set for a group deploy — NULL = single-GPU; cleared if the group is
