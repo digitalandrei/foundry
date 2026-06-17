@@ -20,23 +20,33 @@ import { Label } from "@/components/ui/label"
 /** Mint a reusable, time-limited fleet enrollment key. Agents launched
  * with `--fleet-token <key>` auto-enroll under their own hostname, so the
  * key is not tied to any one server. Admin-only. */
+/** Expiry bounds, in days (operator: default 1 month, min 1 week, max 3
+ * months). Kept in sync with the controller clamp in routes/servers.rs. */
+const TTL_MIN_DAYS = 7
+const TTL_MAX_DAYS = 90
+const TTL_DEFAULT_DAYS = 30
+
 export function FleetKeyDialog() {
   const [open, setOpen] = useState(false)
-  const [ttlHours, setTtlHours] = useState("12")
+  const [ttlDays, setTtlDays] = useState(String(TTL_DEFAULT_DAYS))
   const [maxUses, setMaxUses] = useState("")
   const [result, setResult] = useState<FleetTokenResponse | null>(null)
   const create = useCreateFleetToken()
 
   const reset = () => {
-    setTtlHours("12")
+    setTtlDays(String(TTL_DEFAULT_DAYS))
     setMaxUses("")
     setResult(null)
     create.reset()
   }
 
-  const ttl = Number(ttlHours)
-  const ttlValid = Number.isInteger(ttl) && ttl >= 1 && ttl <= 24 * 30
+  const days = Number(ttlDays)
+  const ttlValid = Number.isInteger(days) && days >= TTL_MIN_DAYS && days <= TTL_MAX_DAYS
   const usesValid = maxUses === "" || (Number.isInteger(Number(maxUses)) && Number(maxUses) >= 1)
+  // Preview the resulting expiry date so "expiry" is concrete.
+  const expiryPreview = ttlValid
+    ? new Date(Date.now() + days * 86_400_000).toLocaleDateString()
+    : null
 
   return (
     <Dialog
@@ -79,7 +89,7 @@ export function FleetKeyDialog() {
               e.preventDefault()
               if (ttlValid && usesValid) {
                 create.mutate(
-                  { ttl_hours: ttl, max_uses: maxUses === "" ? null : Number(maxUses) },
+                  { ttl_hours: days * 24, max_uses: maxUses === "" ? null : Number(maxUses) },
                   { onSuccess: setResult },
                 )
               }
@@ -87,15 +97,22 @@ export function FleetKeyDialog() {
             className="space-y-4"
           >
             <div className="space-y-2">
-              <Label htmlFor="fleet-ttl">Expires in (hours)</Label>
+              <Label htmlFor="fleet-ttl">
+                Expires in (days) — min {TTL_MIN_DAYS}, max {TTL_MAX_DAYS}
+              </Label>
               <Input
                 id="fleet-ttl"
                 type="number"
-                min={1}
-                max={720}
-                value={ttlHours}
-                onChange={(e) => setTtlHours(e.target.value)}
+                min={TTL_MIN_DAYS}
+                max={TTL_MAX_DAYS}
+                value={ttlDays}
+                onChange={(e) => setTtlDays(e.target.value)}
               />
+              <p className="text-xs text-muted-foreground">
+                {expiryPreview
+                  ? `Expires ${expiryPreview}.`
+                  : `Enter ${TTL_MIN_DAYS}–${TTL_MAX_DAYS} days.`}
+              </p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="fleet-max-uses">Max uses (blank = unlimited)</Label>

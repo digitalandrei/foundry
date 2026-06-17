@@ -123,7 +123,9 @@ pub async fn create_fleet_token(
     headers: HeaderMap,
     Json(req): Json<CreateFleetTokenRequest>,
 ) -> Result<Json<FleetTokenResponse>, AppError> {
-    let ttl_hours = req.ttl_hours.clamp(1, 24 * 30);
+    // Expiry bounds: min 1 week, max 3 months (operator rule; default 1
+    // month is the UI's pick). Kept in sync with FleetKeyDialog.
+    let ttl_hours = req.ttl_hours.clamp(24 * 7, 24 * 90);
     if let Some(max) = req.max_uses {
         if max == 0 {
             return Err(AppError::BadRequest(
