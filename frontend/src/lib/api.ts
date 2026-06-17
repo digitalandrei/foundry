@@ -49,6 +49,7 @@ export const queryKeys = {
   registry: (projectId: string) => ["registry", projectId] as const,
   exposedPorts: (tagId: string) => ["registry", "tags", tagId, "exposed-ports"] as const,
   servers: ["servers"] as const,
+  fleetTokens: ["fleet-tokens"] as const,
   serverDetail: (id: string) => ["servers", id] as const,
   serverMetrics: (id: string, minutes: number) => ["servers", id, "metrics", minutes] as const,
   serverVolumes: (id: string) => ["servers", id, "volumes"] as const,

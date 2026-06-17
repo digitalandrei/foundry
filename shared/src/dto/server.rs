@@ -70,3 +70,19 @@ pub struct FleetTokenResponse {
     pub expires_at: DateTime<Utc>,
     pub max_uses: Option<u32>,
 }
+
+/// A live fleet key in the management list. The raw token is never
+/// returned again (shown once at creation); these are the metadata used
+/// to review and revoke keys. Many may coexist.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FleetTokenSummary {
+    pub id: uuid::Uuid,
+    pub created_by_name: String,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    /// `None` = unlimited within the TTL.
+    pub max_uses: Option<u32>,
+    pub uses: u32,
+    /// Past its expiry — still listed until deleted, never accepts an agent.
+    pub expired: bool,
+}

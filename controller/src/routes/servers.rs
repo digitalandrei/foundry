@@ -6,7 +6,7 @@ use axum::http::HeaderMap;
 use axum::Json;
 use foundry_shared::dto::{
     CreateFleetTokenRequest, CreateServerRequest, EnrollmentTokenResponse, FleetTokenResponse,
-    ServerSummary,
+    FleetTokenSummary, ServerSummary,
 };
 use foundry_shared::{ActorType, ServerId};
 
@@ -160,6 +160,38 @@ pub async fn create_fleet_token(
         expires_at,
         max_uses: req.max_uses,
     }))
+}
+
+/// List live fleet keys (admin) — metadata only, never the raw token.
+pub async fn list_fleet_tokens(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+) -> Result<Json<Vec<FleetTokenSummary>>, AppError> {
+    Ok(Json(servers::list_fleet_tokens(&state.pool).await?))
+}
+
+/// Delete (revoke) a fleet key (admin) — works even before it expires.
+pub async fn delete_fleet_token(
+    State(state): State<AppState>,
+    AdminUser(admin): AdminUser,
+    headers: HeaderMap,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<axum::http::StatusCode, AppError> {
+    servers::delete_fleet_token(&state.pool, id).await?;
+    audit::record(
+        &state.pool,
+        AuditEntry {
+            actor_type: ActorType::User,
+            actor_id: Some(admin.id),
+            action: "FLEET_TOKEN_DELETED",
+            subject_type: None,
+            subject_id: Some(id),
+            detail: None,
+            ip_address: client_ip(&headers).as_deref(),
+        },
+    )
+    .await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
 pub async fn create(

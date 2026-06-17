@@ -5,6 +5,7 @@ import { api, ApiError, queryKeys } from "@/lib/api"
 import type {
   EnrollmentTokenResponse,
   FleetTokenResponse,
+  FleetTokenSummary,
   MetricsPoint,
   ServerDetail,
   ServerSummary,
@@ -53,17 +54,43 @@ export function useCreateServer() {
   })
 }
 
-/** Mint a reusable fleet enrollment key (admin only). Not server-scoped,
- * so it does not invalidate the server list. */
+/** Live fleet enrollment keys (admin). Many may coexist. */
+export function useFleetTokens(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.fleetTokens,
+    queryFn: () => api<FleetTokenSummary[]>("/api/fleet-tokens"),
+    enabled,
+  })
+}
+
+/** Mint a reusable fleet enrollment key (admin only). */
 export function useCreateFleetToken() {
+  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (req: { ttl_hours: number; max_uses: number | null }) =>
       api<FleetTokenResponse>("/api/fleet-tokens", {
         method: "POST",
         body: JSON.stringify(req),
       }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.fleetTokens }),
     onError: (err) => {
       toast.error(err instanceof ApiError ? err.message : "Failed to mint fleet key")
+    },
+  })
+}
+
+/** Delete (revoke) a fleet key — works even before it expires. */
+export function useDeleteFleetToken() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      api<void>(`/api/fleet-tokens/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      toast.success("Fleet key deleted")
+      queryClient.invalidateQueries({ queryKey: queryKeys.fleetTokens })
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : "Failed to delete fleet key")
     },
   })
 }

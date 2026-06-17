@@ -442,6 +442,18 @@ export interface FleetTokenResponse {
   max_uses: number | null
 }
 
+/** A live fleet key in the management list (GET /api/fleet-tokens). The raw
+ * token is never returned again — only this metadata. Many may coexist. */
+export interface FleetTokenSummary {
+  id: string
+  created_by_name: string
+  created_at: string
+  expires_at: string
+  max_uses: number | null
+  uses: number
+  expired: boolean
+}
+
 /** One row of the append-only audit trail (GET /api/audit). Mirrors
  * shared::dto::AuditLogEntry. `actor_name` is resolved server-side;
  * null for agent/system actors. `detail` is the raw JSON recorded with

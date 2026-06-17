@@ -88,7 +88,14 @@ pub fn router(state: AppState) -> Router {
             "/api/servers/{server_id}/enrollment-token",
             post(servers::regenerate_token),
         )
-        .route("/api/fleet-tokens", post(servers::create_fleet_token))
+        .route(
+            "/api/fleet-tokens",
+            get(servers::list_fleet_tokens).post(servers::create_fleet_token),
+        )
+        .route(
+            "/api/fleet-tokens/{id}",
+            axum::routing::delete(servers::delete_fleet_token),
+        )
         .route(
             "/api/servers/{server_id}/containers/{container_id}/adopt",
             post(servers::adopt_container),

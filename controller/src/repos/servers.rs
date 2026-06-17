@@ -175,6 +175,55 @@ pub async fn issue_fleet_token(
     Ok((token, expires_at))
 }
 
+/// List all live FLEET keys (never the raw token — shown once at mint).
+/// Many may coexist; minting one does not revoke the others.
+pub async fn list_fleet_tokens(
+    pool: &MySqlPool,
+) -> Result<Vec<foundry_shared::dto::FleetTokenSummary>, AppError> {
+    let now = Utc::now().naive_utc();
+    let rows = sqlx::query!(
+        r#"SELECT t.id AS "id: Uuid", u.display_name AS created_by_name,
+                  t.created_at, t.expires_at,
+                  t.max_uses AS "max_uses: u32", t.uses AS "uses!: u32",
+                  (t.expires_at <= ?) AS "expired!: bool"
+           FROM enrollment_tokens t
+           JOIN users u ON u.id = t.created_by
+           WHERE t.kind = 'FLEET'
+           ORDER BY t.created_at DESC"#,
+        now,
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| foundry_shared::dto::FleetTokenSummary {
+            id: r.id,
+            created_by_name: r.created_by_name,
+            created_at: r.created_at.and_utc(),
+            expires_at: r.expires_at.and_utc(),
+            max_uses: r.max_uses,
+            uses: r.uses,
+            expired: r.expired,
+        })
+        .collect())
+}
+
+/// Delete (revoke) a FLEET key — usable anytime, even before it expires.
+/// Hard delete: a fleet key is not a per-server consumption record, so
+/// nothing references it.
+pub async fn delete_fleet_token(pool: &MySqlPool, id: Uuid) -> Result<(), AppError> {
+    let res = sqlx::query!(
+        "DELETE FROM enrollment_tokens WHERE id = ? AND kind = 'FLEET'",
+        id,
+    )
+    .execute(pool)
+    .await?;
+    if res.rows_affected() == 0 {
+        return Err(AppError::NotFound("fleet key not found"));
+    }
+    Ok(())
+}
+
 pub struct EnrolledAgent {
     pub agent_id: Uuid,
     pub agent_secret: String,

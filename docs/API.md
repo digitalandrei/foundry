@@ -39,7 +39,9 @@ user's GitLab account on the instance that owns the resource.
 | `GET /api/servers/{id}/metrics?minutes=N` | Telemetry series (30s samples, 24h retention; N clamped 5–1440) | ✅ live |
 | `POST /api/servers` | Create a **named** server (GitLab-agent style) — returns the one-time registration command — admin | ✅ live |
 | `POST /api/servers/{id}/enrollment-token` | Re-mint the token (revokes unused older ones) — admin | ✅ live |
-| `POST /api/fleet-tokens` | Mint a reusable fleet enrollment key `{ttl_hours, max_uses?}` → `{token, command, expires_at, max_uses}` (shown once) — admin | ✅ live (0.42.0) |
+| `GET /api/fleet-tokens` | List live fleet keys (metadata only — id, creator, created/expires, uses/max, expired flag; never the raw token); many may coexist — admin | ✅ live (0.43.0) |
+| `POST /api/fleet-tokens` | Mint a reusable fleet enrollment key `{ttl_hours, max_uses?}` → `{token, command, expires_at, max_uses}` (token shown once) — admin | ✅ live (0.42.0) |
+| `DELETE /api/fleet-tokens/{id}` | Delete (revoke) a fleet key, even before it expires; enrolled hosts stay enrolled — admin | ✅ live (0.43.0) |
 | `POST /api/servers/{id}/containers/{container_id}/adopt` | Adopt an external (unmanaged) container occupying a GPU slot into a RUNNING deployment → `DeploymentSummary` — admin | ✅ live (0.42.0) |
 | `GET /api/deployments` | Deployments with ports/state/uptime (REMOVED filtered out; latest 200); HTTP/S ports carry their published `hostname`; `status_detail` carries live deploy progress (in-memory overlay), `container_id` joins telemetry | ✅ live |
 | `GET /api/deployments/{id}` | Detail for the slot dialog: summary (flattened) + `mounts` (volume name/host path/container path/ro) + `env` **names** (`is_secret` flagged — values never returned) | ✅ live |

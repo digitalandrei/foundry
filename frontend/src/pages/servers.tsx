@@ -4,7 +4,7 @@ import { ContainerIcon, KeyRoundIcon, ServerIcon } from "lucide-react"
 
 import { EmptyState } from "@/components/empty-state"
 import { EnrollServerDialog, RegistrationCommand } from "@/components/enroll-server-dialog"
-import { FleetKeyDialog } from "@/components/fleet-key-dialog"
+import { FleetKeysSection } from "@/components/fleet-keys-section"
 import { useMe } from "@/hooks/use-auth"
 import { useRegenerateToken, useServers } from "@/hooks/use-servers"
 import { formatRelative } from "@/lib/format"
@@ -38,15 +38,11 @@ export function ServersPage() {
   const isAdmin = me.data?.is_admin ?? false
 
   return (
+    <div className="space-y-4">
     <Card>
       <CardHeader className="flex-row items-center justify-between">
         <CardTitle className="text-base">Servers</CardTitle>
-        {isAdmin ? (
-          <div className="flex items-center gap-2">
-            <FleetKeyDialog />
-            <EnrollServerDialog />
-          </div>
-        ) : null}
+        {isAdmin ? <EnrollServerDialog /> : null}
       </CardHeader>
       <CardContent>
         {servers.isPending ? (
@@ -146,5 +142,7 @@ export function ServersPage() {
         </Dialog>
       </CardContent>
     </Card>
+    {isAdmin ? <FleetKeysSection /> : null}
+    </div>
   )
 }
