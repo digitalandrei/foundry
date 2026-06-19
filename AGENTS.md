@@ -46,6 +46,8 @@ routing layer in `docs/ai/`, then load only what the task needs.
 - `.claude/agents/docker-nvidia.md` — GPU assignment, Container Toolkit, MIG
 - `.claude/agents/security.md` — auth posture, secrets, audit integrity
 - `.claude/agents/devops.md` — nginx/Cloudflare, systemd, ops
+- `.claude/agents/architect.md` — end-of-session codebase audit + handoff
+  plans (runs the `improve` skill; writes to `advisor-plans/`)
 
 ## Deep References (load on need)
 

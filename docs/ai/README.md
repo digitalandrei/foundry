@@ -35,6 +35,8 @@ Specialist routing:
 - Docker Engine API + NVIDIA runtime details → `.claude/agents/docker-nvidia.md`
 - Auth, tokens, audit, threat-model questions → `.claude/agents/security.md`
 - Deploy, systemd, nginx, troubleshooting → `.claude/agents/devops.md`
+- End-of-session codebase audit + handoff plans → `.claude/agents/architect.md`
+  (runs the `improve` skill; output in `advisor-plans/`)
 
 ## Phase Work
 

@@ -14,7 +14,8 @@ Do not treat this file as a monolithic first-read brief.
 ## Specialist Files
 
 `.claude/agents/`: controller, gpu-agent, frontend, gitlab-integration,
-mysql-schema, docker-nvidia, security, devops.
+mysql-schema, docker-nvidia, security, devops, architect (end-of-session
+audit + handoff plans, via the `improve` skill).
 
 ## Shared Knowledge
 
