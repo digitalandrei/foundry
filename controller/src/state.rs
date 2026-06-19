@@ -29,3 +29,36 @@ pub struct AppState {
     /// `progress`: short sync sections only.
     pub shells: crate::shell::ShellRegistry,
 }
+
+/// Lock an in-memory cache mutex, recovering the guard if a previous holder
+/// panicked. `progress` and `shells` are ephemeral caches (transient by
+/// definition — see their field docs); a poisoned lock must never cascade
+/// into failing every progress poll or shell session for the life of the
+/// process. The protected data is a plain map, so recovering it is safe.
+pub fn lock_recover<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::lock_recover;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    #[test]
+    fn lock_recover_survives_poison() {
+        let m: Mutex<HashMap<u32, u32>> = Mutex::new(HashMap::new());
+        // Poison the lock by panicking while holding the guard.
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut g = m.lock().unwrap();
+            g.insert(1, 1);
+            panic!("poison the lock");
+        }));
+        assert!(m.is_poisoned());
+        // A plain `.lock().expect()` would panic here; the helper recovers.
+        let mut g = lock_recover(&m);
+        assert_eq!(g.get(&1), Some(&1)); // data written before the panic survives
+        g.insert(2, 2);
+        assert_eq!(g.get(&2), Some(&2));
+    }
+}

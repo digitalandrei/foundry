@@ -101,7 +101,7 @@ async fn summary_of(state: &AppState, id: DeploymentId) -> Result<DeploymentSumm
 /// Overlay the in-memory live-progress text (AppState.progress) onto
 /// summaries fresh from the DB.
 fn overlay_progress(state: &AppState, deployments: &mut [DeploymentSummary]) {
-    let map = state.progress.lock().expect("progress lock");
+    let map = crate::state::lock_recover(&state.progress);
     for d in deployments.iter_mut() {
         d.status_detail = map.get(&d.id.0).cloned();
     }
@@ -211,7 +211,7 @@ pub async fn dismiss(
         return Err(AppError::Forbidden);
     }
     deployments::dismiss(&state.pool, id).await?;
-    state.progress.lock().expect("progress lock").remove(&id.0);
+    crate::state::lock_recover(&state.progress).remove(&id.0);
 
     audit::record(
         &state.pool,

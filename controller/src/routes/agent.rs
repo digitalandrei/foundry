@@ -252,7 +252,7 @@ pub async fn tasks_result(
     let deployment = crate::repos::tasks::complete(&state.pool, ctx.server_id, &report).await?;
     if let Some(id) = deployment {
         // The task is done either way — live progress text is stale.
-        state.progress.lock().expect("progress lock").remove(&id.0);
+        crate::state::lock_recover(&state.progress).remove(&id.0);
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -268,7 +268,7 @@ pub async fn tasks_progress(
 ) -> Result<StatusCode, AppError> {
     let deployment = crate::repos::tasks::progress(&state.pool, ctx.server_id, &report).await?;
     if let Some(id) = deployment {
-        let mut map = state.progress.lock().expect("progress lock");
+        let mut map = crate::state::lock_recover(&state.progress);
         match &report.detail {
             Some(d) => {
                 map.insert(id.0, d.chars().take(256).collect());

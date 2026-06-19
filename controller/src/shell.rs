@@ -122,7 +122,7 @@ async fn browser_session(
     let (to_agent_tx, to_agent_rx) = mpsc::channel::<Frame>(CHANNEL_CAP);
     let (to_browser_tx, mut to_browser_rx) = mpsc::channel::<Frame>(CHANNEL_CAP);
     let attached = Arc::new(Notify::new());
-    state.shells.lock().expect("shells lock").insert(
+    crate::state::lock_recover(&state.shells).insert(
         session_id,
         PendingShell {
             server_id,
@@ -210,7 +210,7 @@ pub async fn agent_next(
 
 /// Claim the first undispatched session for a server (short sync section).
 fn take_pending(registry: &ShellRegistry, server_id: ServerId) -> Option<ShellRequest> {
-    let mut reg = registry.lock().expect("shells lock");
+    let mut reg = crate::state::lock_recover(registry);
     // Opportunistic TTL sweep of sessions whose browser vanished pre-bridge.
     reg.retain(|_, p| p.dispatched || p.created_at.elapsed() < SESSION_TTL);
     let (id, pending) = reg
@@ -233,7 +233,7 @@ pub async fn agent_attach(
     Path(session_id): Path<Uuid>,
 ) -> Result<Response, AppError> {
     let (to_agent_rx, to_browser_tx, attached) = {
-        let mut reg = state.shells.lock().expect("shells lock");
+        let mut reg = crate::state::lock_recover(&state.shells);
         let p = reg
             .get_mut(&session_id)
             .ok_or(AppError::NotFound("shell session not found"))?;
