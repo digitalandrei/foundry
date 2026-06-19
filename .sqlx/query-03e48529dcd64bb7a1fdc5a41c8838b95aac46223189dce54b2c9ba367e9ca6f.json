@@ -1,0 +1,84 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT g.id AS \"gpu_id: Uuid\", g.display_index AS gpu_index,\n                      g.memory_mb, g.mig_enabled AS \"mig_enabled: bool\",\n                      gs.id AS \"slot_id?: Uuid\", gs.state AS \"slot_state?\",\n                      (SELECT COUNT(*) FROM deployment_slots ds\n                       JOIN deployments d ON d.id = ds.deployment_id\n                       WHERE ds.gpu_slot_id = gs.id\n                         AND d.state NOT IN ('REMOVED','REPLACED','FAILED')\n                         AND (d.gpu_group_id IS NULL OR d.gpu_group_id <> ?)) AS \"foreign_occupants!: i64\"\n               FROM gpu_group_members m\n               JOIN gpus g ON g.id = m.gpu_id\n               LEFT JOIN gpu_slots gs ON gs.gpu_id = g.id AND gs.slot_type = 'FULL_GPU'\n               WHERE m.group_id = ?\n               ORDER BY g.display_index",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "gpu_id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | PRIMARY_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "gpu_index",
+        "type_info": {
+          "type": "Long",
+          "flags": "NOT_NULL | UNSIGNED",
+          "max_size": 10
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "memory_mb",
+        "type_info": {
+          "type": "Long",
+          "flags": "UNSIGNED",
+          "max_size": 10
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "mig_enabled: bool",
+        "type_info": {
+          "type": "Tiny",
+          "flags": "NOT_NULL",
+          "max_size": 1
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "slot_id?: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "PRIMARY_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "slot_state?",
+        "type_info": {
+          "type": "VarString",
+          "flags": "MULTIPLE_KEY",
+          "max_size": 64
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "foreign_occupants!: i64",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "BINARY",
+          "max_size": 21
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "03e48529dcd64bb7a1fdc5a41c8838b95aac46223189dce54b2c9ba367e9ca6f"
+}

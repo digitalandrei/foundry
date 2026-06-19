@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE gpu_slots gs JOIN gpus g ON g.id = gs.gpu_id\n           SET gs.state = 'OFFLINE', gs.updated_at = ?\n           WHERE g.server_id = ? AND gs.state <> 'OFFLINE'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "d0132d1b5ba5df6df2b54e7f65803b4de04259151ed7a0018812151f3efb59df"
+}

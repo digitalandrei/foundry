@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO server_containers\n               (id, server_id, container_id, name, image, state, status, managed, ports,\n                gpu_uuids, mounts, reported_at)\n               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 12
+    },
+    "nullable": []
+  },
+  "hash": "8b8dec74be45c5809c20cfab1faa0126f2226c286ce90a8e59386cdc6a64ef07"
+}

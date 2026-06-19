@@ -1,0 +1,134 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT s.id AS \"id: Uuid\", s.name, s.hostname, s.status,\n                  s.last_heartbeat_at, s.os_version,\n                  s.app_publishing_ready AS \"app_publishing_ready: bool\", s.nginx_status,\n                  s.docker_ok AS \"docker_ok: bool\",\n                  a.agent_version, a.id AS \"agent_id: Uuid\",\n                  COALESCE(c.running, 0) AS \"containers_running!: i64\"\n           FROM servers s\n           LEFT JOIN server_agents a ON a.server_id = s.id\n           LEFT JOIN (SELECT server_id, COUNT(*) AS running FROM server_containers\n                      WHERE state = 'running' GROUP BY server_id) c ON c.server_id = s.id\n           WHERE s.id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | PRIMARY_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | UNIQUE_KEY | NO_DEFAULT_VALUE",
+          "max_size": 1020
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "hostname",
+        "type_info": {
+          "type": "VarString",
+          "flags": "UNIQUE_KEY",
+          "max_size": 1020
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "status",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | MULTIPLE_KEY",
+          "max_size": 64
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "last_heartbeat_at",
+        "type_info": {
+          "type": "Datetime",
+          "flags": "BINARY",
+          "max_size": 26
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "os_version",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 512
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "app_publishing_ready: bool",
+        "type_info": {
+          "type": "Tiny",
+          "flags": "",
+          "max_size": 1
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "nginx_status",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 128
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "docker_ok: bool",
+        "type_info": {
+          "type": "Tiny",
+          "flags": "",
+          "max_size": 1
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "agent_version",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 256
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "agent_id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "PRIMARY_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "containers_running!: i64",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "NOT_NULL | BINARY",
+          "max_size": 21
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "9dc574c33e4b149c52d85a78ddb2e0dc255dbdc82f6b0e6ea62ad6a5bb41b7de"
+}

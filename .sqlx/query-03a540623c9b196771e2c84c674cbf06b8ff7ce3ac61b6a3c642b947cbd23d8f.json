@@ -1,0 +1,34 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT state, adopted_container_id FROM deployments WHERE id = ? FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "state",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | MULTIPLE_KEY",
+          "max_size": 128
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "adopted_container_id",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 512
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "03a540623c9b196771e2c84c674cbf06b8ff7ce3ac61b6a3c642b947cbd23d8f"
+}

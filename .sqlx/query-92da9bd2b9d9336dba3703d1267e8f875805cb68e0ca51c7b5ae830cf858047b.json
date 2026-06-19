@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE gpu_slots gs\n           JOIN deployment_slots ds ON ds.gpu_slot_id = gs.id\n         SET gs.state = ?, gs.updated_at = ?\n         WHERE ds.deployment_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "92da9bd2b9d9336dba3703d1267e8f875805cb68e0ca51c7b5ae830cf858047b"
+}

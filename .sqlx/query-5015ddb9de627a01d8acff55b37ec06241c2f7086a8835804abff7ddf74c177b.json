@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "DELETE FROM gitlab_instances WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "5015ddb9de627a01d8acff55b37ec06241c2f7086a8835804abff7ddf74c177b"
+}

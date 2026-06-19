@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT COUNT(*) FROM deployments d\n           WHERE d.gpu_group_id = ? AND d.state NOT IN ('REMOVED','REPLACED','FAILED')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "COUNT(*)",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "NOT_NULL | BINARY",
+          "max_size": 21
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "371b09d23e0359485acf75ce0f6324ef57dbc12fcbe810e14faffd8d1df3345e"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE gpu_groups SET max_occupants = ?, updated_at = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "34ca8efd8036146bdd813feff3cf40b764a8685a7c0fc47924cca0db69091a2e"
+}

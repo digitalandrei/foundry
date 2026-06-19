@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE server_agents SET agent_version = ?, updated_at = ? WHERE server_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "6c0469d7cc163683aa399bfdbae99e0fb536d74ffb64b9e3ec23ea33b1516268"
+}

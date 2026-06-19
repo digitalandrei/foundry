@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE deployments SET gpu_group_id = NULL, updated_at = ? WHERE gpu_group_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "2752a5fd9c0f4b7e126718ca84dc7e11d876b8672c5f1eb606829fd922531289"
+}

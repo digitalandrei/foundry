@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "DELETE FROM server_agents WHERE server_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "6b6856aa497b7e0ad839143b5d4d99cc31c94b5afb77f925acfa9fbe03872de5"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO gitlab_projects\n                   (id, gitlab_instance_id, gitlab_project_id, path_with_namespace,\n                    name, avatar_url, last_synced_at, created_at, updated_at)\n                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": []
+  },
+  "hash": "382b717a795163256db019d2178b4466e6b62fc27fdda1b0cd326f1ed8950a12"
+}

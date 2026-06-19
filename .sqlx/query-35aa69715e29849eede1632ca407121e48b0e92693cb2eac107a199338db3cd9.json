@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO deployment_env\n               (id, deployment_id, env_key, env_value, is_secret, created_at)\n               VALUES (?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "35aa69715e29849eede1632ca407121e48b0e92693cb2eac107a199338db3cd9"
+}

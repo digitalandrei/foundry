@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE users SET display_name = ?, email = ?, avatar_url = ?,\n                       is_admin = (is_admin OR ?), last_login_at = ?, updated_at = ?\n                   WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "1c9486fa4f22250890c117b1c8ee855b3cd8162b8dae3388e739c2c86c093bb4"
+}

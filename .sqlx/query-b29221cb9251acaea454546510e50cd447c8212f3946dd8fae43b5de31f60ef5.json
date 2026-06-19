@@ -1,0 +1,34 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT gs.id AS \"slot_id: Uuid\",\n                  COALESCE(gs.mig_uuid, g.gpu_uuid) AS \"device_uuid!\"\n           FROM deployment_slots ds\n           JOIN gpu_slots gs ON gs.id = ds.gpu_slot_id\n           JOIN gpus g ON g.id = gs.gpu_id\n           WHERE ds.deployment_id = ?\n           ORDER BY g.display_index, gs.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "slot_id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | PRIMARY_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "device_uuid!",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL",
+          "max_size": 256
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "b29221cb9251acaea454546510e50cd447c8212f3946dd8fae43b5de31f60ef5"
+}

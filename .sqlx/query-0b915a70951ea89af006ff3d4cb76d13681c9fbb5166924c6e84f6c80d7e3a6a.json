@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO audit_logs\n           (id, actor_type, actor_id, action, subject_type, subject_id, detail, ip_address, created_at)\n           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": []
+  },
+  "hash": "0b915a70951ea89af006ff3d4cb76d13681c9fbb5166924c6e84f6c80d7e3a6a"
+}

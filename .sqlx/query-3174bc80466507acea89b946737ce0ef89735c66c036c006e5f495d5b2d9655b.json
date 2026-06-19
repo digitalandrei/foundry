@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE gpus SET server_id = ?, display_index = ?, model = ?, memory_mb = ?,\n                     mig_enabled = ?, last_seen_at = ?, updated_at = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "3174bc80466507acea89b946737ce0ef89735c66c036c006e5f495d5b2d9655b"
+}

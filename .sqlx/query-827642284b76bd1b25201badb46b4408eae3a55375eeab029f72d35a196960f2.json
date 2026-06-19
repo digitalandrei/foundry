@@ -1,0 +1,44 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT a.gitlab_instance_id AS \"instance_id: Uuid\", a.username, i.name AS instance_name\n           FROM gitlab_accounts a\n           JOIN gitlab_instances i ON i.id = a.gitlab_instance_id\n           WHERE a.user_id = ?\n           ORDER BY i.name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "instance_id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | MULTIPLE_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 1020
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "instance_name",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | UNIQUE_KEY | NO_DEFAULT_VALUE",
+          "max_size": 400
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "827642284b76bd1b25201badb46b4408eae3a55375eeab029f72d35a196960f2"
+}

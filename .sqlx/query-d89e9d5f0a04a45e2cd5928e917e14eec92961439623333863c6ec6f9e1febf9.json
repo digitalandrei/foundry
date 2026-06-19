@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE servers SET status = 'OFFLINE', updated_at = ?\n                 WHERE status = 'ONLINE' AND (last_heartbeat_at IS NULL OR last_heartbeat_at < ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "d89e9d5f0a04a45e2cd5928e917e14eec92961439623333863c6ec6f9e1febf9"
+}

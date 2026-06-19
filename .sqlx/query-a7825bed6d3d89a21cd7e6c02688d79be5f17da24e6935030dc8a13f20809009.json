@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "DELETE FROM server_containers WHERE server_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "a7825bed6d3d89a21cd7e6c02688d79be5f17da24e6935030dc8a13f20809009"
+}

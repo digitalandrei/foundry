@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE agent_tasks SET state = 'DISPATCHED', dispatched_at = ?,\n             attempts = attempts + 1, updated_at = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "6317de4ce062e250233aa0556e410208a747a23ae2d9b82a8fe23f84e09bd15a"
+}

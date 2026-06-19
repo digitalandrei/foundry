@@ -1,0 +1,94 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT d.server_id AS \"server_id: Uuid\", d.image_ref, d.container_name,\n                  d.gpu_slot_id AS \"slot_id: Uuid\", gs.name AS slot_name,\n                  d.gpu_group_id AS \"gpu_group_id: Uuid\",\n                  d.mem_limit_mb AS \"mem_limit_mb?: u32\",\n                  COALESCE(gs.mig_uuid, g.gpu_uuid) AS \"gpu_device_uuid!\"\n           FROM deployments d\n           JOIN gpu_slots gs ON gs.id = d.gpu_slot_id\n           JOIN gpus g ON g.id = gs.gpu_id\n           WHERE d.id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "server_id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | MULTIPLE_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "image_ref",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 4096
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "container_name",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 1020
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "slot_id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | MULTIPLE_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "slot_name",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 128
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "gpu_group_id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "MULTIPLE_KEY | BINARY",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "mem_limit_mb?: u32",
+        "type_info": {
+          "type": "Long",
+          "flags": "UNSIGNED",
+          "max_size": 10
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "gpu_device_uuid!",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL",
+          "max_size": 256
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "629506ecb2745af277330741d66be9984bae198461a949d32eb76695ff8fbd15"
+}

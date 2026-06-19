@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "DELETE FROM server_metrics WHERE sampled_at < ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "466d7df9019fd4193b03ea7747a174229dbe1d91a69b6c7b2165eed0fff83d5f"
+}

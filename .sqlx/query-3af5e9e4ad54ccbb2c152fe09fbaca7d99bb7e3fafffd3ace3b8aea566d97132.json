@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE agent_tasks SET state = ?, completed_at = ?, updated_at = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "3af5e9e4ad54ccbb2c152fe09fbaca7d99bb7e3fafffd3ace3b8aea566d97132"
+}

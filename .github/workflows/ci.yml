@@ -1,0 +1,54 @@
+# Enforced verification gate — a literal mirror of scripts/check.sh.
+# If check.sh gains a step, add it here in the same commit, or CI lies.
+#
+# The Rust job needs no MySQL: sqlx compiles against the committed offline
+# cache in .sqlx/ (SQLX_OFFLINE=true). Regenerate it with
+# `cargo sqlx prepare --workspace` whenever a query! changes.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    env:
+      SQLX_OFFLINE: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: test
+        run: cargo test
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: install
+        run: npm ci
+        working-directory: frontend
+      - name: lint
+        run: npm run lint
+        working-directory: frontend
+      - name: typecheck
+        run: npm run typecheck
+        working-directory: frontend
+      - name: test
+        run: npm run test:run
+        working-directory: frontend
+      - name: build
+        run: npm run build
+        working-directory: frontend

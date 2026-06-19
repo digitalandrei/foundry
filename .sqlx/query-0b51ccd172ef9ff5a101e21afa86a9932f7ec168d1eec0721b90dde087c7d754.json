@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE gpu_slots SET gpu_id = ?, name = ?, mig_profile = ?, capacity_mb = ?,\n                     state = IF(state = 'OFFLINE', 'FREE', state),\n                     last_seen_at = ?, updated_at = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "0b51ccd172ef9ff5a101e21afa86a9932f7ec168d1eec0721b90dde087c7d754"
+}

@@ -1,0 +1,74 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT gg.id AS \"id: Uuid\", gg.name, gg.created_at,\n                  gg.max_occupants AS \"max_occupants: u32\",\n                  u.display_name AS created_by_name,\n                  (SELECT COUNT(*) FROM deployments d\n                   WHERE d.gpu_group_id = gg.id\n                     AND d.state NOT IN ('REMOVED','REPLACED','FAILED')) AS \"occupants!: i64\"\n           FROM gpu_groups gg\n           JOIN users u ON u.id = gg.created_by\n           WHERE gg.server_id = ?\n           ORDER BY gg.name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | PRIMARY_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 256
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": {
+          "type": "Datetime",
+          "flags": "NOT_NULL | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 26
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "max_occupants: u32",
+        "type_info": {
+          "type": "Long",
+          "flags": "NOT_NULL | UNSIGNED",
+          "max_size": 10
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "created_by_name",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 1020
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "occupants!: i64",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "BINARY",
+          "max_size": 21
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "d8f987641fe3da2107e17dc888ac412cf3b8bddf378aead636256558128e4de1"
+}

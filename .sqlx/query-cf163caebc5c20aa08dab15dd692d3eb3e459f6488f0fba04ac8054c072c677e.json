@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT g.server_id AS \"server_id: uuid::Uuid\"\n           FROM gpu_slots gs JOIN gpus g ON g.id = gs.gpu_id\n           WHERE gs.id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "server_id: uuid::Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | MULTIPLE_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "cf163caebc5c20aa08dab15dd692d3eb3e459f6488f0fba04ac8054c072c677e"
+}

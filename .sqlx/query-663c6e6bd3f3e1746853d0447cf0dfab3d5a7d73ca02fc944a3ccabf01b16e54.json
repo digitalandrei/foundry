@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO enrollment_tokens\n           (id, token_hash, server_id, created_by, expires_at, created_at, updated_at)\n           VALUES (?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "663c6e6bd3f3e1746853d0447cf0dfab3d5a7d73ca02fc944a3ccabf01b16e54"
+}

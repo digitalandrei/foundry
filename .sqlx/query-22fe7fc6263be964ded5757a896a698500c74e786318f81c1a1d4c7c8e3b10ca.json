@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE gitlab_instances\n                   SET name = ?, base_url = ?, registry_url = ?, oauth_client_id = ?,\n                       oauth_client_secret = ?, enabled = ?, updated_at = ?\n                   WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "22fe7fc6263be964ded5757a896a698500c74e786318f81c1a1d4c7c8e3b10ca"
+}

@@ -1,0 +1,44 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT host_path, container_path, read_only AS \"read_only: bool\"\n           FROM deployment_volumes WHERE deployment_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "host_path",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 4096
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "container_path",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 4096
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "read_only: bool",
+        "type_info": {
+          "type": "Tiny",
+          "flags": "NOT_NULL",
+          "max_size": 1
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3ba562b639cf2c809e6d5a48a80d02aef39fdc9183f56288e836d62a0cdda84d"
+}

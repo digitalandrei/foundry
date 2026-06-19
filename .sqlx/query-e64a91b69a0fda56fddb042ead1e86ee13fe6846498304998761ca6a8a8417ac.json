@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO gpu_slots (id, gpu_id, slot_type, mig_uuid, mig_profile, name,\n                     capacity_mb, state, last_seen_at, created_at, updated_at)\n                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 11
+    },
+    "nullable": []
+  },
+  "hash": "e64a91b69a0fda56fddb042ead1e86ee13fe6846498304998761ca6a8a8417ac"
+}

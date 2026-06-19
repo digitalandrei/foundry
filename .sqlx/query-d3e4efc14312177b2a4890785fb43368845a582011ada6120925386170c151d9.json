@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO deployment_events\n           (id, deployment_id, from_state, to_state, actor_type, actor_id, detail, created_at)\n           VALUES (?, ?, NULL, 'RUNNING', 'User', ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "d3e4efc14312177b2a4890785fb43368845a582011ada6120925386170c151d9"
+}

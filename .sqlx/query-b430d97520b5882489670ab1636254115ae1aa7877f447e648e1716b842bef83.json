@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO agent_task_results (id, agent_task_id, success, detail, reported_at)\n           VALUES (?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "b430d97520b5882489670ab1636254115ae1aa7877f447e648e1716b842bef83"
+}

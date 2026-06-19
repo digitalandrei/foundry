@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT username FROM local_credentials WHERE user_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | UNIQUE_KEY | NO_DEFAULT_VALUE",
+          "max_size": 256
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "fb935470d2aa07f8bfcb67134039935533d1d1d3940c8c78d22f849acd91afed"
+}

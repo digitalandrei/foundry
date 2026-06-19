@@ -1,0 +1,54 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT gs.name AS slot_name, gs.state,\n                          gs.max_occupants AS \"max_occupants: u32\",\n                          g.server_id AS \"server_id: Uuid\"\n                   FROM gpu_slots gs JOIN gpus g ON g.id = gs.gpu_id\n                   WHERE gs.id = ? FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "slot_name",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 128
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "state",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | MULTIPLE_KEY",
+          "max_size": 64
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "max_occupants: u32",
+        "type_info": {
+          "type": "Long",
+          "flags": "NOT_NULL | UNSIGNED",
+          "max_size": 10
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "server_id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | MULTIPLE_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "054526f2167f34cf79c2c2c3ff9dc1f9f031850601edd93533ae5a6173d6e6fe"
+}

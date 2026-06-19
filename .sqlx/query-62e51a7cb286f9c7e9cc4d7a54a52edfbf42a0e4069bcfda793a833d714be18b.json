@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE servers SET hostname = ?, os_version = ?, updated_at = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "62e51a7cb286f9c7e9cc4d7a54a52edfbf42a0e4069bcfda793a833d714be18b"
+}

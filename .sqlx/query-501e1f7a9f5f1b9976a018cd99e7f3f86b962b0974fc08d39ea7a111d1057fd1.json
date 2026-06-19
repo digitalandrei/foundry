@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT gs.id AS \"id: Uuid\"\n               FROM gpu_slots gs JOIN gpus g ON g.id = gs.gpu_id\n               WHERE g.server_id = ? AND COALESCE(gs.mig_uuid, g.gpu_uuid) = ?\n               FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | PRIMARY_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "501e1f7a9f5f1b9976a018cd99e7f3f86b962b0974fc08d39ea7a111d1057fd1"
+}

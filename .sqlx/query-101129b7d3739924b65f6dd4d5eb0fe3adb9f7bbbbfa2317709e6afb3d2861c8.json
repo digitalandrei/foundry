@@ -1,0 +1,34 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT docker_version, nvidia_driver_version FROM servers WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "docker_version",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 256
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "nvidia_driver_version",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 256
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "101129b7d3739924b65f6dd4d5eb0fe3adb9f7bbbbfa2317709e6afb3d2861c8"
+}

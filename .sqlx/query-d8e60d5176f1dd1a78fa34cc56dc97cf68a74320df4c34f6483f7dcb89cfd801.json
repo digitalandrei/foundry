@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE enrollment_tokens SET expires_at = ?, updated_at = ?\n         WHERE server_id = ? AND used_at IS NULL AND expires_at > ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "d8e60d5176f1dd1a78fa34cc56dc97cf68a74320df4c34f6483f7dcb89cfd801"
+}

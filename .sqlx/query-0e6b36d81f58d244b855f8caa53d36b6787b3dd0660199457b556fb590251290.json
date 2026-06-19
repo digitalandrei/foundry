@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO deployments\n           (id, gpu_slot_id, server_id, image_ref, created_by, state, container_name,\n            container_id, adopted_container_id, started_at, created_at, updated_at)\n           VALUES (?, ?, ?, ?, ?, 'RUNNING', ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 11
+    },
+    "nullable": []
+  },
+  "hash": "0e6b36d81f58d244b855f8caa53d36b6787b3dd0660199457b556fb590251290"
+}

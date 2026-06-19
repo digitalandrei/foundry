@@ -1,0 +1,44 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT sm.server_id AS \"server_id: Uuid\", sm.sampled_at, sm.sample\n           FROM server_metrics sm\n           JOIN (SELECT server_id, MAX(sampled_at) AS max_at\n                 FROM server_metrics GROUP BY server_id) newest\n             ON newest.server_id = sm.server_id AND newest.max_at = sm.sampled_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "server_id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | MULTIPLE_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "sampled_at",
+        "type_info": {
+          "type": "Datetime",
+          "flags": "NOT_NULL | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 26
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "sample",
+        "type_info": {
+          "type": "Blob",
+          "flags": "NOT_NULL | BLOB | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 4294967295
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b118d610179f24231ad6ef8fc40d9d43e2dfd1b82a5f2acc510cb4d1bfa02112"
+}

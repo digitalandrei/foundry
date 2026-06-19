@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO gpu_groups (id, server_id, name, created_by, created_at, updated_at)\n           VALUES (?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "74786a6d991740bc62973facfa1d931580b9c66b256e566bed0e78c4fed452b4"
+}

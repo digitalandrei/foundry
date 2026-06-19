@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE registry_repositories\n                   SET path = ?, last_synced_at = ?, updated_at = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "29e5e90e1f95a24fce796cb23c072541ea03206c2c4851ab0a845ae84d70ade0"
+}

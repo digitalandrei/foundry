@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO registry_tags\n                   (id, registry_repository_id, name, digest, size_bytes, pushed_at,\n                    last_synced_at, created_at, updated_at)\n                   VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "b0d779582c49bc0fafa6272d89e1d2d112c674c8ddc3e730707002ea108d3ea7"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE deployments SET state = ?, updated_at = ?,\n             started_at = IF(? = 'RUNNING' AND started_at IS NULL, ?, started_at),\n             stopped_at = IF(? IN ('STOPPED','REMOVED','REPLACED','FAILED'), ?, stopped_at)\n         WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "d0097d32a58842be8b9e88a227cb3ab2182da33a35b01581bb1bba51e20aa8c4"
+}

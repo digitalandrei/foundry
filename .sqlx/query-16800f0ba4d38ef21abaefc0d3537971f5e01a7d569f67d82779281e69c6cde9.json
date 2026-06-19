@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO servers (id, name, hostname, status, created_at, updated_at)\n                   VALUES (?, ?, ?, 'OFFLINE', ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "16800f0ba4d38ef21abaefc0d3537971f5e01a7d569f67d82779281e69c6cde9"
+}

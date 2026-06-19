@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO agent_tasks\n           (id, server_id, deployment_id, task_type, payload, state, attempts, created_at, updated_at)\n           VALUES (?, ?, ?, ?, ?, 'QUEUED', 0, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "7b9f866aed966ed0c4b918d19398f0e2eb150c051c51784302e4cc9b5c6ca84e"
+}

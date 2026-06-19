@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT name FROM registry_tags WHERE registry_repository_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 1020
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ec0c12806e57a45e0c4db34821a8499d76d856292e4ab21a37fa9c63a92a8425"
+}

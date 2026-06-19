@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE local_credentials SET password_hash = ?, updated_at = ? WHERE username = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "11cdfd723ddb0450ece4de279bd915502fe2f297332f3e3526fc9b9e8f4c3065"
+}

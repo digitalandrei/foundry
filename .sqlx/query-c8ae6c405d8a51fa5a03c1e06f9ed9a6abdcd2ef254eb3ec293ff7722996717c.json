@@ -1,0 +1,44 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT replaced_by_deployment_id AS \"replaced_by: Uuid\", state,\n                  adopted_container_id\n           FROM deployments WHERE id = ? FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "replaced_by: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "MULTIPLE_KEY | BINARY",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "state",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | MULTIPLE_KEY",
+          "max_size": 128
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "adopted_container_id",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 512
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "c8ae6c405d8a51fa5a03c1e06f9ed9a6abdcd2ef254eb3ec293ff7722996717c"
+}

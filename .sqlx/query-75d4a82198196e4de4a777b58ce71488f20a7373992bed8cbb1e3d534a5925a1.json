@@ -1,0 +1,54 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT g.display_index AS gpu_index, g.mig_enabled AS \"mig_enabled: bool\",\n                      g.server_id AS \"server_id: Uuid\",\n                      EXISTS(SELECT 1 FROM gpu_slots gs\n                             WHERE gs.gpu_id = g.id AND gs.slot_type = 'FULL_GPU')\n                          AS \"has_full: bool\"\n               FROM gpus g WHERE g.id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "gpu_index",
+        "type_info": {
+          "type": "Long",
+          "flags": "NOT_NULL | UNSIGNED",
+          "max_size": 10
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "mig_enabled: bool",
+        "type_info": {
+          "type": "Tiny",
+          "flags": "NOT_NULL",
+          "max_size": 1
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "server_id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | MULTIPLE_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "has_full: bool",
+        "type_info": {
+          "type": "Long",
+          "flags": "NOT_NULL | BINARY",
+          "max_size": 1
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "75d4a82198196e4de4a777b58ce71488f20a7373992bed8cbb1e3d534a5925a1"
+}

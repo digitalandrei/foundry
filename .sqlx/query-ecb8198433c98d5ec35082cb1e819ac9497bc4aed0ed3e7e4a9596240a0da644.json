@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE deployment_volumes SET server_volume_id = NULL WHERE server_volume_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "ecb8198433c98d5ec35082cb1e819ac9497bc4aed0ed3e7e4a9596240a0da644"
+}

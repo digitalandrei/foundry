@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO gpu_group_members (group_id, gpu_id) VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "c4ba8191560787b49483ca90d5735739c7fae281f51f2717278701b6acd490d3"
+}

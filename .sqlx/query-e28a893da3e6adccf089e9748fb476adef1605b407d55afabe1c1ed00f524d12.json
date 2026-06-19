@@ -1,0 +1,54 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT name, image, gpu_uuids, managed AS \"managed: bool\"\n           FROM server_containers WHERE server_id = ? AND container_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 1020
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "image",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 4096
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "gpu_uuids",
+        "type_info": {
+          "type": "Blob",
+          "flags": "BLOB",
+          "max_size": 4294967295
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "managed: bool",
+        "type_info": {
+          "type": "Tiny",
+          "flags": "NOT_NULL",
+          "max_size": 1
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "e28a893da3e6adccf089e9748fb476adef1605b407d55afabe1c1ed00f524d12"
+}

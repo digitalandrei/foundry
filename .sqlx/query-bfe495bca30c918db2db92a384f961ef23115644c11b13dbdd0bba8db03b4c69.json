@@ -1,0 +1,34 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT server_id AS \"server_id: Uuid\", max_occupants AS \"max_occupants: u32\"\n           FROM gpu_groups WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "server_id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | MULTIPLE_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "max_occupants: u32",
+        "type_info": {
+          "type": "Long",
+          "flags": "NOT_NULL | UNSIGNED",
+          "max_size": 10
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "bfe495bca30c918db2db92a384f961ef23115644c11b13dbdd0bba8db03b4c69"
+}

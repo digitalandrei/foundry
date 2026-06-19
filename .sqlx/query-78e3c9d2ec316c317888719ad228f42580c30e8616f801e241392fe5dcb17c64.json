@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT is_admin AS \"is_admin: bool\" FROM users WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "is_admin: bool",
+        "type_info": {
+          "type": "Tiny",
+          "flags": "NOT_NULL",
+          "max_size": 1
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "78e3c9d2ec316c317888719ad228f42580c30e8616f801e241392fe5dcb17c64"
+}

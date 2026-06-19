@@ -1,0 +1,34 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT id AS \"id: Uuid\", adopted_container_id AS \"cid!\"\n           FROM deployments\n           WHERE server_id = ? AND adopted_container_id IS NOT NULL\n             AND state NOT IN ('REMOVED','REPLACED','FAILED','STOPPED')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | PRIMARY_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "cid!",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 512
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "f5f4e290be2b7d565859f9b4f1c626e366ab51d8fdbbadbf77ccc0684f5bc380"
+}

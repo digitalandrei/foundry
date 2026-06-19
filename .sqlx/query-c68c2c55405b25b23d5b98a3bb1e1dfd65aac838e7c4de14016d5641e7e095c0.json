@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "DELETE FROM gpu_group_members WHERE group_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "c68c2c55405b25b23d5b98a3bb1e1dfd65aac838e7c4de14016d5641e7e095c0"
+}

@@ -1,0 +1,54 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT sc.name, sc.image, sc.gpu_uuids, (sc.state = 'running') AS \"running: bool\"\n           FROM server_containers sc\n           WHERE sc.server_id = ? AND sc.managed = 0\n             AND NOT EXISTS (\n                 SELECT 1 FROM deployments d\n                 WHERE d.server_id = sc.server_id\n                   AND d.adopted_container_id = sc.container_id\n                   AND d.state NOT IN ('REMOVED','REPLACED','FAILED','STOPPED')\n             )\n           ORDER BY (sc.state = 'running') DESC, sc.name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 1020
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "image",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 4096
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "gpu_uuids",
+        "type_info": {
+          "type": "Blob",
+          "flags": "BLOB",
+          "max_size": 4294967295
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "running: bool",
+        "type_info": {
+          "type": "Long",
+          "flags": "NOT_NULL | BINARY",
+          "max_size": 1
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "7f98cfd0c5b75671579cfe1bd3e2ade0e42204f276517cf361fba9babf56e513"
+}

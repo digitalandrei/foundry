@@ -1,0 +1,44 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT t.id AS \"id: Uuid\", t.server_id AS \"server_id!: Uuid\", s.name\n           FROM enrollment_tokens t\n           JOIN servers s ON s.id = t.server_id\n           WHERE t.token_hash = ? AND t.used_at IS NULL AND t.expires_at > ?\n           FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | PRIMARY_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "server_id!: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "MULTIPLE_KEY | BINARY",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | UNIQUE_KEY | NO_DEFAULT_VALUE",
+          "max_size": 1020
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "6aa68bf47131b6c5424b9bc52163af874b96ceb00d41e2765408bd8abd1a8d37"
+}

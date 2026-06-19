@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE gpu_slots gs\n           JOIN gpus g ON g.id = gs.gpu_id\n           JOIN (\n               SELECT ds.gpu_slot_id AS slot_id,\n                      MIN(CASE d.state\n                            WHEN 'RUNNING' THEN 1\n                            WHEN 'STOPPING' THEN 2\n                            WHEN 'PULLING_IMAGE' THEN 3\n                            WHEN 'CREATING_CONTAINER' THEN 3\n                            WHEN 'STARTING' THEN 3\n                            ELSE 4 END) AS prio\n               FROM deployment_slots ds\n               JOIN deployments d ON d.id = ds.deployment_id\n                    AND d.state NOT IN ('REMOVED','REPLACED','FAILED')\n               GROUP BY ds.gpu_slot_id\n           ) occ ON occ.slot_id = gs.id\n           SET gs.state = CASE occ.prio\n                 WHEN 1 THEN 'RUNNING'\n                 WHEN 2 THEN 'STOPPING'\n                 WHEN 3 THEN 'DEPLOYING'\n                 ELSE 'RESERVED' END,\n               gs.updated_at = ?\n           WHERE g.server_id = ? AND gs.state = 'FREE'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "fd1e8e5590a2b5d6a61e0583402810099f6db9f3a1dcfc92f2c405c3a7010c7e"
+}

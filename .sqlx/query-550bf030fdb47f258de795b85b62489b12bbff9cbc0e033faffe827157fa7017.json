@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE servers SET status = 'ONLINE', last_heartbeat_at = ?, updated_at = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "550bf030fdb47f258de795b85b62489b12bbff9cbc0e033faffe827157fa7017"
+}

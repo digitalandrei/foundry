@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE gitlab_accounts\n           SET access_token = ?, refresh_token = ?, token_expires_at = ?, updated_at = ?\n           WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "b7624d525c6b90c2b13261f357b2baf4bfa85cde06ee977a8165a03880540427"
+}

@@ -1,0 +1,54 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT sv.name AS \"volume_name?\", dv.host_path, dv.container_path,\n                  dv.read_only AS \"read_only: bool\"\n           FROM deployment_volumes dv\n           LEFT JOIN server_volumes sv ON sv.id = dv.server_volume_id\n           WHERE dv.deployment_id = ?\n           ORDER BY dv.container_path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "volume_name?",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NO_DEFAULT_VALUE",
+          "max_size": 252
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "host_path",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 4096
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "container_path",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 4096
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "read_only: bool",
+        "type_info": {
+          "type": "Tiny",
+          "flags": "NOT_NULL",
+          "max_size": 1
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b67699ba77ffd131538f46aaea2392a18fb87ff450c60b746cdb8684c9377199"
+}

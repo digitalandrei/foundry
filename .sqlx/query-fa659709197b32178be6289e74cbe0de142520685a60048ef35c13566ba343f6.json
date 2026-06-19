@@ -1,0 +1,44 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT env_key, env_value, is_secret AS \"is_secret: bool\"\n           FROM deployment_env WHERE deployment_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "env_key",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 1020
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "env_value",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 8192
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "is_secret: bool",
+        "type_info": {
+          "type": "Tiny",
+          "flags": "NOT_NULL",
+          "max_size": 1
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "fa659709197b32178be6289e74cbe0de142520685a60048ef35c13566ba343f6"
+}

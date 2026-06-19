@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT state FROM deployments WHERE id = ? FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "state",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | MULTIPLE_KEY",
+          "max_size": 128
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "82928009bb1ae3bfa2d1cb6a53013e51fb3848f6a7909e15e0d4ebfd1cf17502"
+}

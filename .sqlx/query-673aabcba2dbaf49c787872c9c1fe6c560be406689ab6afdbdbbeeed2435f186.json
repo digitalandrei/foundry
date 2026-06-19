@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "DELETE FROM deployment_logs WHERE deployment_id IN\n                   (SELECT id FROM deployments WHERE state = 'REMOVED')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "673aabcba2dbaf49c787872c9c1fe6c560be406689ab6afdbdbbeeed2435f186"
+}

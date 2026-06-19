@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO deployment_slots (deployment_id, gpu_slot_id) VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "05a5def6bbaf58c435572e99e9ac190720bfbb1c1f3e38c4c02a5f1b83fcaa17"
+}

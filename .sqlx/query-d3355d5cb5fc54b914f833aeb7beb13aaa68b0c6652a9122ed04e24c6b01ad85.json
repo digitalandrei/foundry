@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "DELETE FROM deployment_logs\n           WHERE deployment_id = ?\n             AND id NOT IN (\n               SELECT id FROM (\n                 SELECT id FROM deployment_logs\n                 WHERE deployment_id = ?\n                 ORDER BY logged_at DESC, id DESC\n                 LIMIT ?\n               ) keep\n             )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "d3355d5cb5fc54b914f833aeb7beb13aaa68b0c6652a9122ed04e24c6b01ad85"
+}

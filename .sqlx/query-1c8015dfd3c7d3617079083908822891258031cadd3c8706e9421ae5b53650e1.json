@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT name FROM gpu_groups WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 256
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1c8015dfd3c7d3617079083908822891258031cadd3c8706e9421ae5b53650e1"
+}

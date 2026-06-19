@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT IGNORE INTO registry_tags\n               (id, registry_repository_id, name, digest, size_bytes, pushed_at,\n                last_synced_at, created_at, updated_at)\n               VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "e8806b703cdc32c2222bb2b9a7297213c02cb3e1a7a29aac1a72cb8cf8cd1a22"
+}

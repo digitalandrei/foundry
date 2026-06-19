@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO deployment_logs\n               (id, deployment_id, server_id, container_id, logged_at, content)\n               VALUES (?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "b1e39894a708c54909315e87fdca6cd79d88bce615e9c8b68c5a92d53a2f9a8f"
+}

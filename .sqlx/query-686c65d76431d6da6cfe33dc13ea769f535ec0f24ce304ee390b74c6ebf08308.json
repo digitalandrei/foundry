@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO gpus (id, server_id, gpu_uuid, display_index, model, memory_mb,\n                     mig_enabled, last_seen_at, created_at, updated_at)\n                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 10
+    },
+    "nullable": []
+  },
+  "hash": "686c65d76431d6da6cfe33dc13ea769f535ec0f24ce304ee390b74c6ebf08308"
+}

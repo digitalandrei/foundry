@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE gitlab_projects\n                   SET name = ?, path_with_namespace = ?, avatar_url = ?,\n                       last_synced_at = ?, updated_at = ?\n                   WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "ad7def2d01eb6cf44b9f5d44e223c9e27fbb206d9cdb0e36025e706cf1b5778b"
+}

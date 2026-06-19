@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT dp.host_port FROM deployment_ports dp\n         JOIN deployments d ON d.id = dp.deployment_id\n         WHERE d.server_id = ?\n           AND (d.state IN ('PENDING','VALIDATING','PULLING_IMAGE','CREATING_CONTAINER',\n                            'STARTING','RUNNING','STOPPING','STOPPED','RESTARTING','REMOVING')\n                OR (d.state = 'FAILED' AND d.container_id IS NOT NULL))\n         FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "host_port",
+        "type_info": {
+          "type": "Short",
+          "flags": "NOT_NULL | UNSIGNED | NO_DEFAULT_VALUE",
+          "max_size": 5
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "fb985e838c40543d754810ef3dd0e55205e62e71f0876dbf90c13178d72db07b"
+}

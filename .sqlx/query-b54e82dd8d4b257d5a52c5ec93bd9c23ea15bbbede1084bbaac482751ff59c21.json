@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO gitlab_accounts\n                   (id, user_id, gitlab_instance_id, gitlab_user_id, username,\n                    access_token, refresh_token, token_expires_at, created_at, updated_at)\n                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 10
+    },
+    "nullable": []
+  },
+  "hash": "b54e82dd8d4b257d5a52c5ec93bd9c23ea15bbbede1084bbaac482751ff59c21"
+}

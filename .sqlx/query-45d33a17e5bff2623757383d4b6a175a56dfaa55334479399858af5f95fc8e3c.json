@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO server_agents\n           (id, server_id, agent_version, token_hash, enrolled_at, created_at, updated_at)\n           VALUES (?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "45d33a17e5bff2623757383d4b6a175a56dfaa55334479399858af5f95fc8e3c"
+}

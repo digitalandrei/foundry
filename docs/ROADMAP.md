@@ -43,6 +43,14 @@ A user can:
 Scope/architecture changes agreed after the original spec — each must be
 reflected in the affected docs in the same commit set:
 
+- **2026-06-19** — **CI added (supersedes the 2026-06-11 "No CI" decision).**
+  As plans get executed by other agents and Phase 10 nears, an enforced
+  green gate matters more than the convenience of local-only checks (a lint
+  error from 0.42.0 had already landed on `main` unnoticed). GitHub Actions
+  (`.github/workflows/ci.yml`) mirrors `scripts/check.sh` on push/PR; the
+  Rust job compiles against the committed sqlx offline cache (`.sqlx/`,
+  `SQLX_OFFLINE=true`) so it needs no MySQL. Branch protection is the
+  operator's to enable.
 - **2026-06-17** (0.42.0) — **Fleet auto-enrollment + adopt & control of
   pre-running containers** (operator: agents on a launched fleet should
   self-enroll, and pre-running ComfyUI containers should be controllable
@@ -214,7 +222,8 @@ reflected in the affected docs in the same commit set:
   scoped user provisioned (DEPLOYMENT.md § MySQL).
 - **2026-06-11** (Phase 1, confirmed Phase 2) — **No CI.** Deploying is
   easy enough from this host; `scripts/check.sh` is the verification
-  gate, run locally before every commit.
+  gate, run locally before every commit. *(Superseded 2026-06-19 — CI
+  added; see top of log.)*
 - **2026-06-11** (Phase 2) — Controller binds `127.0.0.1:8400` by
   default (8080 is taken on this host). Migrations are embedded in the
   controller and run at startup.

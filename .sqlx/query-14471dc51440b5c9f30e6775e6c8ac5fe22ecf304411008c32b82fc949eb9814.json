@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO server_metrics (id, server_id, sampled_at, sample) VALUES (?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "14471dc51440b5c9f30e6775e6c8ac5fe22ecf304411008c32b82fc949eb9814"
+}

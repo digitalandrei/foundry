@@ -1,0 +1,114 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT a.id            AS \"id!: Uuid\",\n                  a.actor_type    AS \"actor_type!\",\n                  a.actor_id      AS \"actor_id?: Uuid\",\n                  u.display_name  AS \"actor_name?\",\n                  a.action        AS \"action!\",\n                  a.subject_type  AS \"subject_type?\",\n                  a.subject_id    AS \"subject_id?: Uuid\",\n                  CAST(a.detail AS CHAR) AS \"detail?: String\",\n                  a.ip_address    AS \"ip_address?\",\n                  a.created_at    AS \"created_at!\"\n           FROM audit_logs a\n           LEFT JOIN users u ON u.id = a.actor_id\n           WHERE (? IS NULL OR a.actor_id = ?)\n             AND (? IS NULL OR a.id < ?)\n             AND (? IS NULL OR a.action = ?)\n           ORDER BY a.id DESC\n           LIMIT ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | PRIMARY_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "actor_type!",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | MULTIPLE_KEY | NO_DEFAULT_VALUE",
+          "max_size": 64
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "actor_id?: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "BINARY",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "actor_name?",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NO_DEFAULT_VALUE",
+          "max_size": 1020
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "action!",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | MULTIPLE_KEY | NO_DEFAULT_VALUE",
+          "max_size": 256
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "subject_type?",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 256
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "subject_id?: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "BINARY",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "detail?: String",
+        "type_info": {
+          "type": "LongBlob",
+          "flags": "",
+          "max_size": 4294967295
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "ip_address?",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 180
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at!",
+        "type_info": {
+          "type": "Datetime",
+          "flags": "NOT_NULL | MULTIPLE_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 26
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "1f8546a491e464b503075e2ca603b0068314e32390021328ccfb7f0e96822ef8"
+}

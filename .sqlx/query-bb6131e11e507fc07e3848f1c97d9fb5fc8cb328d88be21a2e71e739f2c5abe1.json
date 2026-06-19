@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "DELETE FROM enrollment_tokens WHERE id = ? AND kind = 'FLEET'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "bb6131e11e507fc07e3848f1c97d9fb5fc8cb328d88be21a2e71e739f2c5abe1"
+}

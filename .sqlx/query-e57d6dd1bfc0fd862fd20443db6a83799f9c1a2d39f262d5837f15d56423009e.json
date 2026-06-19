@@ -1,0 +1,34 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT sampled_at, sample FROM server_metrics\n           WHERE server_id = ? AND sampled_at >= ?\n           ORDER BY sampled_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sampled_at",
+        "type_info": {
+          "type": "Datetime",
+          "flags": "NOT_NULL | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 26
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "sample",
+        "type_info": {
+          "type": "Blob",
+          "flags": "NOT_NULL | BLOB | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 4294967295
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "e57d6dd1bfc0fd862fd20443db6a83799f9c1a2d39f262d5837f15d56423009e"
+}

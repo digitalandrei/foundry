@@ -1,0 +1,64 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT a.id AS \"id: Uuid\", a.gitlab_instance_id AS \"instance_id: Uuid\",\n                  a.access_token, a.refresh_token, a.token_expires_at\n           FROM gitlab_accounts a\n           JOIN gitlab_instances i ON i.id = a.gitlab_instance_id AND i.enabled = 1\n           WHERE a.user_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | PRIMARY_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "instance_id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | MULTIPLE_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "access_token",
+        "type_info": {
+          "type": "VarString",
+          "flags": "BINARY",
+          "max_size": 4096
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "refresh_token",
+        "type_info": {
+          "type": "VarString",
+          "flags": "BINARY",
+          "max_size": 4096
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "token_expires_at",
+        "type_info": {
+          "type": "Datetime",
+          "flags": "BINARY",
+          "max_size": 26
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "bfe525f0fb9b9b5434654139c802815d86f9e3bd444b6f6fff4acc4b1da2c881"
+}

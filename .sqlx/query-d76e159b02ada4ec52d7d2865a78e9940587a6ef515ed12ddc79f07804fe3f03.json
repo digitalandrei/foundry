@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE enrollment_tokens SET uses = uses + 1, updated_at = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "d76e159b02ada4ec52d7d2865a78e9940587a6ef515ed12ddc79f07804fe3f03"
+}

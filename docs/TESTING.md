@@ -20,9 +20,10 @@ add or tighten one. Don't claim completion without running the relevant set.
 - HTTP-level tests with `axum`'s `tower::ServiceExt::oneshot` — auth
   required on every `/api` and `/agent` route is itself a test.
 - sqlx note: `query!` macros compile against the live dev DB
-  (`DATABASE_URL` from `.env`); building on a host without the DB
-  requires `cargo sqlx prepare` offline data (not set up — single-host
-  project, no CI by decision).
+  (`DATABASE_URL` from `.env`) locally, or the committed offline cache
+  (`.sqlx/`, `SQLX_OFFLINE=true`) on a host without the DB — which is how
+  CI builds. Regenerate the cache with `cargo sqlx prepare --workspace`
+  whenever a query changes (a stale cache fails the build).
 
 ## Agent (`agent/`)
 

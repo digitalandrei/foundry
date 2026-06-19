@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "DELETE FROM deployment_logs WHERE logged_at < ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "239a36c83720102ad166e38f50adf69d6fd00e125f25ee09c9b029c997eb0500"
+}

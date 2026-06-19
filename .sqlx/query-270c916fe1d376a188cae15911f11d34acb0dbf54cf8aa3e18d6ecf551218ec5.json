@@ -1,0 +1,54 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT gs.id AS \"slot_id: Uuid\", g.display_index AS gpu_index,\n                  gs.state AS slot_state, g.mig_enabled AS \"mig_enabled: bool\"\n           FROM gpu_group_members m\n           JOIN gpus g ON g.id = m.gpu_id\n           JOIN gpu_slots gs ON gs.gpu_id = g.id AND gs.slot_type = 'FULL_GPU'\n           WHERE m.group_id = ?\n           ORDER BY g.display_index, gs.id\n           FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "slot_id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | PRIMARY_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "gpu_index",
+        "type_info": {
+          "type": "Long",
+          "flags": "NOT_NULL | UNSIGNED",
+          "max_size": 10
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "slot_state",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | MULTIPLE_KEY",
+          "max_size": 64
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "mig_enabled: bool",
+        "type_info": {
+          "type": "Tiny",
+          "flags": "NOT_NULL",
+          "max_size": 1
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "270c916fe1d376a188cae15911f11d34acb0dbf54cf8aa3e18d6ecf551218ec5"
+}
