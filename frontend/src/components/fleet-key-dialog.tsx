@@ -40,12 +40,15 @@ export function FleetKeyDialog() {
     create.reset()
   }
 
+  // Anchor "now" once (at first render) instead of calling the impure
+  // Date.now() during render — the expiry preview is relative to dialog open.
+  const [nowMs] = useState(() => Date.now())
   const days = Number(ttlDays)
   const ttlValid = Number.isInteger(days) && days >= TTL_MIN_DAYS && days <= TTL_MAX_DAYS
   const usesValid = maxUses === "" || (Number.isInteger(Number(maxUses)) && Number(maxUses) >= 1)
   // Preview the resulting expiry date so "expiry" is concrete.
   const expiryPreview = ttlValid
-    ? new Date(Date.now() + days * 86_400_000).toLocaleDateString()
+    ? new Date(nowMs + days * 86_400_000).toLocaleDateString()
     : null
 
   return (

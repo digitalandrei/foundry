@@ -20,6 +20,7 @@ export function DeployPickProvider({
 
 /** Returns "open the slot picker for this tag", or null when rendered
  * outside a provider (i.e. a drag-only context). */
+// eslint-disable-next-line react-refresh/only-export-components -- context hook lives with its provider (one small file).
 export function useDeployPick(): ((tag: DragTagData) => void) | null {
   return useContext(DeployPickContext)
 }
