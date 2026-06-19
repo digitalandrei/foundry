@@ -36,12 +36,16 @@ add or tighten one. Don't claim completion without running the relevant set.
 
 ## Frontend (`frontend/`)
 
-- `npm run build` (TypeScript strict) is the minimum gate for every change.
-- Component tests (Vitest + Testing Library) for load-bearing pieces: slot
-  chip state rendering, state→color map, replacement confirmation dialog,
-  deployment form zod schemas.
-- Both themes spot-checked for new screens (manual until visual testing is
-  added).
+- `npm run build` (TypeScript strict) and `npm run lint` are gates for every
+  change; `npm run typecheck` (`tsc --noEmit`) is the fast iteration check.
+- **Vitest harness** (`npm run test:run`, jsdom env). Covered today: the pure
+  `lib/` logic — the state→color map (`states.test.ts`) and slot
+  occupancy/deploy-eligibility (`slots.test.ts`). Add tests beside the module,
+  importing `{ describe, it, expect }` from `vitest`.
+- **Open item**: component/DOM tests (Testing Library) for load-bearing pieces
+  — the deploy-dialog zod validation, the type-to-confirm gate on destructive
+  ops for adopted containers, slot-chip rendering — and visual/both-theme
+  regression. Both themes are spot-checked manually until then.
 
 ## Commands
 
@@ -50,5 +54,5 @@ cargo test                       # workspace
 cargo test -p foundry-controller
 cargo test -p foundry-agent
 cargo clippy --all-targets -- -D warnings
-cd frontend && npm run build && npm test
+cd frontend && npm run lint && npm run test:run && npm run build
 ```

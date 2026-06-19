@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import path from "node:path"
 import { readFileSync } from "node:fs"
 import tailwindcss from "@tailwindcss/vite"
@@ -18,6 +19,13 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+  },
+  test: {
+    // jsdom so future component tests work without reconfig; pure lib
+    // tests don't need it but it's harmless. Tests import { describe,
+    // it, expect } from "vitest" explicitly (no globals → no tsconfig
+    // types change).
+    environment: "jsdom",
   },
   server: {
     // Dev: same-origin API via proxy to a dev controller on 8401

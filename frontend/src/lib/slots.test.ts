@@ -1,0 +1,130 @@
+import { describe, it, expect } from "vitest"
+import { slotDeployability, occupantsBySlot } from "@/lib/slots"
+import type { DeploymentSummary, ExternalOccupant, ServerSummary, SlotSummary } from "@/lib/types"
+
+// Minimal fully-typed fixtures with sensible defaults; override per case.
+function slot(over: Partial<SlotSummary> = {}): SlotSummary {
+  return {
+    id: "slot-1",
+    name: "0",
+    slot_type: "FULL_GPU",
+    mig_profile: null,
+    capacity_mb: null,
+    state: "FREE",
+    max_occupants: 1,
+    external: null,
+    ...over,
+  }
+}
+
+function server(over: Partial<ServerSummary> = {}): ServerSummary {
+  return {
+    id: "srv-1",
+    name: "gpu-a",
+    hostname: null,
+    status: "ONLINE",
+    last_heartbeat_at: null,
+    agent_version: null,
+    os_version: null,
+    app_publishing_ready: null,
+    nginx_status: null,
+    docker_ok: true,
+    enrolled: true,
+    gpus: [],
+    containers_running: 0,
+    ...over,
+  }
+}
+
+function deployment(over: Partial<DeploymentSummary> = {}): DeploymentSummary {
+  return {
+    id: "dep-1",
+    name: "svc",
+    image_ref: "reg/img:tag",
+    state: "RUNNING",
+    status_detail: null,
+    container_id: null,
+    error_message: null,
+    server_id: "srv-1",
+    server_name: "gpu-a",
+    slot_id: "slot-1",
+    slot_name: "0",
+    slot_ids: ["slot-1"],
+    gpu_group_id: null,
+    group_name: null,
+    gpu_label: "GPU 0",
+    created_by_name: "op",
+    ports: [],
+    created_at: "2026-06-19T00:00:00Z",
+    started_at: null,
+    adopted: false,
+    ...over,
+  }
+}
+
+const external = (over: Partial<ExternalOccupant> = {}): ExternalOccupant => ({
+  name: "rogue",
+  image: "busybox",
+  running: true,
+  ...over,
+})
+
+describe("slotDeployability — single-use", () => {
+  it("free slot on a healthy server is a fresh deploy", () => {
+    expect(slotDeployability(slot({ state: "FREE" }), server(), [])).toEqual({
+      deployable: true,
+      replace: false,
+      reason: null,
+    })
+  })
+
+  it("running slot is deployable as a replace", () => {
+    const d = slotDeployability(slot({ state: "RUNNING" }), server(), [deployment()])
+    expect(d.deployable).toBe(true)
+    expect(d.replace).toBe(true)
+  })
+
+  it("offline server blocks the deploy", () => {
+    const d = slotDeployability(slot({ state: "FREE" }), server({ status: "OFFLINE" }), [])
+    expect(d).toMatchObject({ deployable: false, reason: "server offline" })
+  })
+
+  it("docker down blocks the deploy", () => {
+    const d = slotDeployability(slot({ state: "FREE" }), server({ docker_ok: false }), [])
+    expect(d.deployable).toBe(false)
+  })
+
+  it("a non-Foundry container holding the GPU blocks the deploy", () => {
+    const d = slotDeployability(slot({ state: "FREE", external: external() }), server(), [])
+    expect(d.deployable).toBe(false)
+  })
+})
+
+describe("slotDeployability — multi-use", () => {
+  it("takes another co-tenant under cap (never a replace)", () => {
+    const d = slotDeployability(slot({ state: "RUNNING", max_occupants: 4 }), server(), [deployment()])
+    expect(d).toEqual({ deployable: true, replace: false, reason: null })
+  })
+
+  it("is full at cap", () => {
+    const occ = [deployment({ id: "a" }), deployment({ id: "b" })]
+    const d = slotDeployability(slot({ state: "RUNNING", max_occupants: 2 }), server(), occ)
+    expect(d.deployable).toBe(false)
+    expect(d.reason).toMatch(/full/)
+  })
+})
+
+describe("occupantsBySlot", () => {
+  it("folds an occupant under every member slot, newest first", () => {
+    const a = deployment({ id: "a", slot_ids: ["s1", "s2"], created_at: "2026-06-19T00:00:00Z" })
+    const b = deployment({ id: "b", slot_ids: ["s1"], created_at: "2026-06-19T01:00:00Z" })
+    const map = occupantsBySlot([a, b])
+    expect(map.get("s1")?.map((d) => d.id)).toEqual(["b", "a"])
+    expect(map.get("s2")?.map((d) => d.id)).toEqual(["a"])
+  })
+
+  it("ignores deployments that have left the host (REMOVED)", () => {
+    const map = occupantsBySlot([deployment({ id: "x", state: "REMOVED" })])
+    expect(map.size).toBe(0)
+  })
+})
