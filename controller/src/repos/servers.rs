@@ -16,14 +16,21 @@ pub const TOKEN_TTL_HOURS: i64 = 72;
 pub const HEARTBEAT_STALE_SECS: i64 = 90;
 
 pub async fn list(pool: &MySqlPool) -> Result<Vec<ServerSummary>, AppError> {
+    // Running-container counts come from one grouped LEFT JOIN instead of a
+    // per-server COUNT (the old N+1). The per-server GPU tree
+    // (`gpus_for_server`) is still assembled per row — batching that is a
+    // separate, riskier change (advisor-plans/001 maintenance note).
     let rows = sqlx::query!(
         r#"SELECT s.id AS "id: Uuid", s.name, s.hostname, s.status,
                   s.last_heartbeat_at, s.os_version,
                   s.app_publishing_ready AS "app_publishing_ready: bool", s.nginx_status,
                   s.docker_ok AS "docker_ok: bool",
-                  a.agent_version, a.id AS "agent_id: Uuid"
+                  a.agent_version, a.id AS "agent_id: Uuid",
+                  COALESCE(c.running, 0) AS "containers_running!: i64"
            FROM servers s
            LEFT JOIN server_agents a ON a.server_id = s.id
+           LEFT JOIN (SELECT server_id, COUNT(*) AS running FROM server_containers
+                      WHERE state = 'running' GROUP BY server_id) c ON c.server_id = s.id
            ORDER BY s.name"#
     )
     .fetch_all(pool)
@@ -46,7 +53,7 @@ pub async fn list(pool: &MySqlPool) -> Result<Vec<ServerSummary>, AppError> {
             docker_ok: r.docker_ok,
             enrolled: r.agent_id.is_some(),
             gpus: super::inventory::gpus_for_server(pool, id).await?,
-            containers_running: super::inventory::running_count(pool, id).await?,
+            containers_running: r.containers_running,
         });
     }
     Ok(out)
@@ -68,11 +75,44 @@ pub async fn runtime_versions(
 }
 
 pub async fn get_summary(pool: &MySqlPool, id: ServerId) -> Result<ServerSummary, AppError> {
-    list(pool)
-        .await?
-        .into_iter()
-        .find(|s| s.id == id)
-        .ok_or(AppError::NotFound("server not found"))
+    // Direct single-server fetch — must NOT call list() (that loaded the whole
+    // fleet's GPU trees to return one row). Column list mirrors list() so the
+    // two stay in sync.
+    let r = sqlx::query!(
+        r#"SELECT s.id AS "id: Uuid", s.name, s.hostname, s.status,
+                  s.last_heartbeat_at, s.os_version,
+                  s.app_publishing_ready AS "app_publishing_ready: bool", s.nginx_status,
+                  s.docker_ok AS "docker_ok: bool",
+                  a.agent_version, a.id AS "agent_id: Uuid",
+                  COALESCE(c.running, 0) AS "containers_running!: i64"
+           FROM servers s
+           LEFT JOIN server_agents a ON a.server_id = s.id
+           LEFT JOIN (SELECT server_id, COUNT(*) AS running FROM server_containers
+                      WHERE state = 'running' GROUP BY server_id) c ON c.server_id = s.id
+           WHERE s.id = ?"#,
+        id.0
+    )
+    .fetch_optional(pool)
+    .await?
+    .ok_or(AppError::NotFound("server not found"))?;
+
+    let status: ServerStatus = r.status.parse().map_err(AppError::internal)?;
+    let sid: ServerId = r.id.into();
+    Ok(ServerSummary {
+        id: sid,
+        name: r.name,
+        hostname: r.hostname.filter(|h| !h.is_empty()),
+        status,
+        last_heartbeat_at: r.last_heartbeat_at.map(|t| t.and_utc()),
+        agent_version: r.agent_version,
+        os_version: r.os_version,
+        app_publishing_ready: r.app_publishing_ready,
+        nginx_status: r.nginx_status,
+        docker_ok: r.docker_ok,
+        enrolled: r.agent_id.is_some(),
+        gpus: super::inventory::gpus_for_server(pool, sid).await?,
+        containers_running: r.containers_running,
+    })
 }
 
 /// Create a named server (GitLab-agent style: name first, enroll later).

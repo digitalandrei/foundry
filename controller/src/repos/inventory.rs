@@ -495,13 +495,3 @@ pub async fn containers_for_server(
         })
         .collect())
 }
-
-/// `running` containers per the latest snapshot (System Status card).
-pub async fn running_count(pool: &MySqlPool, server_id: ServerId) -> Result<i64, AppError> {
-    Ok(sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM server_containers WHERE server_id = ? AND state = 'running'",
-        server_id.0
-    )
-    .fetch_one(pool)
-    .await?)
-}
