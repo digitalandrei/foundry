@@ -182,11 +182,7 @@ async fn browser_session(
     }
 
     inbound.abort();
-    state
-        .shells
-        .lock()
-        .expect("shells lock")
-        .remove(&session_id);
+    crate::state::lock_recover(&state.shells).remove(&session_id);
 }
 
 // ── Agent side ───────────────────────────────────────────────────────
