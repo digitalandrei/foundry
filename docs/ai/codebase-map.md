@@ -94,6 +94,13 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   volume routes → `controller/src/routes/deployments.rs`; dispatch
   enrichment (env decrypt + pull-token mint) →
   `controller/src/routes/agent.rs`
+- GPU groups & multi-use slots (group a GPU set, soft-share a slot among
+  N containers): group CRUD + occupancy/cap + `member_slots_for_deploy`
+  (FOR-UPDATE-locked member slots, counted then capped) →
+  `controller/src/repos/gpu_groups.rs`; slot use-mode / shared-slot
+  derivation → `controller/src/repos/slots.rs`; route →
+  `controller/src/routes/gpu_groups.rs`; UI →
+  `frontend/src/components/server-gpu-config.tsx`
 - Agent executors (bollard deploy/stop/restart/remove/volume) + task
   poll loop → `agent/src/tasks.rs`; nginx vhost manager (HTTP/S app
   publishing: render/apply/remove, sudo-scoped reload, rollback) →
