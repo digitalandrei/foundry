@@ -40,6 +40,10 @@ the sole public listener. Other controller env:
 for journald, `RUST_LOG` filter, `FOUNDRY_APPS_DOMAIN=ai.protv.ro`
 (enables HTTP/S app publishing — unset rejects HTTP/S port kinds).
 
+The full, authoritative list of controller variables (required vs optional,
+formats, defaults) lives in `.env.example` at the repo root — copy it to
+`/srv/foundry/.env` and fill in the required values.
+
 **Migrations run automatically at controller startup** (embedded via
 `sqlx::migrate!`); a deployed binary is always schema-complete. Manual
 application is possible with sqlx-cli (`sqlx migrate run` reading

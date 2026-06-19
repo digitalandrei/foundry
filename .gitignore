@@ -9,6 +9,7 @@ frontend/dist/
 # Env / secrets
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 
