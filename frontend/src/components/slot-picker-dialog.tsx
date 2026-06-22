@@ -85,7 +85,7 @@ export function SlotPickerDialog({
                   onSelect(tag, {
                     kind: "slot",
                     slotId: position.slot.id,
-                    slotName: String(position.label),
+                    slotName: position.label,
                     slotState: position.slot.state,
                     serverId: server.id,
                     serverName: server.name,

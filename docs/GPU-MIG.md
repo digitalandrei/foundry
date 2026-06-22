@@ -18,15 +18,22 @@ document covers the NVIDIA-specific mechanics.
 - Inventory runs at agent start, on `REFRESH_INVENTORY` tasks, and on a
   periodic timer; results are uploaded as a full snapshot to
   `/agent/inventory`.
+- **Runtime MIG re-detection:** NVML's init/shutdown is process-ref-counted,
+  and a live handle pins the GPU/MIG topology seen at init. So the agent holds
+  **no** long-lived `Nvml` handle — both inventory and metrics
+  (`agent/src/{inventory,metrics}.rs::collect_gpus`) call `Nvml::init()` per
+  collection and drop it at scope end. This lets a MIG toggle on a running host
+  show up at the next inventory cycle (≤60s) with **no agent restart**.
 
 ## Identity Rules
 
 - Physical GPU identity = NVML GPU UUID (`GPU-xxxxxxxx-...`).
 - MIG slot identity = NVML MIG device UUID (`MIG-xxxxxxxx-...`).
 - **Never** use GPU index numbers (`0`, `1`, ...) for identity or scheduling —
-  they are unstable across reboots/driver updates. Display names like `0:2`
-  (GPU 0, MIG slice 2) are presentation only, recomputed from current
-  inventory.
+  they are unstable across reboots/driver updates. Slot display names are
+  presentation only, recomputed from current inventory: a full-GPU slot is the
+  bare card index (`3`), a MIG slot is `<card>.<slice>` with the slice 1-based
+  (GPU 3 split ×4 → `3.1`, `3.2`, `3.3`, `3.4`).
 
 ## MIG Model
 
@@ -38,6 +45,13 @@ document covers the NVIDIA-specific mechanics.
 - A GPU with MIG disabled maps to one `FULL_GPU` slot.
 - If inventory shows a slot disappeared (geometry changed), the controller
   marks it `OFFLINE` and flags any deployment on it.
+- **Display of obsolete slots:** the OFFLINE row lingers (its `deployment_slots`
+  FK has no cascade, so it is not deleted). `gpus_for_server` hides OFFLINE
+  slots on a GPU that still has a live slot — the `FULL_GPU` slot left behind
+  when MIG is enabled, MIG slices left when it's disabled, or stale UUIDs after
+  a reshape. When *every* slot on a GPU is OFFLINE the GPU itself is down and
+  they stay visible. The upsert restores the correct slot to `FREE` if the
+  layout returns.
 
 ## Container GPU Assignment
 

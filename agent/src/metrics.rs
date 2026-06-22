@@ -16,23 +16,14 @@ use sysinfo::{Disks, Networks, System};
 pub struct MetricsCollector {
     sys: System,
     networks: Networks,
-    nvml: Option<Nvml>,
     last_net: Option<(u64, u64, Instant)>,
 }
 
 impl MetricsCollector {
     pub fn new() -> Self {
-        let nvml = match Nvml::init() {
-            Ok(n) => Some(n),
-            Err(err) => {
-                tracing::info!(%err, "NVML unavailable — GPU metrics disabled");
-                None
-            }
-        };
         Self {
             sys: System::new(),
             networks: Networks::new_with_refreshed_list(),
-            nvml,
             last_net: None,
         }
     }
@@ -94,8 +85,18 @@ impl MetricsCollector {
     }
 
     fn collect_gpus(&self) -> Vec<GpuMetrics> {
-        let Some(nvml) = &self.nvml else {
-            return Vec::new();
+        // NVML is initialized per call (and dropped at scope end) rather
+        // than held for the process lifetime: NVML's init/shutdown is
+        // process-ref-counted, and a live handle pins the GPU/MIG topology
+        // seen at startup, so a runtime MIG toggle would never be picked up
+        // without an agent restart. A fresh init each cycle re-scans the
+        // live layout (matches inventory::collect_gpus). Costs a few ms.
+        let nvml = match Nvml::init() {
+            Ok(n) => n,
+            Err(err) => {
+                tracing::debug!(%err, "NVML unavailable — GPU metrics skipped");
+                return Vec::new();
+            }
         };
         let count = nvml.device_count().unwrap_or(0);
         let mut out = Vec::with_capacity(count as usize);

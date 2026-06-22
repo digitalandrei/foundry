@@ -518,7 +518,7 @@ function SlotChip({
   const data: DropSlotData = {
     kind: "slot",
     slotId: slot.id,
-    slotName: String(label),
+    slotName: label,
     slotState: slot.state,
     serverId: server.id,
     serverName: server.name,

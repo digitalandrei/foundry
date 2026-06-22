@@ -64,7 +64,12 @@ pub async fn apply_snapshot(
                     SlotType::MigSlot,
                     Some(&mig.uuid),
                     Some(&mig.profile),
-                    &format!("{}:{}", gpu.index, mig.instance_id),
+                    // Slot name = "<card>.<slice>", slice 1-based
+                    // (instance_id is 0-based from `nvidia-smi -L`): GPU 3
+                    // split ×4 → "3.1".."3.4". The full-GPU slot uses the
+                    // bare card index ("3"). Display only — recomputed on
+                    // every snapshot (docs/GPU-MIG.md).
+                    &format!("{}.{}", gpu.index, mig.instance_id + 1),
                     Some(mig.memory_mb),
                     now,
                 )
@@ -371,8 +376,8 @@ pub async fn gpus_for_server(
 
     let mut out = Vec::with_capacity(gpu_rows.len());
     for g in gpu_rows {
-        // LENGTH-first gives natural ordering for g:i names
-        // ("0:5" < "0:10").
+        // LENGTH-first gives natural ordering for "<card>.<slice>" names
+        // ("3.5" < "3.10").
         let slot_rows = sqlx::query!(
             r#"SELECT id AS "id: Uuid", name, slot_type, mig_uuid, mig_profile, capacity_mb, state,
                       max_occupants AS "max_occupants: u32"
@@ -381,8 +386,18 @@ pub async fn gpus_for_server(
         )
         .fetch_all(pool)
         .await?;
+        // Hide structurally-obsolete slots: when a GPU has at least one live
+        // (non-OFFLINE) slot, any OFFLINE slot on it is a leftover from a
+        // prior layout — the full-GPU slot after MIG was enabled, MIG slices
+        // after MIG was disabled, or old MIG UUIDs after a geometry reshape —
+        // and is dropped. When *every* slot is OFFLINE the GPU itself is down
+        // (driver gone, etc.) and we keep them so the operator sees it. The
+        // rows linger in the DB (deployment_slots FKs them, no cascade); the
+        // upsert path restores the right slot to FREE if the layout returns.
+        let has_live = slot_rows.iter().any(|s| s.state != "OFFLINE");
         let slots = slot_rows
             .into_iter()
+            .filter(|s| !has_live || s.state != "OFFLINE")
             .map(|s| {
                 // A slot's device is its MIG UUID, or the parent GPU's
                 // UUID for a full-GPU slot.

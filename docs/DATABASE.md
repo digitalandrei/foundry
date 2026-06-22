@@ -113,7 +113,8 @@ Physical GPUs per server. Columns: `id`, `server_id` FK, `gpu_uuid` (NVML),
 Schedulable slots (the unit of deployment). Columns: `id`, `gpu_id` FK,
 `slot_type` (FULL_GPU/MIG_SLOT), `mig_uuid` (NVML MIG device UUID, null for
 full GPU), `mig_profile` (e.g. `2g.20gb`, null for full GPU), `name`
-(display, e.g. `0:2`), `capacity_mb`, `state` (see ARCHITECTURE.md § Slot
+(display only: card index `3` for a full GPU, `<card>.<slice>` 1-based for a
+MIG slot, e.g. `3.1`), `capacity_mb`, `state` (see ARCHITECTURE.md § Slot
 states), `max_occupants` (concurrency cap, default 1 = single-use; `>1`
 = multi-use soft sharing with no VRAM isolation, capped 1–4 by a CHECK;
 operator config, preserved across re-inventory), `last_seen_at`. Unique:

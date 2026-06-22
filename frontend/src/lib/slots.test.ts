@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest"
-import { slotDeployability, occupantsBySlot } from "@/lib/slots"
-import type { DeploymentSummary, ExternalOccupant, ServerSummary, SlotSummary } from "@/lib/types"
+import { slotDeployability, occupantsBySlot, gpuSlotPositions } from "@/lib/slots"
+import type {
+  DeploymentSummary,
+  ExternalOccupant,
+  GpuSummary,
+  ServerSummary,
+  SlotSummary,
+} from "@/lib/types"
 
 // Minimal fully-typed fixtures with sensible defaults; override per case.
 function slot(over: Partial<SlotSummary> = {}): SlotSummary {
@@ -111,6 +117,41 @@ describe("slotDeployability — multi-use", () => {
     const d = slotDeployability(slot({ state: "RUNNING", max_occupants: 2 }), server(), occ)
     expect(d.deployable).toBe(false)
     expect(d.reason).toMatch(/full/)
+  })
+})
+
+function gpu(over: Partial<GpuSummary> = {}): GpuSummary {
+  return {
+    id: "gpu-3",
+    gpu_uuid: "GPU-xxxx",
+    index: 3,
+    model: "RTX PRO 6000",
+    memory_mb: 98304,
+    mig_enabled: true,
+    slots: [],
+    groups: [],
+    ...over,
+  }
+}
+
+describe("gpuSlotPositions — labels", () => {
+  it("labels each position with the slot's own name (full card = index, MIG = card.slice)", () => {
+    const slots = [
+      slot({ id: "s1", name: "3.1", slot_type: "MIG_SLOT" }),
+      slot({ id: "s2", name: "3.2", slot_type: "MIG_SLOT" }),
+      slot({ id: "s3", name: "3.3", slot_type: "MIG_SLOT" }),
+      slot({ id: "s4", name: "3.4", slot_type: "MIG_SLOT" }),
+    ]
+    const labels = gpuSlotPositions(gpu({ slots }), new Map()).map((p) => p.label)
+    expect(labels).toEqual(["3.1", "3.2", "3.3", "3.4"])
+  })
+
+  it("suffixes co-tenant positions on a multi-use slot to keep them distinct", () => {
+    const slots = [slot({ id: "s1", name: "0", max_occupants: 3 })]
+    const labels = gpuSlotPositions(gpu({ index: 0, mig_enabled: false, slots }), new Map()).map(
+      (p) => p.label,
+    )
+    expect(labels).toEqual(["0 ·1", "0 ·2", "0 ·3"])
   })
 })
 

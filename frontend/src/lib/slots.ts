@@ -51,8 +51,10 @@ export function occupantsBySlot(
  * many "SLOT n" chips as the operator configured. */
 export interface SlotPosition {
   slot: SlotSummary
-  /** 1-based label within the GPU (`SLOT 1`, `SLOT 2`, …). */
-  label: number
+  /** Label within the GPU, from the slot's name: the card index for a
+   * full-GPU slot (`0`), `<card>.<slice>` for a MIG instance (`3.1`). A
+   * multi-use slot's extra positions get a ` ·k` co-tenant suffix. */
+  label: string
   /** The occupant filling this position, if any. */
   occupant: DeploymentSummary | undefined
   /** All active occupants on the underlying slot (drives deployability). */
@@ -61,20 +63,21 @@ export interface SlotPosition {
   firstOfSlot: boolean
 }
 
-/** Expand a GPU's slots into per-position entries (see `SlotPosition`),
- * numbered from 1 across the GPU. The i-th occupant fills the i-th
- * position; the rest are free capacity. */
+/** Expand a GPU's slots into per-position entries (see `SlotPosition`). The
+ * label is the slot's own name (card index, or `<card>.<slice>` for MIG); a
+ * multi-use slot exposes `max_occupants` positions, the extras suffixed ` ·k`
+ * to stay distinct. The i-th occupant fills the i-th position; the rest are
+ * free capacity. */
 export function gpuSlotPositions(
   gpu: GpuSummary,
   occupantsBySlot: Map<string, DeploymentSummary[]>,
 ): SlotPosition[] {
   const out: SlotPosition[] = []
-  let label = 0
   for (const slot of gpu.slots) {
     const occupants = occupantsBySlot.get(slot.id) ?? []
     const positions = Math.max(1, slot.max_occupants)
     for (let i = 0; i < positions; i++) {
-      label += 1
+      const label = positions === 1 ? slot.name : `${slot.name} ·${i + 1}`
       out.push({ slot, label, occupant: occupants[i], occupants, firstOfSlot: i === 0 })
     }
   }
