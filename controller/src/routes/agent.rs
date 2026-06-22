@@ -287,7 +287,7 @@ pub async fn metrics(
     AuthenticatedAgent(ctx): AuthenticatedAgent,
     Json(sample): Json<foundry_shared::dto::MetricsSample>,
 ) -> Result<StatusCode, AppError> {
-    if sample.gpus.len() > 64 || sample.containers.len() > 1024 {
+    if sample.gpus.len() > 64 || sample.migs.len() > 512 || sample.containers.len() > 1024 {
         return Err(AppError::BadRequest("sample exceeds sane bounds".into()));
     }
     crate::repos::metrics::insert(&state.pool, ctx.server_id, &sample).await?;

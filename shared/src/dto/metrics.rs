@@ -10,6 +10,12 @@ use serde::{Deserialize, Serialize};
 pub struct MetricsSample {
     pub host: HostMetrics,
     pub gpus: Vec<GpuMetrics>,
+    /// Per-MIG-instance memory (only on hosts with MIG enabled). NVML
+    /// can't attribute utilization per slice, so this carries memory
+    /// only; full-GPU util/power/temp stay on `gpus`. `#[serde(default)]`
+    /// keeps older stored samples and pre-MIG agents deserializing.
+    #[serde(default)]
+    pub migs: Vec<MigMetrics>,
     pub containers: Vec<ContainerMetrics>,
 }
 
@@ -52,6 +58,18 @@ pub struct GpuMetrics {
     pub mem_used_mb: u64,
     pub temperature_c: u32,
     pub power_w: f32,
+}
+
+/// Per-MIG-instance memory. Memory only by design: NVML does not report
+/// utilization for MIG slices (it reads as N/A), so per-slice util is
+/// intentionally absent — the full-GPU `util_pct` on the parent covers it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MigMetrics {
+    /// NVML MIG device UUID (`MIG-…`) — joins to the inventory MIG slot
+    /// (`gpu_slots.mig_uuid`, surfaced as `SlotSummary.mig_uuid`).
+    pub uuid: String,
+    pub mem_used_mb: u64,
+    pub mem_total_mb: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -103,6 +103,9 @@ export interface SlotSummary {
   id: string
   name: string
   slot_type: "FULL_GPU" | "MIG_SLOT"
+  /** NVML MIG device UUID for a MIG slot, else null. Joins to per-slice
+   * telemetry (`MigMetrics.uuid`). */
+  mig_uuid: string | null
   mig_profile: string | null
   capacity_mb: number | null
   state: import("./states").SlotState
@@ -247,9 +250,18 @@ export interface ContainerMetrics {
   mem_limit_mb: number
 }
 
+/** Per-MIG-instance memory (memory only — NVML reports no per-slice util).
+ * Joins to a slot by `uuid === SlotSummary.mig_uuid`. */
+export interface MigMetrics {
+  uuid: string
+  mem_used_mb: number
+  mem_total_mb: number
+}
+
 export interface MetricsSample {
   host: HostMetrics
   gpus: GpuMetrics[]
+  migs: MigMetrics[]
   containers: ContainerMetrics[]
 }
 

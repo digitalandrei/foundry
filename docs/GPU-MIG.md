@@ -43,6 +43,11 @@ document covers the NVIDIA-specific mechanics.
   existing layout (operators manage geometry with `nvidia-smi mig`) and maps
   each MIG device to one `MIG_SLOT`.
 - A GPU with MIG disabled maps to one `FULL_GPU` slot.
+- **Per-slice telemetry:** the agent reports per-MIG **memory** (used/total)
+  via NVML MIG device handles (`nvml-wrapper` 0.12 `mig_device_by_index`),
+  keyed by MIG UUID in the metrics sample. Memory only — NVML does not
+  attribute utilization to a slice (it reads N/A), so the parent GPU's
+  `util_pct` covers utilization. Surfaced on the Telemetry tab per slot.
 - If inventory shows a slot disappeared (geometry changed), the controller
   marks it `OFFLINE` and flags any deployment on it.
 - **Display of obsolete slots:** the OFFLINE row lingers (its `deployment_slots`

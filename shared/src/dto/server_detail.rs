@@ -29,6 +29,10 @@ pub struct SlotSummary {
     pub id: SlotId,
     pub name: String,
     pub slot_type: SlotType,
+    /// NVML MIG device UUID (`MIG-…`) for a MIG slot, else null. Joins to
+    /// per-slice telemetry (`MigMetrics.uuid`).
+    #[serde(default)]
+    pub mig_uuid: Option<String>,
     pub mig_profile: Option<String>,
     pub capacity_mb: Option<u32>,
     pub state: SlotState,

@@ -406,6 +406,7 @@ pub async fn gpus_for_server(
                     id: s.id.into(),
                     name: s.name,
                     slot_type: s.slot_type.parse().map_err(AppError::internal)?,
+                    mig_uuid: s.mig_uuid.clone(),
                     mig_profile: s.mig_profile,
                     capacity_mb: s.capacity_mb,
                     state: s.state.parse().map_err(AppError::internal)?,

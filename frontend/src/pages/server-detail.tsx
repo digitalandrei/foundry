@@ -1,14 +1,14 @@
 import { Link, useParams } from "@tanstack/react-router"
 import { ArrowLeftIcon } from "lucide-react"
 
-import { MetricSparkline } from "@/components/metric-sparkline"
+import { GpuTelemetryCard, HostMetrics } from "@/components/server-telemetry"
 import { ServerGpuConfig } from "@/components/server-gpu-config"
 import { useMe } from "@/hooks/use-auth"
 import { useAdoptContainer } from "@/hooks/use-deployments"
 import { useServerDetail, useServerMetrics } from "@/hooks/use-servers"
-import { formatLoad, formatMemGb, formatSize } from "@/lib/format"
+import { formatLoad, formatMemGb } from "@/lib/format"
 import { SERVER_STATUS_META } from "@/lib/states"
-import type { GpuSummary, MetricsPoint, ServerContainer } from "@/lib/types"
+import type { MetricsPoint, ServerContainer } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -66,60 +66,13 @@ export function ServerDetailPage() {
       </div>
 
       {/* Host metrics */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <MetricCard
-          title="CPU"
-          value={latest ? `${latest.host.cpu_pct.toFixed(0)}%` : "—"}
-          points={series(metrics.data, (s) => s.host.cpu_pct)}
-          unit="%"
-          max={100}
-        />
-        <MetricCard
-          title="Load"
-          value={
-            latest?.host.load_avg_1m != null
-              ? formatLoad(latest.host.load_avg_1m, latest.host.cpu_cores)
-              : "—"
-          }
-          points={series(metrics.data, (s) => s.host.load_avg_1m ?? 0)}
-          unit=""
-          max={latest?.host.cpu_cores}
-        />
-        <MetricCard
-          title="Memory"
-          value={latest ? formatMemGb(latest.host.mem_used_mb, latest.host.mem_total_mb) : "—"}
-          points={series(metrics.data, (s) => s.host.mem_used_mb / 1024)}
-          unit="GB"
-          max={latest ? latest.host.mem_total_mb / 1024 : undefined}
-        />
-        <MetricCard
-          title="Disk /"
-          value={
-            latest
-              ? `${latest.host.disk_used_gb.toFixed(0)} / ${latest.host.disk_total_gb.toFixed(0)} GB`
-              : "—"
-          }
-          points={series(metrics.data, (s) => s.host.disk_used_gb)}
-          unit="GB"
-          max={latest?.host.disk_total_gb}
-        />
-        <MetricCard
-          title="Network"
-          value={
-            latest
-              ? `↓${formatSize(latest.host.net_rx_bps)}/s ↑${formatSize(latest.host.net_tx_bps)}/s`
-              : "—"
-          }
-          points={series(metrics.data, (s) => (s.host.net_rx_bps + s.host.net_tx_bps) / 1e6)}
-          unit="MB/s"
-        />
-      </div>
+      <HostMetrics metrics={metrics.data} />
 
-      {/* GPUs */}
+      {/* GPUs (incl. per-MIG-slice memory) */}
       {detail.data?.gpus.length ? (
         <div className="grid gap-3 lg:grid-cols-2">
           {detail.data.gpus.map((gpu) => (
-            <GpuCard key={gpu.id} gpu={gpu} metrics={metrics.data} />
+            <GpuTelemetryCard key={gpu.id} gpu={gpu} metrics={metrics.data} />
           ))}
         </div>
       ) : null}
@@ -148,128 +101,6 @@ export function ServerDetailPage() {
         </CardContent>
       </Card>
     </div>
-  )
-}
-
-function series(
-  points: MetricsPoint[] | undefined,
-  pick: (s: MetricsPoint["sample"]) => number,
-): { ts: string; value: number }[] {
-  return (points ?? []).map((p) => ({ ts: p.sampled_at, value: pick(p.sample) }))
-}
-
-function MetricCard({
-  title,
-  value,
-  points,
-  unit,
-  max,
-}: {
-  title: string
-  value: string
-  points: { ts: string; value: number }[]
-  unit: string
-  max?: number
-}) {
-  return (
-    <Card className="gap-2 py-4">
-      <CardHeader className="py-0">
-        <CardTitle className="flex items-baseline justify-between text-sm font-medium">
-          {title}
-          <span className="font-mono text-xs text-muted-foreground">{value}</span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="py-0">
-        {points.length > 1 ? (
-          <MetricSparkline points={points} label={title} unit={unit} max={max} />
-        ) : (
-          <p className="flex h-16 items-center justify-center text-xs text-muted-foreground">
-            collecting…
-          </p>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-/** One card per GPU, with grouped graphs: usage, memory, temperature,
- * power (operator requirement). Percent/capacity series are pinned to
- * their full scale; power auto-scales (no limit reported yet). */
-function GpuCard({ gpu, metrics }: { gpu: GpuSummary; metrics: MetricsPoint[] | undefined }) {
-  const pick = (f: (g: NonNullable<MetricsPoint["sample"]["gpus"][number]>) => number) =>
-    (metrics ?? []).map((p) => ({
-      ts: p.sampled_at,
-      value: (() => {
-        const g = p.sample.gpus.find((x) => x.uuid === gpu.gpu_uuid)
-        return g ? f(g) : 0
-      })(),
-    }))
-
-  const latest = metrics?.at(-1)?.sample.gpus.find((g) => g.uuid === gpu.gpu_uuid)
-  const memTotalGb = (gpu.memory_mb ?? 0) / 1024
-
-  const graphs = [
-    {
-      key: "usage",
-      title: "Usage",
-      value: latest ? `${latest.util_pct}%` : "—",
-      points: pick((g) => g.util_pct),
-      unit: "%",
-      max: 100,
-    },
-    {
-      key: "memory",
-      title: "Memory",
-      value: latest
-        ? `${(latest.mem_used_mb / 1024).toFixed(1)} / ${memTotalGb.toFixed(0)} GB`
-        : "—",
-      points: pick((g) => g.mem_used_mb / 1024),
-      unit: "GB",
-      max: memTotalGb,
-    },
-    {
-      key: "temperature",
-      title: "Temperature",
-      value: latest ? `${latest.temperature_c}°C` : "—",
-      points: pick((g) => g.temperature_c),
-      unit: "°C",
-      max: 100,
-    },
-    {
-      key: "power",
-      title: "Power",
-      value: latest ? `${latest.power_w.toFixed(0)} W` : "—",
-      points: pick((g) => g.power_w),
-      unit: "W",
-      max: undefined,
-    },
-  ]
-
-  return (
-    <Card className="gap-2 py-4">
-      <CardHeader className="py-0">
-        <CardTitle className="text-sm font-medium">
-          GPU {gpu.index} {gpu.model ? `· ${gpu.model}` : ""}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="grid grid-cols-2 gap-x-4 gap-y-2 py-0">
-        {graphs.map((g) => (
-          <div key={g.key}>
-            <p className="flex items-baseline justify-between text-xs text-muted-foreground">
-              {g.title}
-              <span className="font-mono">{g.value}</span>
-            </p>
-            {g.points.length > 1 ? (
-              <MetricSparkline points={g.points} label={g.title} unit={g.unit} max={g.max} />
-            ) : (
-              <p className="flex h-16 items-center justify-center text-xs text-muted-foreground">
-                collecting…
-              </p>
-            )}
-          </div>
-        ))}
-      </CardContent>
-    </Card>
   )
 }
 

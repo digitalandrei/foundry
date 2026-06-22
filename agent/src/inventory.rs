@@ -302,10 +302,13 @@ fn collect_gpus() -> (Option<String>, Vec<GpuInfo>) {
         });
     }
 
-    // MIG *device* enumeration: nvml-wrapper 0.11 does not expose the
-    // MIG device handles, so the layout comes from `nvidia-smi -L`
-    // (docs/GPU-MIG.md records this deviation; NVML stays authoritative
-    // for GPUs and MIG mode).
+    // MIG *device* enumeration comes from `nvidia-smi -L`: it gives the
+    // human profile string ("1g.10gb") and the stable device ordering we
+    // name slots from, which NVML exposes only as raw instance/profile
+    // ids. (nvml-wrapper 0.12 does wrap the MIG handles — metrics.rs uses
+    // them for per-slice memory — but the layout stays on -L for the
+    // labels. docs/GPU-MIG.md records this split; NVML stays authoritative
+    // for GPUs and MIG mode.)
     if any_mig {
         match std::process::Command::new("nvidia-smi").arg("-L").output() {
             Ok(out) if out.status.success() => {

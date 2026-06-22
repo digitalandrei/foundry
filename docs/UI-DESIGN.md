@@ -11,7 +11,7 @@ approved dashboard mockup (dark mode). Code-level rules live in
 
 ## Pages
 
-Top navigation: **Dashboard · Deployments · Servers · Audit Logs · Settings**
+Top navigation: **Dashboard · Deployments · Servers · Telemetry · Audit Logs · Settings**
 (+ notification bell, help, user menu with avatar at top right).
 GitLab browsing (the spec's "Projects" and "Registry" pages) lives in the
 persistent left sidebar rather than separate pages.
@@ -246,6 +246,10 @@ mockup — final token mapping fixed when the palette lands in Phase 8).
   inline) and **per-slot use-mode** (single-use / multi-use with a
   max-occupant 2…4, behind a loud no-VRAM-isolation caveat; lowering the
   cap below current occupants stops new deploys but does not evict).
+- **Telemetry**: fleet-wide deep-dive — every enrolled server's host +
+  per-GPU graphs (usage/memory/temperature/power) plus per-MIG-slice
+  memory, on one scrollable page (24h series). The dashboard keeps the
+  at-a-glance summary; this is where the full history lives.
 - **Audit Logs**: filterable audit table (actor, action, subject, time).
 - **Settings**: GitLab instances (admin), enrollment tokens, theme, profile.
 - **Help**: `/help/gitlab-oauth` — GitLab OAuth app setup guide (steps,

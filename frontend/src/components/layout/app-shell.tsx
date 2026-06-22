@@ -1,5 +1,6 @@
 import { Link, Navigate, Outlet } from "@tanstack/react-router"
 import {
+  ActivityIcon,
   CircleHelpIcon,
   LayoutDashboardIcon,
   MenuIcon,
@@ -26,6 +27,7 @@ const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboardIcon },
   { to: "/deployments", label: "Deployments", icon: RocketIcon },
   { to: "/servers", label: "Servers", icon: ServerIcon },
+  { to: "/telemetry", label: "Telemetry", icon: ActivityIcon },
   { to: "/audit", label: "Audit Logs", icon: ScrollTextIcon },
   { to: "/settings", label: "Settings", icon: SettingsIcon },
 ] as const

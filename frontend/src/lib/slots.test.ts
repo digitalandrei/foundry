@@ -14,6 +14,7 @@ function slot(over: Partial<SlotSummary> = {}): SlotSummary {
     id: "slot-1",
     name: "0",
     slot_type: "FULL_GPU",
+    mig_uuid: null,
     mig_profile: null,
     capacity_mb: null,
     state: "FREE",

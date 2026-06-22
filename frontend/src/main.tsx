@@ -23,6 +23,7 @@ import { LoginPage } from "@/pages/login"
 import { ServerDetailPage } from "@/pages/server-detail"
 import { ServersPage } from "@/pages/servers"
 import { SettingsPage } from "@/pages/settings"
+import { TelemetryPage } from "@/pages/telemetry"
 
 import "./index.css"
 
@@ -64,6 +65,7 @@ const routeTree = rootRoute.addChildren([
       path: "/servers/$serverId",
       component: ServerDetailPage,
     }),
+    createRoute({ getParentRoute: () => appLayout, path: "/telemetry", component: TelemetryPage }),
     createRoute({ getParentRoute: () => appLayout, path: "/audit", component: AuditPage }),
     createRoute({ getParentRoute: () => appLayout, path: "/settings", component: SettingsPage }),
     createRoute({

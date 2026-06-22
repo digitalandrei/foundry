@@ -15,7 +15,7 @@ tracing-subscriber = { workspace = true }
 # Inventory (docs/GPU-MIG.md): Docker Engine API over the local socket
 # and NVML loaded dynamically (binary still runs on GPU-less hosts).
 bollard = "0.19"
-nvml-wrapper = "0.11"
+nvml-wrapper = "0.12"
 # Telemetry (plans/phase-05.md): host metrics + bollard stats streaming.
 sysinfo = "0.33"
 futures-util = "0.3"

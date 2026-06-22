@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use bollard::query_parameters::{ListContainersOptions, StatsOptions};
 use bollard::Docker;
-use foundry_shared::dto::{ContainerMetrics, GpuMetrics, HostMetrics, MetricsSample};
+use foundry_shared::dto::{ContainerMetrics, GpuMetrics, HostMetrics, MetricsSample, MigMetrics};
 use futures_util::StreamExt;
 use nvml_wrapper::enum_wrappers::device::TemperatureSensor;
 use nvml_wrapper::Nvml;
@@ -29,9 +29,11 @@ impl MetricsCollector {
     }
 
     pub async fn collect(&mut self) -> MetricsSample {
+        let (gpus, migs) = self.collect_nvml();
         MetricsSample {
             host: self.collect_host(),
-            gpus: self.collect_gpus(),
+            gpus,
+            migs,
             containers: collect_containers().await,
         }
     }
@@ -84,28 +86,30 @@ impl MetricsCollector {
         }
     }
 
-    fn collect_gpus(&self) -> Vec<GpuMetrics> {
-        // NVML is initialized per call (and dropped at scope end) rather
-        // than held for the process lifetime: NVML's init/shutdown is
-        // process-ref-counted, and a live handle pins the GPU/MIG topology
-        // seen at startup, so a runtime MIG toggle would never be picked up
-        // without an agent restart. A fresh init each cycle re-scans the
-        // live layout (matches inventory::collect_gpus). Costs a few ms.
+    /// Per-GPU silicon metrics plus per-MIG-instance memory, from one NVML
+    /// pass. NVML is initialized per call (and dropped at scope end) rather
+    /// than held for the process lifetime: NVML's init/shutdown is
+    /// process-ref-counted, and a live handle pins the GPU/MIG topology
+    /// seen at startup, so a runtime MIG toggle would never be picked up
+    /// without an agent restart. A fresh init each cycle re-scans the live
+    /// layout (matches inventory::collect_gpus). Costs a few ms.
+    fn collect_nvml(&self) -> (Vec<GpuMetrics>, Vec<MigMetrics>) {
         let nvml = match Nvml::init() {
             Ok(n) => n,
             Err(err) => {
                 tracing::debug!(%err, "NVML unavailable — GPU metrics skipped");
-                return Vec::new();
+                return (Vec::new(), Vec::new());
             }
         };
         let count = nvml.device_count().unwrap_or(0);
-        let mut out = Vec::with_capacity(count as usize);
+        let mut gpus = Vec::with_capacity(count as usize);
+        let mut migs = Vec::new();
         for index in 0..count {
             let Ok(device) = nvml.device_by_index(index) else {
                 continue;
             };
             let Ok(uuid) = device.uuid() else { continue };
-            out.push(GpuMetrics {
+            gpus.push(GpuMetrics {
                 uuid,
                 util_pct: device.utilization_rates().map(|u| u.gpu).unwrap_or(0),
                 mem_used_mb: device
@@ -118,8 +122,30 @@ impl MetricsCollector {
                     .map(|mw| mw as f32 / 1000.0)
                     .unwrap_or(0.0),
             });
+
+            // Per-MIG memory. `mig_device_count` is the *max* slot count
+            // (sparse index space), so iterate and skip handles that error
+            // (empty slots / MIG off → NotFound/NotSupported). A MIG handle
+            // is itself a Device, so uuid()/memory_info() work directly and
+            // memory_info().total is the real slice size (better than the
+            // profile-name estimate inventory uses). Utilization is N/A for
+            // MIG, so it is intentionally not collected here.
+            let mig_count = device.mig_device_count().unwrap_or(0);
+            for mi in 0..mig_count {
+                let Ok(mig) = device.mig_device_by_index(mi) else {
+                    continue;
+                };
+                let (Ok(muuid), Ok(mem)) = (mig.uuid(), mig.memory_info()) else {
+                    continue;
+                };
+                migs.push(MigMetrics {
+                    uuid: muuid,
+                    mem_used_mb: mem.used / 1024 / 1024,
+                    mem_total_mb: mem.total / 1024 / 1024,
+                });
+            }
         }
-        out
+        (gpus, migs)
     }
 }
 
