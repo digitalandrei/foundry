@@ -90,6 +90,49 @@ pub async fn apply_snapshot(
         }
     }
 
+    // ── MIG ⇒ not group-eligible: self-heal stale membership ────────
+    // A group member must be a full, MIG-disabled GPU (create() enforces
+    // this; the builder hides MIG cards). If a member later has MIG
+    // enabled, drop its membership so nothing stale lingers — idempotent,
+    // a no-op once clean.
+    sqlx::query!(
+        r#"DELETE m FROM gpu_group_members m
+           JOIN gpus g ON g.id = m.gpu_id
+           WHERE g.server_id = ? AND g.mig_enabled = 1"#,
+        server_id.0,
+    )
+    .execute(&mut *tx)
+    .await?;
+    // A group emptied by that removal is dead stale — delete it (clear the
+    // historical FK first, like gpu_groups::delete). Guard on no live
+    // deployment; a live group deploy can't have a MIG member anyway.
+    let empty_groups = sqlx::query_scalar!(
+        r#"SELECT gg.id AS "id: Uuid" FROM gpu_groups gg
+           WHERE gg.server_id = ?
+             AND NOT EXISTS (SELECT 1 FROM gpu_group_members m WHERE m.group_id = gg.id)
+             AND NOT EXISTS (
+                 SELECT 1 FROM deployments d
+                 WHERE d.gpu_group_id = gg.id
+                   AND d.state NOT IN ('REMOVED','REPLACED','FAILED')
+             )"#,
+        server_id.0,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    for group_id in empty_groups {
+        sqlx::query!(
+            "UPDATE deployments SET gpu_group_id = NULL, updated_at = ? WHERE gpu_group_id = ?",
+            now,
+            group_id,
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!("DELETE FROM gpu_groups WHERE id = ?", group_id)
+            .execute(&mut *tx)
+            .await?;
+        tracing::info!(server = %server_id, group = %group_id, "deleted group emptied by MIG enablement");
+    }
+
     // ── Containers: replace-all snapshot ────────────────────────────
     sqlx::query!(
         "DELETE FROM server_containers WHERE server_id = ?",

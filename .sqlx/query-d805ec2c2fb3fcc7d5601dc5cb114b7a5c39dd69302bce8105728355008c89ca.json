@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "DELETE m FROM gpu_group_members m\n           JOIN gpus g ON g.id = m.gpu_id\n           WHERE g.server_id = ? AND g.mig_enabled = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "d805ec2c2fb3fcc7d5601dc5cb114b7a5c39dd69302bce8105728355008c89ca"
+}

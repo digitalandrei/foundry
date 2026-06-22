@@ -438,11 +438,7 @@ function GpuCell({
         <span>
           GPU {gpu.index} {gpu.model ? `(${gpu.model})` : ""}
         </span>
-        {gpu.mig_enabled ? (
-          <span className="text-slot-free">MIG</span>
-        ) : (
-          <span>No MIG</span>
-        )}
+        {gpu.mig_enabled ? <span className="text-slot-free">MIG</span> : null}
         <GpuGroupChips groups={gpu.groups} />
         {g ? (
           <span className="ml-auto font-normal tabular-nums">

@@ -176,7 +176,11 @@ its members so the interaction stays well-defined.
   **several** groups (overlap) — mutually exclusive at deploy time.
   Members are whole GPUs, MIG-disabled, on one server (no cross-host
   NVLink/PCIe peering). Group create/delete and use-mode changes are
-  admin-only and audited.
+  admin-only and audited. **MIG and grouping are mutually exclusive and
+  self-healing:** the builder hides MIG cards and create rejects them, and
+  if a member later has MIG enabled, inventory reconciliation drops its
+  membership on the next cycle (and deletes a group it thereby empties) —
+  no stale membership lingers.
 
 - **Multi-use slots (sharing, N containers : 1 GPU).** `gpu_slots.max_occupants`
   (default 1 = single-use; 1–4) lets several containers share one GPU.
