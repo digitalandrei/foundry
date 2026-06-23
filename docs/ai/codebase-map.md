@@ -101,8 +101,11 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   derivation → `controller/src/repos/slots.rs`; route →
   `controller/src/routes/gpu_groups.rs`; UI →
   `frontend/src/components/server-gpu-config.tsx`
-- Agent executors (bollard deploy/stop/restart/remove/volume) + task
-  poll loop → `agent/src/tasks.rs`; nginx vhost manager (HTTP/S app
+- Agent executors (deploy/stop/restart/remove/volume orchestration) +
+  task poll loop → `agent/src/tasks.rs`, which reaches Docker only
+  through the `DockerEngine` seam (trait + `BollardEngine` adapter +
+  test `FakeEngine`, plus pull-progress aggregation) →
+  `agent/src/docker.rs`; nginx vhost manager (HTTP/S app
   publishing: render/apply/remove, sudo-scoped reload, rollback) →
   `agent/src/vhost.rs`; host setup for it (`--setup-apps`: include +
   sudoers + TLS dir + unit) → `agent/src/register.rs`
@@ -122,8 +125,9 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   `pages/deployment-detail.tsx` (route `/deployments/$deploymentId`);
   DndContext + slot grid only (deployments box removed 0.20.0) in
   `pages/dashboard.tsx`; table → `pages/deployments.tsx`
-- Live deploy progress: agent reporter + pull aggregation →
-  `agent/src/tasks.rs` (ProgressReporter/PullProgress); controller
+- Live deploy progress: agent reporter (`ProgressReporter` in
+  `agent/src/tasks.rs`) + pull aggregation (`PullProgress` in
+  `agent/src/docker.rs`); controller
   intake → `controller/src/repos/tasks.rs::progress` +
   `routes/agent.rs::tasks_progress` (detail text in
   `AppState.progress`, in-memory)

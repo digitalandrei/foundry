@@ -9,6 +9,7 @@
 //! - `foundry-agent --version`
 
 mod config;
+mod docker;
 mod inventory;
 mod logs;
 mod metrics;

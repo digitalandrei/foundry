@@ -3,21 +3,25 @@
 //! per server, every executor idempotent (re-delivery after a crash is
 //! normal). Only containers labeled foundry.managed=true are ever
 //! touched; volume removal is hard-scoped under /storage/containers/.
+//!
+//! Docker is reached only through the `DockerEngine` seam (crate::docker),
+//! so this executor — the bug-dense deploy/replace/adopt orchestration —
+//! is unit-tested against an in-memory `FakeEngine`, no daemon required.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::time::Duration;
 
-use bollard::auth::DockerCredentials;
-use bollard::models::{ContainerCreateBody, DeviceRequest, HostConfig, PortBinding};
-use bollard::Docker;
+use async_trait::async_trait;
 use foundry_shared::dto::{
     ContainerTarget, DeployPayload, RegistryAuth, TaskEnvelope, TaskPayload, TaskProgressReport,
     TaskResultReport, VolumeTarget,
 };
 use foundry_shared::{DeploymentState, TaskId, TaskType};
-use futures_util::StreamExt;
 
 use crate::config::AgentConfig;
+use crate::docker::{
+    BindSpec, BollardEngine, ContainerSpec, DockerEngine, PortSpec, PullSink, RegistryCreds,
+};
 
 const VOLUME_ROOT: &str = "/storage/containers/";
 
@@ -80,56 +84,32 @@ impl<'a> ProgressReporter<'a> {
     }
 }
 
-/// Aggregates bollard's per-layer pull stream into one operator line:
-/// `pulling: 3/7 layers · 410 / 1208 MB`.
-#[derive(Default)]
-struct PullProgress {
-    layers: HashMap<String, (u64, u64)>,
-    done: std::collections::HashSet<String>,
-}
-
-impl PullProgress {
-    fn update(&mut self, info: &bollard::models::CreateImageInfo) {
-        let Some(id) = info.id.clone() else { return };
-        match info.status.as_deref().unwrap_or("") {
-            "Pull complete" | "Already exists" => {
-                self.layers.entry(id.clone()).or_insert((0, 0));
-                // A finished layer counts fully even when Docker never
-                // reported its size.
-                if let Some(l) = self.layers.get_mut(&id) {
-                    l.0 = l.1;
-                }
-                self.done.insert(id);
-            }
-            "Downloading" => {
-                if let Some(p) = &info.progress_detail {
-                    let entry = self.layers.entry(id).or_insert((0, 0));
-                    entry.0 = p.current.unwrap_or(0).max(0) as u64;
-                    entry.1 = p.total.unwrap_or(0).max(0) as u64;
-                }
-            }
-            _ => {
-                self.layers.entry(id).or_insert((0, 0));
-            }
-        }
-    }
-
-    fn line(&self) -> String {
-        let (cur, total) = self
-            .layers
-            .values()
-            .fold((0u64, 0u64), |acc, (c, t)| (acc.0 + c, acc.1 + t));
-        format!(
-            "pulling: {}/{} layers · {} / {} MB",
-            self.done.len(),
-            self.layers.len(),
-            cur / 1_048_576,
-            total / 1_048_576,
-        )
+/// The engine streams aggregated pull-progress lines through here; each
+/// becomes a throttled `PullingImage` detail refresh.
+#[async_trait]
+impl PullSink for ProgressReporter<'_> {
+    async fn progress(&mut self, line: &str) {
+        self.tick(DeploymentState::PullingImage, line).await;
     }
 }
 
 pub async fn run_loop(client: &reqwest::Client, config: &AgentConfig) {
+    // One Docker connection for the whole loop (no per-task reconnect).
+    // connect() doesn't dial, so failure here is rare config breakage;
+    // retry until it succeeds or we're asked to shut down.
+    let engine = loop {
+        match BollardEngine::connect() {
+            Ok(engine) => break engine,
+            Err(err) => {
+                tracing::error!(%err, "Docker connect failed — task executor retrying in 5s");
+                tokio::select! {
+                    _ = crate::shutdown_signal() => return,
+                    _ = tokio::time::sleep(Duration::from_secs(5)) => continue,
+                }
+            }
+        }
+    };
+
     let base = config.controller_url.trim_end_matches('/');
     let next_url = format!("{base}/agent/tasks/next");
     let result_url = format!("{base}/agent/tasks/result");
@@ -141,7 +121,7 @@ pub async fn run_loop(client: &reqwest::Client, config: &AgentConfig) {
                 let Some(envelope) = envelope else { continue };
                 let task_id = envelope.id;
                 tracing::info!(task = %task_id, task_type = %envelope.task_type, "executing task");
-                let report = execute(client, config, envelope).await;
+                let report = execute(&engine, client, config, envelope).await;
                 tracing::info!(task = %task_id, success = report.success,
                     error = report.error.as_deref().unwrap_or(""), "task finished");
                 report_result(client, config, &result_url, &report).await;
@@ -212,6 +192,7 @@ async fn report_result(
 }
 
 async fn execute(
+    engine: &dyn DockerEngine,
     client: &reqwest::Client,
     config: &AgentConfig,
     envelope: TaskEnvelope,
@@ -220,11 +201,15 @@ async fn execute(
     let outcome = match (envelope.task_type, envelope.payload) {
         (TaskType::DeployContainer, TaskPayload::Deploy(p)) => {
             let mut progress = ProgressReporter::new(client, config, task_id);
-            deploy(*p, &mut progress).await
+            deploy(engine, *p, &mut progress).await
         }
-        (TaskType::StopContainer, TaskPayload::Container(t)) => stop(t).await.map(|_| None),
-        (TaskType::RestartContainer, TaskPayload::Container(t)) => restart(t).await.map(|_| None),
-        (TaskType::RemoveContainer, TaskPayload::Container(t)) => remove(t).await.map(|_| None),
+        (TaskType::StopContainer, TaskPayload::Container(t)) => stop(engine, t).await.map(|_| None),
+        (TaskType::RestartContainer, TaskPayload::Container(t)) => {
+            restart(engine, t).await.map(|_| None)
+        }
+        (TaskType::RemoveContainer, TaskPayload::Container(t)) => {
+            remove(engine, t).await.map(|_| None)
+        }
         (TaskType::RemoveVolume, TaskPayload::Volume(v)) => remove_volume(v).await.map(|_| None),
         (tt, _) => Err(format!("unsupported task/payload combination: {tt}")),
     };
@@ -244,100 +229,138 @@ async fn execute(
     }
 }
 
-fn docker() -> Result<Docker, String> {
-    Docker::connect_with_local_defaults().map_err(|e| format!("docker unavailable: {e}"))
-}
-
 /// Find the managed container for a deployment (by label, never name).
 async fn find_managed(
-    docker: &Docker,
+    engine: &dyn DockerEngine,
     deployment_id: &str,
 ) -> Result<Option<(String, String)>, String> {
-    let list = docker
-        .list_containers(Some(bollard::query_parameters::ListContainersOptions {
-            all: true,
-            ..Default::default()
-        }))
-        .await
-        .map_err(|e| format!("container listing failed: {e}"))?;
+    let list = engine.list().await.map_err(|e| e.to_string())?;
     Ok(list.into_iter().find_map(|c| {
-        let labels = c.labels.as_ref()?;
-        if labels.get("foundry.managed").map(String::as_str) != Some("true") {
+        if c.labels.get("foundry.managed").map(String::as_str) != Some("true") {
             return None;
         }
-        if labels.get("foundry.deployment_id").map(String::as_str) != Some(deployment_id) {
+        if c.labels.get("foundry.deployment_id").map(String::as_str) != Some(deployment_id) {
             return None;
         }
-        Some((
-            c.id.unwrap_or_default(),
-            c.state
-                .map(|s| format!("{s:?}").to_lowercase())
-                .unwrap_or_default(),
-        ))
+        Some((c.id, c.state))
     }))
 }
 
 /// Find any container by (short) docker id — the adopted-container path,
 /// which deliberately ignores the `foundry.managed` label gate (the
 /// container was created outside Foundry; the controller authorised this).
-async fn find_by_id(docker: &Docker, short_id: &str) -> Result<Option<(String, String)>, String> {
-    let list = docker
-        .list_containers(Some(bollard::query_parameters::ListContainersOptions {
-            all: true,
-            ..Default::default()
-        }))
-        .await
-        .map_err(|e| format!("container listing failed: {e}"))?;
-    Ok(list.into_iter().find_map(|c| {
-        let id = c.id.clone().unwrap_or_default();
-        if !id.starts_with(short_id) {
-            return None;
-        }
-        Some((
-            id,
-            c.state
-                .map(|s| format!("{s:?}").to_lowercase())
-                .unwrap_or_default(),
-        ))
-    }))
+async fn find_by_id(
+    engine: &dyn DockerEngine,
+    short_id: &str,
+) -> Result<Option<(String, String)>, String> {
+    let list = engine.list().await.map_err(|e| e.to_string())?;
+    Ok(list
+        .into_iter()
+        .find(|c| c.id.starts_with(short_id))
+        .map(|c| (c.id, c.state)))
 }
 
 /// Resolve a lifecycle target's container: by docker id for an adopted
 /// container, else by the managed label for a Foundry deployment.
 async fn resolve_target(
-    docker: &Docker,
+    engine: &dyn DockerEngine,
     t: &ContainerTarget,
 ) -> Result<Option<(String, String)>, String> {
     match &t.container_id {
-        Some(cid) => find_by_id(docker, cid).await,
-        None => find_managed(docker, &t.deployment_id.to_string()).await,
+        Some(cid) => find_by_id(engine, cid).await,
+        None => find_managed(engine, &t.deployment_id.to_string()).await,
+    }
+}
+
+/// Build the container spec from a deploy payload. The bug-dense bits —
+/// device-uuid fallback (older controller), comma-joined slot-id label,
+/// group label — live here so they're tested without Docker.
+fn container_spec(p: &DeployPayload) -> ContainerSpec {
+    // All NVML device UUIDs for this deployment: prefer the plural field
+    // (1 for an individual deploy, N for a group); fall back to the
+    // singular for a payload queued by a one-release-older controller.
+    let device_uuids: Vec<String> = if p.gpu_device_uuids.is_empty() {
+        vec![p.gpu_device_uuid.clone()]
+    } else {
+        p.gpu_device_uuids.clone()
+    };
+    // Member slot ids for the comma-joined label; fall back to the
+    // primary slot for an older controller's payload.
+    let slot_ids_label = if p.slot_ids.is_empty() {
+        p.slot_id.to_string()
+    } else {
+        p.slot_ids
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+
+    // gpu_uuid + slot make GPU assignment visible host-side:
+    // docker ps --format '{{.Names}} {{.Label "foundry.gpu_uuid"}}'
+    let mut labels = BTreeMap::from([
+        ("foundry.managed".to_string(), "true".to_string()),
+        (
+            "foundry.deployment_id".to_string(),
+            p.deployment_id.to_string(),
+        ),
+        ("foundry.slot_id".to_string(), p.slot_id.to_string()),
+        ("foundry.slot_ids".to_string(), slot_ids_label),
+        ("foundry.slot".to_string(), p.slot_name.clone()),
+        ("foundry.gpu_uuid".to_string(), p.gpu_device_uuid.clone()),
+    ]);
+    // Group deploys carry the group id so a host-side `docker ps` reveals
+    // which container spans which group (docs/ARCHITECTURE.md § Labels).
+    if let Some(group_id) = &p.gpu_group_id {
+        labels.insert("foundry.group_id".to_string(), group_id.to_string());
+    }
+
+    ContainerSpec {
+        name: p.container_name.clone(),
+        image: p.image_ref.clone(),
+        env: p.env.clone(),
+        labels,
+        ports: p
+            .ports
+            .iter()
+            .map(|port| PortSpec {
+                container_port: port.container_port,
+                host_port: port.host_port,
+                protocol: port.protocol.clone(),
+            })
+            .collect(),
+        binds: p
+            .volumes
+            .iter()
+            .map(|v| BindSpec {
+                host_path: v.host_path.clone(),
+                container_path: v.container_path.clone(),
+                read_only: v.read_only,
+            })
+            .collect(),
+        // Operator-set Docker memory cap (slider; controller-clamped to
+        // 32–256 GB). None → unlimited. Bytes = MB × 1024².
+        memory_bytes: p.mem_limit_mb.map(|mb| i64::from(mb) * 1024 * 1024),
+        device_uuids,
     }
 }
 
 async fn deploy(
+    engine: &dyn DockerEngine,
     p: DeployPayload,
     progress: &mut ProgressReporter<'_>,
 ) -> Result<Option<String>, String> {
-    let docker = docker()?;
     let deployment_id = p.deployment_id.to_string();
 
     // Idempotency: a previous attempt may have gotten partway.
-    if let Some((existing, state)) = find_managed(&docker, &deployment_id).await? {
+    if let Some((existing, state)) = find_managed(engine, &deployment_id).await? {
         if state == "running" {
             // Re-delivery after a crash: make sure the vhosts exist too
             // (no-op reload when the conf is already in place).
             crate::vhost::apply(&deployment_id, &crate::vhost::web_ports(&p.ports)).await?;
             return Ok(Some(existing));
         }
-        let _ = docker
-            .remove_container(
-                &existing,
-                Some(bollard::query_parameters::RemoveContainerOptions {
-                    force: true,
-                    ..Default::default()
-                }),
-            )
-            .await;
+        let _ = engine.remove(&existing).await;
     }
 
     // Persistent volume directories (hard-scoped). create_dir_all builds
@@ -367,15 +390,11 @@ async fn deploy(
     }
 
     // Pull (credential stays in memory; never logged).
-    let credentials = p.registry_auth.as_ref().map(|auth| match auth {
-        RegistryAuth::RegistryToken { token } => DockerCredentials {
-            registrytoken: Some(token.clone()),
-            ..Default::default()
-        },
-        RegistryAuth::UserPassword { username, password } => DockerCredentials {
-            username: Some(username.clone()),
-            password: Some(password.clone()),
-            ..Default::default()
+    let creds = p.registry_auth.as_ref().map(|auth| match auth {
+        RegistryAuth::RegistryToken { token } => RegistryCreds::Token(token.clone()),
+        RegistryAuth::UserPassword { username, password } => RegistryCreds::UserPassword {
+            username: username.clone(),
+            password: password.clone(),
         },
     });
     progress
@@ -384,165 +403,34 @@ async fn deploy(
             "pulling: contacting registry",
         )
         .await;
-    let mut pull = docker.create_image(
-        Some(bollard::query_parameters::CreateImageOptions {
-            from_image: Some(p.image_ref.clone()),
-            ..Default::default()
-        }),
-        None,
-        credentials,
-    );
-    let mut pull_stats = PullProgress::default();
-    while let Some(msg) = pull.next().await {
-        let info = msg.map_err(|e| format!("image pull failed: {e}"))?;
-        // Auth/missing-tag failures arrive as 200-stream messages with
-        // an embedded error (review finding) — surface them.
-        if let Some(error) = info.error {
-            return Err(format!("image pull failed: {error}"));
-        }
-        pull_stats.update(&info);
-        progress
-            .tick(DeploymentState::PullingImage, &pull_stats.line())
-            .await;
-    }
+    engine
+        .pull(&p.image_ref, creds, progress)
+        .await
+        .map_err(|e| e.to_string())?;
+
     progress
         .stage(DeploymentState::CreatingContainer, "creating container")
         .await;
-
-    // All NVML device UUIDs for this deployment: prefer the plural field
-    // (1 for an individual deploy, N for a group); fall back to the
-    // singular for a payload queued by a one-release-older controller.
-    let device_uuids: Vec<String> = if p.gpu_device_uuids.is_empty() {
-        vec![p.gpu_device_uuid.clone()]
-    } else {
-        p.gpu_device_uuids.clone()
-    };
-    // Member slot ids for the comma-joined label; fall back to the
-    // primary slot for an older controller's payload.
-    let slot_ids_label = if p.slot_ids.is_empty() {
-        p.slot_id.to_string()
-    } else {
-        p.slot_ids
-            .iter()
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>()
-            .join(",")
-    };
-
-    // Create with labels, GPU device(s), ports, env, mounts.
-    // gpu_uuid + slot make GPU assignment visible host-side:
-    // docker ps --format '{{.Names}} {{.Label \"foundry.gpu_uuid\"}}'
-    let mut labels = HashMap::from([
-        ("foundry.managed".to_string(), "true".to_string()),
-        ("foundry.deployment_id".to_string(), deployment_id.clone()),
-        ("foundry.slot_id".to_string(), p.slot_id.to_string()),
-        ("foundry.slot_ids".to_string(), slot_ids_label),
-        ("foundry.slot".to_string(), p.slot_name.clone()),
-        ("foundry.gpu_uuid".to_string(), p.gpu_device_uuid.clone()),
-    ]);
-    // Group deploys carry the group id so a host-side `docker ps` reveals
-    // which container spans which group (docs/ARCHITECTURE.md § Labels).
-    if let Some(group_id) = &p.gpu_group_id {
-        labels.insert("foundry.group_id".to_string(), group_id.to_string());
-    }
-    let mut port_bindings: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
-    let mut exposed: HashMap<String, HashMap<(), ()>> = HashMap::new();
-    for port in &p.ports {
-        let key = format!("{}/{}", port.container_port, port.protocol);
-        exposed.insert(key.clone(), HashMap::new());
-        port_bindings
-            .entry(key)
-            .or_insert_with(|| Some(Vec::new()))
-            .get_or_insert_with(Vec::new)
-            .push(PortBinding {
-                host_ip: None,
-                host_port: Some(port.host_port.to_string()),
-            });
-    }
-    let binds: Vec<String> = p
-        .volumes
-        .iter()
-        .map(|v| {
-            format!(
-                "{}:{}{}",
-                v.host_path,
-                v.container_path,
-                if v.read_only { ":ro" } else { "" }
-            )
-        })
-        .collect();
-
-    let body = ContainerCreateBody {
-        image: Some(p.image_ref.clone()),
-        env: Some(p.env.iter().map(|(k, v)| format!("{k}={v}")).collect()),
-        labels: Some(labels),
-        exposed_ports: Some(exposed),
-        host_config: Some(HostConfig {
-            port_bindings: Some(port_bindings),
-            binds: (!binds.is_empty()).then_some(binds),
-            // Operator-set Docker memory cap (slider; controller-clamped
-            // to 32–256 GB). None → unlimited (no `--memory`). Bytes =
-            // MB × 1024²; a set cap also becomes the container's reported
-            // "max memory" in telemetry.
-            memory: p.mem_limit_mb.map(|mb| i64::from(mb) * 1024 * 1024),
-            // driver omitted = daemon auto-selects the GPU driver
-            // (what `docker run --gpus device=…` sends).
-            device_requests: Some(vec![DeviceRequest {
-                driver: None,
-                count: None,
-                device_ids: Some(device_uuids),
-                capabilities: Some(vec![vec!["gpu".to_string()]]),
-                options: None,
-            }]),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-
-    let created = docker
-        .create_container(
-            Some(bollard::query_parameters::CreateContainerOptions {
-                name: Some(p.container_name.clone()),
-                ..Default::default()
-            }),
-            body,
-        )
-        .await
-        .map_err(|e| {
-            let msg = e.to_string();
-            if msg.contains("409") || msg.to_lowercase().contains("conflict") {
-                format!(
-                    "container name {:?} is already used by a container not managed by \
-                     Foundry — pick another name or remove that container on the host",
-                    p.container_name
-                )
-            } else {
-                format!("container create failed: {msg}")
-            }
-        })?;
+    let spec = container_spec(&p);
+    let id = engine.create(&spec).await.map_err(|e| match e {
+        crate::docker::DockerError::Conflict => format!(
+            "container name {:?} is already used by a container not managed by Foundry — pick \
+             another name or remove that container on the host",
+            p.container_name
+        ),
+        // `e`'s Display already carries the "container create failed: …"
+        // context from the adapter — don't prefix it a second time.
+        other => other.to_string(),
+    })?;
 
     progress
         .stage(DeploymentState::Starting, "starting container")
         .await;
-    if let Err(e) = docker
-        .start_container(
-            &created.id,
-            None::<bollard::query_parameters::StartContainerOptions>,
-        )
-        .await
-    {
+    if let Err(e) = engine.start(&id).await {
         // A created-but-unstarted container would otherwise hold the
         // name and clutter the host; the deploy is failing anyway, so
         // remove it — a failed deploy leaves nothing behind.
-        let _ = docker
-            .remove_container(
-                &created.id,
-                Some(bollard::query_parameters::RemoveContainerOptions {
-                    force: true,
-                    ..Default::default()
-                }),
-            )
-            .await;
+        let _ = engine.remove(&id).await;
         return Err(format!("container start failed: {e}"));
     }
 
@@ -555,141 +443,73 @@ async fn deploy(
             .stage(DeploymentState::Starting, "publishing vhost (nginx)")
             .await;
         if let Err(err) = crate::vhost::apply(&deployment_id, &web).await {
-            let _ = docker
-                .remove_container(
-                    &created.id,
-                    Some(bollard::query_parameters::RemoveContainerOptions {
-                        force: true,
-                        ..Default::default()
-                    }),
-                )
-                .await;
+            let _ = engine.remove(&id).await;
             return Err(format!("vhost publish failed: {err}"));
         }
     }
 
-    Ok(Some(created.id))
+    Ok(Some(id))
 }
 
-/// The image digest a container was created from — captured before the
-/// container is removed so its image can be reclaimed afterwards.
-async fn container_image(docker: &Docker, id: &str) -> Option<String> {
-    docker
-        .inspect_container(
-            id,
-            None::<bollard::query_parameters::InspectContainerOptions>,
-        )
-        .await
-        .ok()
-        .and_then(|c| c.image)
+/// The image a container was created from — captured before the container
+/// is removed so its image can be reclaimed afterwards. Best-effort.
+async fn container_image(engine: &dyn DockerEngine, id: &str) -> Option<String> {
+    engine.inspect_image(id).await.ok().flatten()
 }
 
 /// Reclaim an image best-effort. A shared image (another container still
 /// references it) and an already-deleted image are both non-errors: a
 /// re-delivered teardown must stay idempotent, and we must never strand a
-/// sibling deployment that needs the same layers. No `force` — Docker's
-/// own in-use refusal is exactly the protection we want.
-async fn reclaim_image(docker: &Docker, image: &str) {
-    if let Err(e) = docker
-        .remove_image(
-            image,
-            None::<bollard::query_parameters::RemoveImageOptions>,
-            None,
-        )
-        .await
-    {
+/// sibling deployment that needs the same layers.
+async fn reclaim_image(engine: &dyn DockerEngine, image: &str) {
+    if let Err(e) = engine.remove_image(image).await {
         tracing::debug!(%image, error = %e, "image not reclaimed (shared or already gone)");
     }
 }
 
-async fn stop(t: ContainerTarget) -> Result<(), String> {
-    let docker = docker()?;
-    let Some((id, state)) = resolve_target(&docker, &t).await? else {
+async fn stop(engine: &dyn DockerEngine, t: ContainerTarget) -> Result<(), String> {
+    let Some((id, state)) = resolve_target(engine, &t).await? else {
         return Ok(()); // already gone — idempotent success
     };
     // Capture the image while the container still exists so we can reclaim
     // it once the container is gone.
-    let image = container_image(&docker, &id).await;
+    let image = container_image(engine, &id).await;
     if state == "running" {
-        docker
-            .stop_container(
-                &id,
-                Some(bollard::query_parameters::StopContainerOptions {
-                    t: Some(30),
-                    ..Default::default()
-                }),
-            )
-            .await
-            .map_err(|e| format!("container stop failed: {e}"))?;
+        engine.stop(&id, 30).await.map_err(|e| e.to_string())?;
     }
     // Don't leave a stopped container lingering in `docker ps -a`. Restart
     // re-deploys from the stored spec (controller `enqueue_restart`), so
     // nothing here needs to survive — then drop the image so it doesn't
     // pile up in `docker images`.
-    docker
-        .remove_container(
-            &id,
-            Some(bollard::query_parameters::RemoveContainerOptions {
-                force: true,
-                ..Default::default()
-            }),
-        )
-        .await
-        .map_err(|e| format!("container remove failed: {e}"))?;
+    engine.remove(&id).await.map_err(|e| e.to_string())?;
     if let Some(image) = image {
-        reclaim_image(&docker, &image).await;
+        reclaim_image(engine, &image).await;
     }
     Ok(())
 }
 
-async fn restart(t: ContainerTarget) -> Result<(), String> {
-    let docker = docker()?;
-    let Some((id, state)) = resolve_target(&docker, &t).await? else {
+async fn restart(engine: &dyn DockerEngine, t: ContainerTarget) -> Result<(), String> {
+    let Some((id, state)) = resolve_target(engine, &t).await? else {
         return Err("managed container not found on host".into());
     };
     if state == "running" {
-        docker
-            .restart_container(
-                &id,
-                Some(bollard::query_parameters::RestartContainerOptions {
-                    t: Some(30),
-                    ..Default::default()
-                }),
-            )
-            .await
-            .map_err(|e| format!("container restart failed: {e}"))
+        engine.restart(&id, 30).await.map_err(|e| e.to_string())
     } else {
-        docker
-            .start_container(
-                &id,
-                None::<bollard::query_parameters::StartContainerOptions>,
-            )
-            .await
-            .map_err(|e| format!("container start failed: {e}"))
+        engine.start(&id).await.map_err(|e| e.to_string())
     }
 }
 
-async fn remove(t: ContainerTarget) -> Result<(), String> {
-    let docker = docker()?;
+async fn remove(engine: &dyn DockerEngine, t: ContainerTarget) -> Result<(), String> {
     // Vhost first (drain traffic before the upstream disappears); also
     // runs on re-delivery when the container is already gone.
     crate::vhost::remove(&t.deployment_id.to_string()).await?;
-    let Some((id, _)) = resolve_target(&docker, &t).await? else {
+    let Some((id, _)) = resolve_target(engine, &t).await? else {
         return Ok(()); // already gone — idempotent success
     };
-    let image = container_image(&docker, &id).await;
-    docker
-        .remove_container(
-            &id,
-            Some(bollard::query_parameters::RemoveContainerOptions {
-                force: true,
-                ..Default::default()
-            }),
-        )
-        .await
-        .map_err(|e| format!("container remove failed: {e}"))?;
+    let image = container_image(engine, &id).await;
+    engine.remove(&id).await.map_err(|e| e.to_string())?;
     if let Some(image) = image {
-        reclaim_image(&docker, &image).await;
+        reclaim_image(engine, &image).await;
     }
     Ok(())
 }
@@ -706,5 +526,178 @@ async fn remove_volume(v: VolumeTarget) -> Result<(), String> {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(format!("volume removal failed: {e}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::docker::fake::FakeEngine;
+    use crate::docker::DockerError;
+    use foundry_shared::dto::PortBinding;
+
+    fn cfg() -> AgentConfig {
+        // Unreachable controller: progress posts fail fast and are
+        // swallowed (best-effort), so the executor logic is what's tested.
+        AgentConfig {
+            controller_url: "http://127.0.0.1:1".into(),
+            agent_id: "agent".into(),
+            agent_secret: "secret".into(),
+            server_name: None,
+            poll_interval_secs: 15,
+        }
+    }
+
+    fn payload() -> DeployPayload {
+        DeployPayload {
+            deployment_id: foundry_shared::DeploymentId::new(),
+            image_ref: "registry.example/app:1".into(),
+            container_name: "app-1".into(),
+            gpu_device_uuid: "GPU-aaaa".into(),
+            gpu_device_uuids: vec![],
+            slot_id: foundry_shared::SlotId::new(),
+            slot_ids: vec![],
+            gpu_group_id: None,
+            slot_name: "0".into(),
+            // A non-web TCP port: web_ports() ignores it, so deploy never
+            // shells out to nginx during the test.
+            ports: vec![PortBinding {
+                container_port: 8000,
+                host_port: 18000,
+                protocol: "tcp".into(),
+                kind: foundry_shared::PortKind::default(),
+                hostname: None,
+            }],
+            env: vec![("KEY".into(), "VAL".into())],
+            volumes: vec![],
+            registry_auth: None,
+            mem_limit_mb: Some(1024),
+        }
+    }
+
+    // --- pure spec construction ---
+
+    #[test]
+    fn spec_falls_back_to_singular_gpu_uuid() {
+        let p = payload();
+        let spec = container_spec(&p);
+        assert_eq!(spec.device_uuids, vec!["GPU-aaaa".to_string()]);
+        assert_eq!(spec.labels["foundry.managed"], "true");
+        assert_eq!(spec.labels["foundry.gpu_uuid"], "GPU-aaaa");
+        assert_eq!(spec.memory_bytes, Some(1024 * 1024 * 1024));
+        assert!(!spec.labels.contains_key("foundry.group_id"));
+    }
+
+    #[test]
+    fn spec_uses_plural_gpu_uuids_and_group_label() {
+        let mut p = payload();
+        p.gpu_device_uuids = vec!["GPU-a".into(), "GPU-b".into()];
+        p.gpu_group_id = Some(foundry_shared::GpuGroupId::new());
+        let spec = container_spec(&p);
+        assert_eq!(
+            spec.device_uuids,
+            vec!["GPU-a".to_string(), "GPU-b".to_string()]
+        );
+        assert!(spec.labels.contains_key("foundry.group_id"));
+    }
+
+    // --- deploy orchestration vs the in-memory engine ---
+
+    #[tokio::test]
+    async fn deploy_creates_and_starts_a_managed_container() {
+        let engine = FakeEngine::new();
+        let client = reqwest::Client::new();
+        let config = cfg();
+        let mut progress = ProgressReporter::new(&client, &config, TaskId::new());
+
+        let id = deploy(&engine, payload(), &mut progress)
+            .await
+            .expect("deploy ok")
+            .expect("returns container id");
+
+        // Exactly one container created, carrying the managed label.
+        let created = engine.created.lock().unwrap();
+        assert_eq!(created.len(), 1);
+        assert_eq!(created[0].labels["foundry.managed"], "true");
+        drop(created);
+        assert!(engine.ids().contains(&id));
+    }
+
+    #[tokio::test]
+    async fn deploy_recreates_a_stale_stopped_container() {
+        let dep = foundry_shared::DeploymentId::new();
+        let engine = FakeEngine::new().with_managed("old", "exited", &dep.to_string());
+        let client = reqwest::Client::new();
+        let config = cfg();
+        let mut progress = ProgressReporter::new(&client, &config, TaskId::new());
+        let mut p = payload();
+        p.deployment_id = dep;
+
+        deploy(&engine, p, &mut progress).await.expect("deploy ok");
+
+        // The stale container was removed and a fresh one created.
+        assert!(engine.removed.lock().unwrap().contains(&"old".to_string()));
+        assert!(!engine.ids().contains(&"old".to_string()));
+        assert_eq!(engine.created.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn deploy_surfaces_unauthorized_pull() {
+        let engine = FakeEngine::new().fail_pull(DockerError::ImagePull {
+            message: "denied".into(),
+            unauthorized: true,
+        });
+        let client = reqwest::Client::new();
+        let config = cfg();
+        let mut progress = ProgressReporter::new(&client, &config, TaskId::new());
+
+        let err = deploy(&engine, payload(), &mut progress)
+            .await
+            .expect_err("pull should fail");
+        assert!(err.contains("image pull failed"), "got: {err}");
+        // Nothing was created when the pull failed.
+        assert!(engine.created.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn deploy_maps_create_conflict_to_operator_message() {
+        let engine = FakeEngine::new().conflict_on_create();
+        let client = reqwest::Client::new();
+        let config = cfg();
+        let mut progress = ProgressReporter::new(&client, &config, TaskId::new());
+
+        let err = deploy(&engine, payload(), &mut progress)
+            .await
+            .expect_err("create should conflict");
+        assert!(
+            err.contains("already used by a container not managed by Foundry"),
+            "got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn stop_removes_a_running_managed_container() {
+        let dep = foundry_shared::DeploymentId::new();
+        let engine = FakeEngine::new().with_managed("c1", "running", &dep.to_string());
+
+        let t = ContainerTarget {
+            deployment_id: dep,
+            container_id: None,
+        };
+        stop(&engine, t).await.expect("stop ok");
+
+        assert!(engine.removed.lock().unwrap().contains(&"c1".to_string()));
+        assert!(!engine.ids().contains(&"c1".to_string()));
+    }
+
+    #[tokio::test]
+    async fn stop_is_idempotent_when_already_gone() {
+        let engine = FakeEngine::new();
+        let t = ContainerTarget {
+            deployment_id: foundry_shared::DeploymentId::new(),
+            container_id: None,
+        };
+        // No matching container — still a success.
+        stop(&engine, t).await.expect("idempotent stop");
     }
 }
