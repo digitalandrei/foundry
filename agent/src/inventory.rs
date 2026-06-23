@@ -14,10 +14,10 @@ use foundry_shared::dto::{
 };
 use nvml_wrapper::Nvml;
 
-pub async fn collect() -> InventorySnapshot {
+pub async fn collect(nvml: Option<&Nvml>) -> InventorySnapshot {
     // GPUs first: their NVML index→UUID map resolves the device refs of
     // running containers (so even non-Foundry containers map to a slot).
-    let (nvidia_driver_version, gpus) = collect_gpus();
+    let (nvidia_driver_version, gpus) = collect_gpus(nvml);
     let gpu_index: HashMap<u32, String> = gpus.iter().map(|g| (g.index, g.uuid.clone())).collect();
     let (docker_version, docker_ok, containers) = collect_docker(&gpu_index).await;
     let nginx = crate::vhost::app_publishing_status();
@@ -248,13 +248,14 @@ fn resolve_device_ref(r: &str, gpu_index: &HashMap<u32, String>) -> Option<Strin
     }
 }
 
-fn collect_gpus() -> (Option<String>, Vec<GpuInfo>) {
-    let nvml = match Nvml::init() {
-        Ok(n) => n,
-        Err(err) => {
-            tracing::debug!(%err, "NVML unavailable (no NVIDIA driver?)");
-            return (None, Vec::new());
-        }
+fn collect_gpus(nvml: Option<&Nvml>) -> (Option<String>, Vec<GpuInfo>) {
+    // Uses the process-lifetime NVML handle from main.rs — never
+    // re-initialized (cycling nvmlInit/Shutdown leaks FDs). A MIG layout
+    // changed after the agent started is therefore only reflected on the
+    // next agent restart (docs/GPU-MIG.md).
+    let Some(nvml) = nvml else {
+        tracing::debug!("NVML unavailable (no NVIDIA driver?)");
+        return (None, Vec::new());
     };
     let driver = nvml.sys_driver_version().ok();
 

@@ -115,6 +115,21 @@ async fn heartbeat_loop(client: &reqwest::Client, config: &config::AgentConfig) 
     // Full snapshot at start, then every minute (docs/GPU-MIG.md).
     let mut inventory_interval = tokio::time::interval(Duration::from_secs(60));
     inventory_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // ONE NVML handle for the whole process, shared by the inventory and
+    // metrics ticks. Re-initializing NVML per collection cycle leaks file
+    // descriptors against the NVIDIA driver (0.45–0.47 regression: the
+    // agent exhausted FDs after ~5h — "Too many open files", then
+    // NVML/nvidia-smi/sockets all failed), so we init exactly once and
+    // never re-init. A held handle does not observe a MIG layout
+    // enabled/reshaped after startup, so that change is picked up only on
+    // the next agent restart (documented, docs/GPU-MIG.md).
+    let nvml = match nvml_wrapper::Nvml::init() {
+        Ok(n) => Some(n),
+        Err(err) => {
+            tracing::info!(%err, "NVML unavailable — GPU metrics disabled");
+            None
+        }
+    };
     // Telemetry every 30s (plans/phase-05.md § Telemetry extension).
     let metrics_url = format!("{base}/agent/metrics");
     let mut collector = metrics::MetricsCollector::new();
@@ -135,7 +150,7 @@ async fn heartbeat_loop(client: &reqwest::Client, config: &config::AgentConfig) 
     loop {
         tokio::select! {
             _ = metrics_interval.tick() => {
-                let sample = collector.collect().await;
+                let sample = collector.collect(nvml.as_ref()).await;
                 let result = client
                     .post(&metrics_url)
                     .header("x-foundry-agent-id", &config.agent_id)
@@ -167,7 +182,7 @@ async fn heartbeat_loop(client: &reqwest::Client, config: &config::AgentConfig) 
                 }
             }
             _ = inventory_interval.tick() => {
-                let snapshot = inventory::collect().await;
+                let snapshot = inventory::collect(nvml.as_ref()).await;
                 tracing::debug!(
                     gpus = snapshot.gpus.len(),
                     containers = snapshot.containers.len(),

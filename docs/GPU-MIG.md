@@ -18,12 +18,19 @@ document covers the NVIDIA-specific mechanics.
 - Inventory runs at agent start, on `REFRESH_INVENTORY` tasks, and on a
   periodic timer; results are uploaded as a full snapshot to
   `/agent/inventory`.
-- **Runtime MIG re-detection:** NVML's init/shutdown is process-ref-counted,
-  and a live handle pins the GPU/MIG topology seen at init. So the agent holds
-  **no** long-lived `Nvml` handle — both inventory and metrics
-  (`agent/src/{inventory,metrics}.rs::collect_gpus`) call `Nvml::init()` per
-  collection and drop it at scope end. This lets a MIG toggle on a running host
-  show up at the next inventory cycle (≤60s) with **no agent restart**.
+- **One NVML handle, no re-init → MIG changes need an agent restart.** The
+  agent initializes NVML **once** at startup (`main.rs`) and shares that handle
+  with both the inventory and metrics ticks (`agent/src/{inventory,metrics}.rs`).
+  It is deliberately never re-initialized: cycling `nvmlInit`/`nvmlShutdown`
+  per collection leaks file descriptors against the NVIDIA driver (a 0.45–0.47
+  regression exhausted FDs after ~5h — "Too many open files", then NVML,
+  `nvidia-smi`, and even sockets failed). The trade-off: a held NVML handle
+  does not observe a MIG layout that is **enabled or reshaped after the agent
+  started**, so **restart `foundry-agent` after changing MIG geometry** for the
+  new layout (and per-slice memory) to appear. A normal boot — where MIG is
+  already configured before the agent starts — needs no restart. Operator
+  runbook: `nvidia-smi -mig 1` + create instances, then
+  `systemctl restart foundry-agent`.
 
 ## Identity Rules
 

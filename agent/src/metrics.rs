@@ -28,8 +28,8 @@ impl MetricsCollector {
         }
     }
 
-    pub async fn collect(&mut self) -> MetricsSample {
-        let (gpus, migs) = self.collect_nvml();
+    pub async fn collect(&mut self, nvml: Option<&Nvml>) -> MetricsSample {
+        let (gpus, migs) = Self::collect_nvml(nvml);
         MetricsSample {
             host: self.collect_host(),
             gpus,
@@ -86,20 +86,15 @@ impl MetricsCollector {
         }
     }
 
-    /// Per-GPU silicon metrics plus per-MIG-instance memory, from one NVML
-    /// pass. NVML is initialized per call (and dropped at scope end) rather
-    /// than held for the process lifetime: NVML's init/shutdown is
-    /// process-ref-counted, and a live handle pins the GPU/MIG topology
-    /// seen at startup, so a runtime MIG toggle would never be picked up
-    /// without an agent restart. A fresh init each cycle re-scans the live
-    /// layout (matches inventory::collect_gpus). Costs a few ms.
-    fn collect_nvml(&self) -> (Vec<GpuMetrics>, Vec<MigMetrics>) {
-        let nvml = match Nvml::init() {
-            Ok(n) => n,
-            Err(err) => {
-                tracing::debug!(%err, "NVML unavailable — GPU metrics skipped");
-                return (Vec::new(), Vec::new());
-            }
+    /// Per-GPU silicon metrics plus per-MIG-instance memory, from the
+    /// process-lifetime NVML handle (`main.rs`). It is **not** re-initialized
+    /// per cycle: cycling `nvmlInit`/`nvmlShutdown` leaks file descriptors
+    /// against the driver (0.45–0.47 regression). The trade-off is that a
+    /// MIG layout enabled/reshaped after the agent started is only seen on
+    /// the next agent restart (documented in docs/GPU-MIG.md).
+    fn collect_nvml(nvml: Option<&Nvml>) -> (Vec<GpuMetrics>, Vec<MigMetrics>) {
+        let Some(nvml) = nvml else {
+            return (Vec::new(), Vec::new());
         };
         let count = nvml.device_count().unwrap_or(0);
         let mut gpus = Vec::with_capacity(count as usize);
