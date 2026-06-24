@@ -1,10 +1,10 @@
 # Phase 7 — Logs
 
-**Status:** 🔶 Built & deployed (0.19.0). Agent push-loop log capture +
-bounded 7-day storage + UI viewer + destructive-action confirmation are
-live on the controller/frontend; GPU-server agents pick it up on their
-next redeploy (operator-driven). Implementation diverged from the
-original deliverables in two deliberate ways — recorded below.
+**Status:** ✅ Done — agent push-loop log capture + bounded 7-day storage +
+UI viewer + destructive-action confirmation are live end-to-end; GPU-server
+agents capture on enrolled servers (running recent builds). Implementation
+diverged from the original deliverables in two deliberate ways — recorded
+below.
 
 ## Decisions taken (vs the original sketch)
 

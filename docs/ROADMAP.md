@@ -10,14 +10,14 @@ in `docs/plans/`.
 | 1 | Repository bootstrap | [plans/phase-01.md](plans/phase-01.md) | ✅ Done (2026-06-11) |
 | 2 | Workspace creation | [plans/phase-02.md](plans/phase-02.md) | ✅ Done (2026-06-11) |
 | 3 | Authentication (GitLab OAuth, multi-instance) | [plans/phase-03.md](plans/phase-03.md) | ✅ Done (2026-06-11) — E2E verified against g.protv.ro |
-| 4 | Agent enrollment | [plans/phase-04.md](plans/phase-04.md) | 🔶 Built & deployed (0.2.0) — awaiting first real GPU-server enrollment; rotation endpoint pending |
-| 5 | Inventory (GPU/MIG discovery & reconciliation) | [plans/phase-05.md](plans/phase-05.md) | ✅ Done (2026-06-12) — inventory verified on real L40S servers (0.3/0.4); telemetry shipped (0.5.0) |
-| 6 | Deployments (lifecycle, replacement) | [plans/phase-06.md](plans/phase-06.md) | 🔶 Built & deployed (0.13.0) — TCP/UDP + volumes + per-server HTTP/S publishing + EXPOSE discovery + live progress + slot auto-heal/dismiss + external-GPU visibility + nginx-readiness flag; first real GPU deploy in progress |
-| 7 | Logs | [plans/phase-07.md](plans/phase-07.md) | 🔶 Built & deployed (0.19.0) — agent push-loop log capture + bounded 7-day storage + UI viewer; awaiting agent redeploy on GPU servers to start capturing |
-| 8 | UI (full dashboard, dark+light themes) | [plans/phase-08.md](plans/phase-08.md) | ⬜ Not started |
-| 9 | Security hardening | [plans/phase-09.md](plans/phase-09.md) | ⬜ Not started |
-| 10 | Production readiness | [plans/phase-10.md](plans/phase-10.md) | ⬜ Not started |
-| 11 | GPU groups + multi-use slots | [plans/gpu-groups.md](plans/gpu-groups.md) | ⬜ Spec'd (2026-06-16), not started — temporary plan, delete on ship |
+| 4 | Agent enrollment | [plans/phase-04.md](plans/phase-04.md) | ✅ Done — single-use enrollment + fleet auto-enrollment (0.42.0) live; real GPU servers enrolled (protv-ai fleet). Agent-credential rotation deferred to Phase 9 |
+| 5 | Inventory (GPU/MIG discovery & reconciliation) | [plans/phase-05.md](plans/phase-05.md) | ✅ Done (2026-06-12) — inventory verified on real L40S servers (0.3/0.4); host+GPU telemetry (0.5.0), per-MIG-slice memory + fleet Telemetry tab (0.46.0) |
+| 6 | Deployments (lifecycle, replacement) | [plans/phase-06.md](plans/phase-06.md) | ✅ Done — full lifecycle + replacement live on real GPU servers; persistent volumes, per-server HTTP/S publishing + EXPOSE discovery, live progress, interactive container shell (0.22.0), GPU groups + multi-use slots (0.35.0), adopt & control of external containers (0.42.0) |
+| 7 | Logs | [plans/phase-07.md](plans/phase-07.md) | ✅ Done — agent push-loop capture (incremental stdout+stderr, managed only) + bounded 7-day store + UI viewer; capturing on enrolled servers |
+| 8 | UI (full dashboard, dark+light themes) | [plans/phase-08.md](plans/phase-08.md) | 🔶 In progress — functional UI shipped incrementally (10 pages: dashboard slot grid, deployment detail, servers, fleet Telemetry, audit, settings); remaining per phase-08: light-mode-complete sweep, a11y/keyboard-dnd, empty/loading/error pass |
+| 9 | Security hardening | [plans/phase-09.md](plans/phase-09.md) | ⬜ Not started — carries agent-credential rotation (deferred from Phase 4) |
+| 10 | Production readiness | [plans/phase-10.md](plans/phase-10.md) | 🔶 In progress — service live early since 2026-06-11; CI gate (0.44.0), audit read-path, telemetry, structured logs in place; formal backups/runbook/hardening pass pending |
+| 11 | GPU groups + multi-use slots | (retired — see Amendments 2026-06-16) | ✅ Done (0.35.0) — one container across N whole GPUs; multi-use slots soft-share a GPU among ≤4; MIG/group mutual exclusion self-heals (0.47.0) |
 
 ## Success Criteria (v1 done)
 
@@ -43,6 +43,48 @@ A user can:
 Scope/architecture changes agreed after the original spec — each must be
 reflected in the affected docs in the same commit set:
 
+- **2026-06-23** (0.48.0) — **Agent FD-leak fix: one persistent NVML
+  handle.** A regression from the 0.45–0.47 MIG work re-initialized NVML
+  every collection cycle, leaking file descriptors against the NVIDIA
+  driver; after ~5h an agent exhausted its FDs ("Too many open files") and
+  went blind — NVML, `nvidia-smi`, even socket I/O failed. The agent now
+  initializes NVML exactly once at startup (`agent/src/main.rs`) and shares
+  that single handle with both the inventory and metrics ticks
+  (`collect*(Option<&Nvml>)`), never re-initializing. Trade-off
+  (operator-approved): a held handle does not observe a MIG layout enabled
+  or reshaped *after* the agent started, so changing MIG geometry now needs
+  `systemctl restart foundry-agent`; a normal boot with MIG already
+  configured needs none. Affects GPU-MIG.
+- **2026-06-22** (0.47.0) — **MIG/GPU-group mutual exclusion self-heals;
+  "No MIG" label dropped.** GPU groups require whole, MIG-disabled members.
+  If a member later has MIG enabled, inventory reconciliation
+  (`apply_snapshot`) drops that membership on the next cycle and deletes any
+  group it thereby empties (guarded on no live deployment) — no stale
+  membership lingers. The dashboard GPU header drops the redundant "No MIG"
+  text; MIG shows only by the green marker when enabled. Affects
+  ARCHITECTURE (GPU groups).
+- **2026-06-22** (0.46.0) — **Per-MIG-slice memory telemetry + fleet
+  Telemetry tab.** The agent reports per-MIG-instance **memory**
+  (used/total) via NVML MIG device handles (`nvml-wrapper` 0.12
+  `mig_device_by_index`), keyed by MIG UUID in the metrics sample
+  (`MetricsSample.migs`, `#[serde(default)]` for upgrade safety;
+  `SlotSummary.mig_uuid` joins it). Memory only — NVML does not attribute
+  utilization per slice, so the parent GPU's util still covers that. A new
+  fleet-wide **Telemetry tab** (`/telemetry`) shows every enrolled server's
+  host + per-GPU graphs + per-slice memory on one page; the per-server
+  telemetry block was extracted into a reusable `server-telemetry.tsx`
+  shared by the server-detail page and the new tab. Affects API, GPU-MIG,
+  UI-DESIGN, codebase-map.
+- **2026-06-22** (0.45.0) — **MIG auto-detect, stale-slot hiding,
+  card.slice slot naming.** Three fixes surfaced enrolling a real split GPU
+  (L40S, GPU 3 × 4 slices). Slot display names follow the layout: a full
+  GPU is the bare card index (`3`), a MIG slice is `<card>.<slice>` 1-based
+  (`3.1`…`3.4`). When MIG is toggled the obsolete slot lingers OFFLINE;
+  `gpus_for_server` now hides an OFFLINE slot on a GPU that still has a live
+  sibling (full→MIG, MIG→full, reshape orphans), while a GPU whose every
+  slot is OFFLINE stays visible (it's down). The per-cycle NVML re-init this
+  version introduced for runtime MIG detection was reverted in 0.48.0 (FD
+  leak — see above). Affects GPU-MIG, DATABASE (slot naming).
 - **2026-06-19** — **CI added (supersedes the 2026-06-11 "No CI" decision).**
   As plans get executed by other agents and Phase 10 nears, an enforced
   green gate matters more than the convenience of local-only checks (a lint
@@ -51,6 +93,22 @@ reflected in the affected docs in the same commit set:
   Rust job compiles against the committed sqlx offline cache (`.sqlx/`,
   `SQLX_OFFLINE=true`) so it needs no MySQL. Branch protection is the
   operator's to enable.
+- **2026-06-19** (0.44.0) — **Audit-plan deliverables: N+1, lock-poison
+  recovery, FE test harness, DX** (CI, the sixth deliverable, is the entry
+  immediately above). Six vetted advisor-audit plans landed: the per-server
+  N+1 in `servers::{list,get_summary}` collapsed to a single grouped JOIN;
+  in-memory `Mutex` lock sites recover from poison via `state::lock_recover`
+  instead of panicking; a Vitest + Testing-Library harness with seed tests
+  for the state→color map and slot occupancy logic
+  (`frontend/src/lib/{states,slots}.test.ts`, wired into `scripts/check.sh`);
+  `.env.example` + a frontend `typecheck` script; and `gpu_groups`/`slots`
+  module routing added to codebase-map. Affects TESTING, codebase-map.
+- **2026-06-17** (0.43.0) — **Fleet keys get their own section.** Fleet
+  enrollment keys moved from a one-shot modal to a managed list on the
+  Servers page: multiple keys coexist (minting one no longer revokes
+  others), `GET /api/fleet-tokens` lists metadata (never the raw token) and
+  `DELETE /api/fleet-tokens/{id}` revokes one anytime (enrolled hosts stay
+  enrolled). Admin-gated and audited. Affects API.
 - **2026-06-17** (0.42.0) — **Fleet auto-enrollment + adopt & control of
   pre-running containers** (operator: agents on a launched fleet should
   self-enroll, and pre-running ComfyUI containers should be controllable

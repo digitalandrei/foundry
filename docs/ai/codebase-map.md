@@ -1,9 +1,8 @@
 # Codebase Map
 
-File routing by feature. The workspace skeleton exists (Phase 1); crate
-internals and the frontend scaffold land in Phase 2 — update the
-feature table below from "planned" to real paths as they land (same
-commit set).
+File routing by feature — the map of the live tree. Keep it current: when
+modules move or appear, update the tables below in the same commit set (the
+doc-drift hook nudges when watched code paths change without a docs change).
 
 ## Top Level
 
@@ -12,8 +11,8 @@ commit set).
 | `controller/` | `foundry-controller` binary — axum API, OAuth, scheduler, task queue, GitLab clients | live: config, /health, pool, embedded migrations |
 | `agent/` | `foundry-agent` binary — task loop, Docker (bollard), NVML inventory | live: config, HTTPS client, connectivity loop |
 | `shared/` | Wire contract: DTOs, state enums, ID newtypes | live |
-| `frontend/` | React + TS + Vite + shadcn SPA | live: shell, theming, 5 pages |
-| `migrations/` | sqlx MySQL migrations (embedded into controller, run at startup) | live: initial 19-table schema |
+| `frontend/` | React + TS + Vite + shadcn SPA | live: shell, theming, 10 pages |
+| `migrations/` | sqlx MySQL migrations (embedded into controller, run at startup) | live: 28-table schema |
 | `deployment/` | systemd units, nginx vhost (drafts until Phase 10) | drafted |
 | `scripts/` | `check.sh` — fmt + clippy `-D warnings` + test + frontend build | live |
 | `docs/` | knowledge base (you are here) | live |
@@ -60,10 +59,12 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   `nvidia-smi -L` MIG parse) → `agent/src/inventory.rs`
 - Inventory reconcile (two-phase OFFLINE/upsert, containers
   replace-all incl. ports) → `controller/src/repos/inventory.rs`
-- Telemetry: agent collector (sysinfo/NVML/docker-stats) →
-  `agent/src/metrics.rs`; series store + sweeper →
-  `controller/src/repos/metrics.rs`; UI page →
-  `frontend/src/pages/server-detail.tsx` + `components/metric-sparkline.tsx`
+- Telemetry: agent collector (sysinfo/NVML/docker-stats, incl. per-MIG-slice
+  memory) → `agent/src/metrics.rs`; series store + sweeper →
+  `controller/src/repos/metrics.rs`; reusable per-server telemetry block →
+  `frontend/src/components/server-telemetry.tsx` (+ `metric-sparkline.tsx`),
+  shown on the server page `pages/server-detail.tsx` and the fleet-wide
+  Telemetry tab `pages/telemetry.tsx`
 - Frontend pages → `frontend/src/pages/{dashboard,deployments,servers,audit,settings,login,help-gitlab-oauth}.tsx`
 - Layout shell / nav / session guard → `frontend/src/components/layout/app-shell.tsx`
 - API client + query keys → `frontend/src/lib/api.ts`; hooks →
@@ -80,6 +81,11 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
 - Dashboard slot grid → `frontend/src/components/server-grid.tsx`
   (ServerRow/GpuStrip/SlotChip); docker-ps detail dialog →
   `components/server-detail-dialog.tsx`
+- Fleet enrollment keys (list / create / delete reusable fleet tokens) →
+  `frontend/src/components/fleet-keys-section.tsx` + `fleet-key-dialog.tsx`
+  on the Servers page; handlers `servers::{list,create,delete}_fleet_token`
+  in `controller/src/routes/servers.rs` (wired in `routes/mod.rs` under
+  `/api/fleet-tokens`)
 - State→color map → `frontend/src/lib/states.ts`; formatting →
   `lib/format.ts`; theme + slot tokens → `frontend/src/index.css`;
   version → `frontend/src/lib/version.ts`

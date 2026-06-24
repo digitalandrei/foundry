@@ -1,10 +1,10 @@
 # Phase 4 — Agent Enrollment
 
-**Status:** 🔶 Built & deployed as 0.2.0 (2026-06-11) — GitLab-agent
-style per operator request. Remaining: first real GPU-server
-enrollment (operator deploying now), credential rotation endpoint
-(confirm-then-switch), agent install script removal from scope
-(`--register` does it all).
+**Status:** ✅ Done — GitLab-agent-style enrollment per operator request;
+real GPU servers enrolled (protv-ai fleet), with fleet auto-enrollment +
+reusable fleet keys added in 0.42.0/0.43.0. **Deferred:** the
+agent-credential rotation endpoint (confirm-then-switch) is tracked under
+Phase 9 (security hardening).
 
 Delivered: named-server creation in the UI minting the one-time
 72h token + full registration command; `POST /agent/enroll` (single

@@ -1,11 +1,12 @@
 # Phase 5 — Inventory (GPU/MIG Discovery & Reconciliation)
 
-**Status:** 🔶 Built & deployed as 0.3.0 (2026-06-12) — awaiting real
-snapshots from protv-ai-04-03 / -04 (operator updates the agent
-binary). MIG-device enumeration via `nvidia-smi -L` (wrapper gap —
-`../GPU-MIG.md`). Verified with simulated snapshots: no-MIG → FULL_GPU
-slots FREE; MIG reshape → new MIG slots + old slot OFFLINE; vanished
-GPU → OFFLINE; containers replace-all.
+**Status:** ✅ Done (2026-06-12) — inventory verified on real L40S servers
+(protv-ai fleet); host+GPU telemetry shipped 0.5.0, per-MIG-slice memory +
+fleet Telemetry tab 0.46.0, single persistent NVML handle 0.48.0.
+MIG-device enumeration via `nvidia-smi -L` (wrapper gap — `../GPU-MIG.md`).
+Reconciliation verified end-to-end: no-MIG → FULL_GPU slots FREE; MIG
+reshape → new MIG slots + old slot OFFLINE (hidden while a live sibling
+exists, 0.45.0); vanished GPU → OFFLINE; containers replace-all.
 
 ## Telemetry extension (operator request 2026-06-12 — ✅ shipped 0.5.0)
 

@@ -1,6 +1,10 @@
 # Phase 10 — Production Readiness
 
-**Status:** Not started · refine this plan right before starting.
+**Status:** 🔶 In progress — the control plane went live early (2026-06-11,
+user-approved) and a CI gate landed in 0.44.0; audit read-path, telemetry,
+and structured JSON logs are in place. Remaining: the formal
+production-readiness pass below — backups, runbook polish, and hardening
+(Phase 9 feeds this).
 
 ## Goal
 

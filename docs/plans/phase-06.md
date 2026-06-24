@@ -1,17 +1,15 @@
 # Phase 6 — Deployments (Lifecycle & Replacement)
 
-**Status:** 🔶 Built & deployed as 0.7.0 (2026-06-12). Live: full
-lifecycle (deploy/stop/restart/remove), replacement chain, TCP/UDP
-port publishing per the design below, per-user persistent volumes
-(`/storage/containers/<owner>/<name>`, REMOVE_VOLUME task), pull-token
-mint at dispatch (variant 1 with variant-2 fallback), container-crash
-reconcile, dnd-kit drag-drop with the per-port-kind dialog. Verified
-end-to-end with a simulated agent (replacement chain, volume reuse +
-guarded delete, port allocation/conflicts, auth scoping).
-**Remaining:** first real GPU deploy (validates bollard executors +
-registry auth against g.protv.ro); HTTP/S proxy publishing (needs the
-apps wildcard domain + nginx reload mechanism — Open items below);
-UPLOAD_LOGS is Phase 7.
+**Status:** ✅ Done — full lifecycle (deploy/stop/restart/remove),
+replacement chain, TCP/UDP port publishing per the design below, per-user
+persistent volumes (`/storage/containers/<owner>/<name>`, REMOVE_VOLUME
+task), pull-token mint at dispatch (variant 1 with variant-2 fallback),
+container-crash reconcile, dnd-kit drag-drop with the per-port-kind dialog —
+all live on real GPU servers. The original "Remaining" items shipped:
+per-server HTTP/S publishing (0.8.0+) and real GPU deploys, plus later
+additions — interactive container shell (0.22.0), GPU groups + multi-use
+slots (0.35.0), adopt & control of external containers (0.42.0). Container
+logs are Phase 7.
 
 ## Networking & Port Publishing (designed 2026-06-12, operator + assistant)
 
