@@ -169,4 +169,12 @@ describe("occupantsBySlot", () => {
     const map = occupantsBySlot([deployment({ id: "x", state: "REMOVED" })])
     expect(map.size).toBe(0)
   })
+
+  it("does not fold a group deploy onto its member slots (the group is independent)", () => {
+    // A group deploy occupies the group, not the member GPUs' own slots —
+    // member cards stay free for individual deploys.
+    const g = deployment({ id: "g", gpu_group_id: "grp-1", slot_ids: ["s1", "s2"] })
+    const map = occupantsBySlot([g])
+    expect(map.size).toBe(0)
+  })
 })

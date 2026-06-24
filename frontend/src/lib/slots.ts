@@ -23,15 +23,18 @@ const OCCUPYING_STATES = new Set<DeploymentSummary["state"]>([
 ])
 
 /** Occupying deployments per slot id, newest-first. A multi-use slot can
- * have several; a group deploy occupies every one of its member slots, so
- * each occupant is folded under all the ids in `slot_ids` (falling back to
- * the denormalised primary `slot_id` for older summaries). */
+ * have several. A *group* deploy is independent of its members' own slots —
+ * it occupies the group (see `occupantsByGroup`), not the member GPUs, so
+ * the member cards stay free for individual deploys (the operator owns any
+ * over-subscription). It is therefore never folded onto member slots here. */
 export function occupantsBySlot(
   deployments: readonly DeploymentSummary[] | undefined,
 ): Map<string, DeploymentSummary[]> {
   const occupants = new Map<string, DeploymentSummary[]>()
   for (const d of deployments ?? []) {
     if (!OCCUPYING_STATES.has(d.state)) continue
+    // Group deploys belong to the group slot only, never the member cards.
+    if (d.gpu_group_id) continue
     const ids = d.slot_ids.length > 0 ? d.slot_ids : [d.slot_id]
     for (const id of ids) {
       const list = occupants.get(id)

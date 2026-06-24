@@ -1,8 +1,11 @@
 //! GPU groups (aggregation: 1 container : N whole GPUs) — admin CRUD
 //! and the deploy-time member resolution. A group is a named template
-//! over whole GPUs on one server; membership is overlay (members stay
-//! individually deployable when no group job runs). See
-//! docs/ARCHITECTURE.md § GPU groups and docs/plans/gpu-groups.md.
+//! over whole GPUs on one server; membership is overlay. A group occupies
+//! the *group*, not its members' individual slots, so members stay
+//! individually deployable even while a group container runs — the
+//! operator owns any over-subscription. (A *new* group deploy still
+//! requires its members not be held by an outside individual/other-group
+//! deploy.) See docs/ARCHITECTURE.md § GPU groups and docs/plans/gpu-groups.md.
 
 use std::collections::HashMap;
 

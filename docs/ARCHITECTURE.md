@@ -157,22 +157,27 @@ any → OFFLINE (agent lost / server down; restored on inventory)
 
 Two **independent**, admin-configured capabilities lift the "one
 container, one whole GPU" limit from opposite ends. They compose: groups
-aggregate up, multi-use shares down, and a group deploy is exclusive over
-its members so the interaction stays well-defined.
+aggregate up, multi-use shares down, and a group occupies the *group*
+itself — not its members' individual slots — so the interaction stays
+well-defined.
 
 - **GPU groups (aggregation, 1 container : N GPUs).** A named set of whole
   GPUs on one server (`gpu_groups` + `gpu_group_members`). Deploying to a
   group runs **one** container across all members (`nvidia-smi` lists N) —
   one Docker `DeviceRequest` over every member's NVML UUID. Membership is
-  **overlay**: members stay individually deployable when no group job
-  runs. A group itself has a **use-mode** (`gpu_groups.max_occupants`,
+  **overlay**: a group occupies the *group*, not its members' own slots,
+  so members stay individually deployable **even while a group container
+  runs** — the operator owns any over-subscription (group occupancy is
+  tracked by `gpu_group_id`, never the members' `gpu_slots.state`). A
+  group itself has a **use-mode** (`gpu_groups.max_occupants`,
   1–4): single-use (one exclusive container across the GPUs — the default)
   or multi-use (the grouped GPUs shared by up to N containers, soft
-  sharing — same idea as a multi-use slot, one level up). A group deploy
-  requires the group **below its cap** and every member **free of
+  sharing — same idea as a multi-use slot, one level up). A **new** group
+  deploy requires the group **below its cap** and every member **free of
   non-group holders** (a multi-use group's own concurrent deploys share
-  its members; outsiders may not); single-use = exclusive. While a group
-  deploy is live its members render occupied-by-group. A GPU may be in
+  its members; outsiders may not); single-use = exclusive among groups. A
+  running group does **not** lock its members' own slots — they stay free
+  and individually deployable. A GPU may be in
   **several** groups (overlap) — mutually exclusive at deploy time.
   Members are whole GPUs, MIG-disabled, on one server (no cross-host
   NVLink/PCIe peering). Group create/delete and use-mode changes are

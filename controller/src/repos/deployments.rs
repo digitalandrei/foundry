@@ -465,11 +465,17 @@ async fn resolve_target(
                 return Err(AppError::BadRequest("slot is offline".into()));
             }
             // Count-based deployability: active occupants below the cap.
-            // Single-use (cap 1) is just the count-0 special case.
+            // Single-use (cap 1) is just the count-0 special case. Group
+            // deploys are independent of member slots (they occupy the
+            // group, not the GPU's own slot), so `gpu_group_id IS NULL`
+            // keeps them from counting against an individual slot's
+            // capacity — a GPU running a group container stays individually
+            // deployable (operator owns the over-subscription).
             let occupants: i64 = sqlx::query_scalar!(
                 r#"SELECT COUNT(*) FROM deployment_slots ds
                    JOIN deployments d ON d.id = ds.deployment_id
                    WHERE ds.gpu_slot_id = ? AND d.id <> ?
+                     AND d.gpu_group_id IS NULL
                      AND d.state NOT IN ('REMOVED','REPLACED','FAILED')"#,
                 slot_id.0,
                 exclude,
