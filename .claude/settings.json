@@ -9,7 +9,8 @@
       "Bash(scripts/deploy.sh)",
       "Bash(git add *)",
       "Bash(git commit *)",
-      "Bash(./scripts/deploy.sh)"
+      "Bash(./scripts/deploy.sh)",
+      "Bash(git push *)"
     ]
   },
   "hooks": {
