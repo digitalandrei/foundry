@@ -93,12 +93,30 @@ async fn run_agent() -> Result<(), Box<dyn Error>> {
         .timeout(Duration::from_secs(30))
         .build()?;
 
+    // One Docker client for the whole process — the task executor and the
+    // inventory/metrics/logs/shell loops share it instead of reconnecting
+    // every cycle (the per-cycle reconnect was the FD-churn shape behind
+    // the NVML single-handle fix). connect_local() doesn't dial, so a
+    // daemon that's down now (or comes up later) is handled per request;
+    // only a malformed Docker config yields None, disabling Docker
+    // features until a restart.
+    let docker = match docker::connect_local() {
+        Ok(d) => {
+            tracing::info!("docker: client ready (shared across loops)");
+            Some(d)
+        }
+        Err(err) => {
+            tracing::warn!(%err, "docker config unusable — container telemetry, tasks, and shell disabled until restart");
+            None
+        }
+    };
+
     // Heartbeat/inventory/metrics and the task loop run concurrently;
     // each exits on SIGTERM/ctrl-c.
     tokio::join!(
-        heartbeat_loop(&client, &config),
-        tasks::run_loop(&client, &config),
-        shell::run_loop(&client, &config)
+        heartbeat_loop(&client, &config, docker.clone()),
+        tasks::run_loop(&client, &config, docker.clone()),
+        shell::run_loop(&client, &config, docker.clone())
     );
     tracing::info!("shut down cleanly");
     Ok(())
@@ -107,7 +125,11 @@ async fn run_agent() -> Result<(), Box<dyn Error>> {
 /// Heartbeat + periodic inventory until SIGTERM/ctrl-c. Logs only on
 /// state *transitions* (reachable/unreachable) to keep journald quiet.
 /// TLS is always verified — no insecure escape hatch (docs/SECURITY.md).
-async fn heartbeat_loop(client: &reqwest::Client, config: &config::AgentConfig) {
+async fn heartbeat_loop(
+    client: &reqwest::Client,
+    config: &config::AgentConfig,
+    docker: Option<bollard::Docker>,
+) {
     let base = config.controller_url.trim_end_matches('/');
     let url = format!("{base}/agent/heartbeat");
     let inventory_url = format!("{base}/agent/inventory");
@@ -151,7 +173,7 @@ async fn heartbeat_loop(client: &reqwest::Client, config: &config::AgentConfig) 
     loop {
         tokio::select! {
             _ = metrics_interval.tick() => {
-                let sample = collector.collect(nvml.as_ref()).await;
+                let sample = collector.collect(nvml.as_ref(), docker.as_ref()).await;
                 let result = client
                     .post(&metrics_url)
                     .header("x-foundry-agent-id", &config.agent_id)
@@ -166,7 +188,7 @@ async fn heartbeat_loop(client: &reqwest::Client, config: &config::AgentConfig) 
                 }
             }
             _ = logs_interval.tick() => {
-                let chunks = log_collector.collect(&adopted).await;
+                let chunks = log_collector.collect(&adopted, docker.as_ref()).await;
                 if !chunks.is_empty() {
                     let result = client
                         .post(&logs_url)
@@ -183,7 +205,7 @@ async fn heartbeat_loop(client: &reqwest::Client, config: &config::AgentConfig) 
                 }
             }
             _ = inventory_interval.tick() => {
-                let snapshot = inventory::collect(nvml.as_ref()).await;
+                let snapshot = inventory::collect(nvml.as_ref(), docker.as_ref()).await;
                 tracing::debug!(
                     gpus = snapshot.gpus.len(),
                     containers = snapshot.containers.len(),

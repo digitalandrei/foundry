@@ -22,7 +22,11 @@ use crate::config::AgentConfig;
 /// there's no two-attempt round trip (operator: "try bash and sh").
 const SHELL_CMD: &str = "if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi";
 
-pub async fn run_loop(client: &reqwest::Client, config: &AgentConfig) {
+pub async fn run_loop(
+    client: &reqwest::Client,
+    config: &AgentConfig,
+    docker: Option<bollard::Docker>,
+) {
     let base = config.controller_url.trim_end_matches('/');
     let next_url = format!("{base}/agent/shell/next");
     loop {
@@ -32,8 +36,13 @@ pub async fn run_loop(client: &reqwest::Client, config: &AgentConfig) {
                 let Some(req) = req else { continue };
                 tracing::info!(deployment = %req.deployment_id, "opening container shell");
                 let config = config.clone();
+                let docker = docker.clone();
                 tokio::spawn(async move {
-                    if let Err(err) = handle(&config, req).await {
+                    let Some(docker) = docker else {
+                        tracing::warn!("shell requested but Docker is unavailable");
+                        return;
+                    };
+                    if let Err(err) = handle(&config, &docker, req).await {
                         tracing::warn!(%err, "shell session ended with error");
                     }
                 });
@@ -71,14 +80,13 @@ async fn poll_next(
     }
 }
 
-async fn handle(config: &AgentConfig, req: ShellRequest) -> Result<(), String> {
-    let docker = Docker::connect_with_local_defaults().map_err(|e| format!("docker: {e}"))?;
+async fn handle(config: &AgentConfig, docker: &Docker, req: ShellRequest) -> Result<(), String> {
     let container = match &req.container_id {
         // Adopted (externally-created) container — exec by docker id.
-        Some(cid) => find_running_by_id(&docker, cid)
+        Some(cid) => find_running_by_id(docker, cid)
             .await
             .ok_or_else(|| "adopted container is not running".to_string())?,
-        None => find_running_managed(&docker, &req.deployment_id.to_string())
+        None => find_running_managed(docker, &req.deployment_id.to_string())
             .await
             .ok_or_else(|| "no running managed container for this deployment".to_string())?,
     };

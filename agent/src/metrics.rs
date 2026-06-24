@@ -28,13 +28,13 @@ impl MetricsCollector {
         }
     }
 
-    pub async fn collect(&mut self, nvml: Option<&Nvml>) -> MetricsSample {
+    pub async fn collect(&mut self, nvml: Option<&Nvml>, docker: Option<&Docker>) -> MetricsSample {
         let (gpus, migs) = Self::collect_nvml(nvml);
         MetricsSample {
             host: self.collect_host(),
             gpus,
             migs,
-            containers: collect_containers().await,
+            containers: collect_containers(docker).await,
         }
     }
 
@@ -148,8 +148,8 @@ impl MetricsCollector {
 /// false` makes the daemon include precpu so the standard CPU%% delta
 /// formula works from a single response (costs ~1s daemon-side; samples
 /// run concurrently).
-async fn collect_containers() -> Vec<ContainerMetrics> {
-    let Ok(docker) = Docker::connect_with_local_defaults() else {
+async fn collect_containers(docker: Option<&Docker>) -> Vec<ContainerMetrics> {
+    let Some(docker) = docker else {
         return Vec::new();
     };
     let Ok(list) = docker

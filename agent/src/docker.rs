@@ -207,19 +207,24 @@ fn map_err(context: &str, e: bollard::errors::Error) -> DockerError {
     }
 }
 
-/// The production adapter: one bollard connection, reused for the life of
-/// the executor loop (no per-task reconnect).
+/// Connect a bollard client over the local socket. Doesn't dial the
+/// daemon, so a single handle made at startup keeps working when the
+/// daemon is down now and comes up later; only a malformed Docker config
+/// errors. Shared across the agent's loops (no per-cycle reconnect).
+pub fn connect_local() -> Result<bollard::Docker, DockerError> {
+    bollard::Docker::connect_with_local_defaults()
+        .map_err(|e| DockerError::Unavailable(e.to_string()))
+}
+
+/// The production adapter: wraps the one shared bollard connection.
 pub struct BollardEngine {
     docker: bollard::Docker,
 }
 
 impl BollardEngine {
-    /// Connect once over the local Docker socket. Doesn't dial the daemon
-    /// — request-time failures surface per call as `Unavailable`.
-    pub fn connect() -> Result<Self, DockerError> {
-        let docker = bollard::Docker::connect_with_local_defaults()
-            .map_err(|e| DockerError::Unavailable(e.to_string()))?;
-        Ok(Self { docker })
+    /// Wrap the shared Docker client (see [`connect_local`]).
+    pub fn new(docker: bollard::Docker) -> Self {
+        Self { docker }
     }
 }
 

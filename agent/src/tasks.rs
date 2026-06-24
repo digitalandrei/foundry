@@ -93,22 +93,20 @@ impl PullSink for ProgressReporter<'_> {
     }
 }
 
-pub async fn run_loop(client: &reqwest::Client, config: &AgentConfig) {
-    // One Docker connection for the whole loop (no per-task reconnect).
-    // connect() doesn't dial, so failure here is rare config breakage;
-    // retry until it succeeds or we're asked to shut down.
-    let engine = loop {
-        match BollardEngine::connect() {
-            Ok(engine) => break engine,
-            Err(err) => {
-                tracing::error!(%err, "Docker connect failed — task executor retrying in 5s");
-                tokio::select! {
-                    _ = crate::shutdown_signal() => return,
-                    _ = tokio::time::sleep(Duration::from_secs(5)) => continue,
-                }
-            }
-        }
+pub async fn run_loop(
+    client: &reqwest::Client,
+    config: &AgentConfig,
+    docker: Option<bollard::Docker>,
+) {
+    // One Docker connection, shared with the telemetry loops (built in
+    // main). `None` only when connect_local() itself failed — rare config
+    // breakage a restart fixes — so disable the executor until then.
+    let Some(docker) = docker else {
+        tracing::error!("Docker unavailable — task executor disabled until restart");
+        crate::shutdown_signal().await;
+        return;
     };
+    let engine = BollardEngine::new(docker);
 
     let base = config.controller_url.trim_end_matches('/');
     let next_url = format!("{base}/agent/tasks/next");

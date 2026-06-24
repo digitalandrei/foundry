@@ -14,12 +14,12 @@ use foundry_shared::dto::{
 };
 use nvml_wrapper::Nvml;
 
-pub async fn collect(nvml: Option<&Nvml>) -> InventorySnapshot {
+pub async fn collect(nvml: Option<&Nvml>, docker: Option<&Docker>) -> InventorySnapshot {
     // GPUs first: their NVML index→UUID map resolves the device refs of
     // running containers (so even non-Foundry containers map to a slot).
     let (nvidia_driver_version, gpus) = collect_gpus(nvml);
     let gpu_index: HashMap<u32, String> = gpus.iter().map(|g| (g.index, g.uuid.clone())).collect();
-    let (docker_version, docker_ok, containers) = collect_docker(&gpu_index).await;
+    let (docker_version, docker_ok, containers) = collect_docker(&gpu_index, docker).await;
     let nginx = crate::vhost::app_publishing_status();
     InventorySnapshot {
         agent_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -39,13 +39,10 @@ pub async fn collect(nvml: Option<&Nvml>) -> InventorySnapshot {
 /// whether that response carried a version string.
 async fn collect_docker(
     gpu_index: &HashMap<u32, String>,
+    docker: Option<&Docker>,
 ) -> (Option<String>, bool, Vec<ContainerInfo>) {
-    let docker = match Docker::connect_with_local_defaults() {
-        Ok(d) => d,
-        Err(err) => {
-            tracing::debug!(%err, "docker unavailable");
-            return (None, false, Vec::new());
-        }
+    let Some(docker) = docker else {
+        return (None, false, Vec::new());
     };
     let version = match docker.version().await {
         Ok(v) => v.version,
@@ -105,7 +102,7 @@ async fn collect_docker(
             .map(|s| format!("{s:?}").to_lowercase())
             .unwrap_or_default();
         let (gpu_uuids, mounts) = if state == "running" {
-            inspect_container_details(&docker, &id_full, gpu_index).await
+            inspect_container_details(docker, &id_full, gpu_index).await
         } else if stopped_budget > 0 {
             stopped_budget -= 1;
             if stopped_budget == 0 {
@@ -114,7 +111,7 @@ async fn collect_docker(
                      further exited containers are reported without GPU/mount detail"
                 );
             }
-            inspect_container_details(&docker, &id_full, gpu_index).await
+            inspect_container_details(docker, &id_full, gpu_index).await
         } else {
             (Vec::new(), Vec::new())
         };

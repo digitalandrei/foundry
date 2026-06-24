@@ -47,8 +47,9 @@ impl LogCollector {
     pub async fn collect(
         &mut self,
         adopted: &HashMap<String, DeploymentId>,
+        docker: Option<&Docker>,
     ) -> Vec<DeploymentLogChunk> {
-        let Ok(docker) = Docker::connect_with_local_defaults() else {
+        let Some(docker) = docker else {
             return Vec::new();
         };
         let Ok(list) = docker
@@ -88,7 +89,7 @@ impl LogCollector {
             seen.insert(dep_label.clone());
 
             if let Some(chunk) = self
-                .capture(&docker, &container_id, &dep_label, deployment_id)
+                .capture(docker, &container_id, &dep_label, deployment_id)
                 .await
             {
                 out.push(chunk);
