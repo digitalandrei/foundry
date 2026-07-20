@@ -454,8 +454,9 @@ Division of labor (operator decision — no Cloudflare/DNS integration):
   tears the container down — the URL is part of the contract.
 
 Host prerequisites (`foundry-agent --setup-apps`, also run by
-`--register`): vhost dir + conf.d include + websocket map, TLS drop
-point, the sudoers rule, the persistent-volume root
+`--register`): vhost dir + conf.d include + websocket map, a 128-byte
+`server_names_hash_bucket_size` for the longer per-server app hostnames, TLS
+drop point, the sudoers rule, the persistent-volume root
 (`/storage/containers`, owned by the service user — first real deploy
 failed without it), and the updated systemd unit (ReadWritePaths
 covers it). Since 0.56.0 the unit grants only `CAP_DAC_OVERRIDE` as an

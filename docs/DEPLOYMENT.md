@@ -199,7 +199,8 @@ sudo ./foundry-agent --setup-apps
 ```
 
 Installs the binary, ensures `/etc/nginx/foundry-apps/` (+ the conf.d
-include with the websocket map), `/etc/foundry-agent/tls/`, the
+include with the websocket map and `server_names_hash_bucket_size 128`),
+`/etc/foundry-agent/tls/`, the
 sudoers rule scoped to `nginx -t`/`-s reload` (SECURITY.md § App
 Publishing), prepares `/storage/containers` for persistent volumes
 (service-user-owned; listed in the unit's ReadWritePaths), installs the
@@ -207,6 +208,12 @@ Publishing), prepares `/storage/containers` for persistent volumes
 UID owns bind-mounted files), preserves `CAP_SETUID`, `CAP_SETGID`, and
 `CAP_AUDIT_WRITE` only in the unit's bounding set for the sudo-scoped nginx
 child, rewrites the systemd unit, and restarts the service.
+
+The hash-bucket setting is required because
+`<app>.<server>.ai.protv.ro` can exceed nginx's common 64-byte server-name
+bucket once nginx accounts for its internal hash entry. `--setup-apps`
+owns this directive in `/etc/nginx/conf.d/foundry-apps.conf`; do not define
+the same directive a second time elsewhere in the `http` context.
 
 **HTTP/S app publishing prerequisites per GPU server** (operator,
 once, **per server**): install nginx **≥ 1.25.1** (the vhost template

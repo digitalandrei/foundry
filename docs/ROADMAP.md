@@ -508,3 +508,9 @@ reflected in the affected docs in the same commit set:
   setuid-root sudo child. This fixes `nginx -t` failing its root GID
   transition/audit initialization after 0.56.0. Affects ARCHITECTURE,
   SECURITY, and DEPLOYMENT.
+- **2026-07-20** (0.58.0) — **Support long per-server app hostnames in
+  nginx.** `--setup-apps` now owns
+  `server_names_hash_bucket_size 128` in the Foundry HTTP-context bootstrap,
+  preventing otherwise valid generated app hostnames from failing
+  `nginx -t` against nginx's common 64-byte default. Affects ARCHITECTURE
+  and DEPLOYMENT.

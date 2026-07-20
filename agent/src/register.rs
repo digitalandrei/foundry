@@ -29,6 +29,7 @@ const SUDOERS_PATH: &str = "/etc/sudoers.d/foundry-agent";
 const NGINX_BOOTSTRAP: &str = "/etc/nginx/conf.d/foundry-apps.conf";
 const CAPABILITY_BOUNDING_SET: &str = "CAP_DAC_OVERRIDE CAP_SETUID CAP_SETGID CAP_AUDIT_WRITE";
 const AMBIENT_CAPABILITIES: &str = "CAP_DAC_OVERRIDE";
+const SERVER_NAMES_HASH_BUCKET_SIZE: u16 = 128;
 
 pub struct RegisterArgs {
     pub url: String,
@@ -207,15 +208,7 @@ fn setup_apps() -> Result<(), Box<dyn std::error::Error>> {
         // http block. The map feeds `Connection:` for websocket
         // upgrades; the name is prefixed to avoid colliding with an
         // operator-defined $connection_upgrade.
-        let bootstrap = format!(
-            "# Managed by foundry-agent --setup-apps (Foundry HTTP/S app publishing).\n\
-             map $http_upgrade $foundry_connection_upgrade {{\n\
-             \x20   default upgrade;\n\
-             \x20   ''      close;\n\
-             }}\n\
-             include {}/*.conf;\n",
-            crate::vhost::VHOST_DIR
-        );
+        let bootstrap = render_nginx_bootstrap();
         std::fs::write(NGINX_BOOTSTRAP, bootstrap)?;
         println!("nginx app-publishing include written: {NGINX_BOOTSTRAP}");
         println!(
@@ -230,6 +223,20 @@ fn setup_apps() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     Ok(())
+}
+
+fn render_nginx_bootstrap() -> String {
+    format!(
+        "# Managed by foundry-agent --setup-apps (Foundry HTTP/S app publishing).\n\
+         # Per-server app hostnames exceed nginx's common 64-byte hash bucket.\n\
+         server_names_hash_bucket_size {SERVER_NAMES_HASH_BUCKET_SIZE};\n\
+         map $http_upgrade $foundry_connection_upgrade {{\n\
+         \x20   default upgrade;\n\
+         \x20   ''      close;\n\
+         }}\n\
+         include {}/*.conf;\n",
+        crate::vhost::VHOST_DIR
+    )
 }
 
 fn read_hostname() -> String {
@@ -515,5 +522,14 @@ mod tests {
         assert!(!AMBIENT_CAPABILITIES.contains("CAP_SETUID"));
         assert!(!AMBIENT_CAPABILITIES.contains("CAP_SETGID"));
         assert!(!AMBIENT_CAPABILITIES.contains("CAP_AUDIT_WRITE"));
+    }
+
+    #[test]
+    fn nginx_bootstrap_supports_long_app_hostnames() {
+        let bootstrap = render_nginx_bootstrap();
+
+        assert!(bootstrap.contains("server_names_hash_bucket_size 128;\n"));
+        assert!(bootstrap.contains("map $http_upgrade $foundry_connection_upgrade"));
+        assert!(bootstrap.contains(&format!("include {}/*.conf;\n", crate::vhost::VHOST_DIR)));
     }
 }
