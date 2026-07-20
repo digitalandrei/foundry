@@ -27,6 +27,8 @@ const SERVICE_USER: &str = "foundry-agent";
 const TLS_DIR: &str = "/etc/foundry-agent/tls";
 const SUDOERS_PATH: &str = "/etc/sudoers.d/foundry-agent";
 const NGINX_BOOTSTRAP: &str = "/etc/nginx/conf.d/foundry-apps.conf";
+const CAPABILITY_BOUNDING_SET: &str = "CAP_DAC_OVERRIDE CAP_SETUID CAP_SETGID CAP_AUDIT_WRITE";
+const AMBIENT_CAPABILITIES: &str = "CAP_DAC_OVERRIDE";
 
 pub struct RegisterArgs {
     pub url: String,
@@ -388,14 +390,25 @@ fn write_unit() -> Result<(), Box<dyn std::error::Error>> {
         format!("SupplementaryGroups={}\n", groups.join(" "))
     };
 
+    let unit = render_unit(&supplementary);
+    std::fs::write(UNIT_PATH, unit)?;
+    println!("systemd unit written: {UNIT_PATH}");
+    Ok(())
+}
+
+fn render_unit(supplementary: &str) -> String {
     // Hardening notes (docs/SECURITY.md § App Publishing):
-    // - CAP_DAC_OVERRIDE is narrowly required for project-authorized file
-    //   sessions: container UIDs commonly own bind-mounted contents;
+    // - CAP_DAC_OVERRIDE is the only capability ambient in the agent and is
+    //   narrowly required for project-authorized file sessions: container
+    //   UIDs commonly own bind-mounted contents;
+    // - CAP_SETUID, CAP_SETGID, and CAP_AUDIT_WRITE stay out of the ambient
+    //   set but must remain in the bounding set so the setuid-root sudo child
+    //   can initialize and run the two sudoers-scoped nginx commands;
     // - no NoNewPrivileges — it blocks the setuid transition the
     //   sudoers-scoped `sudo nginx -s reload` needs;
     // - ProtectSystem=full (not strict) — `nginx -t` runs inside this
     //   unit's mount namespace and must write its logs/temp under /var.
-    let unit = format!(
+    format!(
         "# Written by `foundry-agent --register` / `--setup-apps` (source of truth:\n\
          # deployment/systemd/foundry-agent.service in the foundry repo).\n\
          [Unit]\n\
@@ -413,8 +426,8 @@ fn write_unit() -> Result<(), Box<dyn std::error::Error>> {
          Restart=on-failure\n\
          RestartSec=5\n\
          TimeoutStopSec=45\n\
-         CapabilityBoundingSet=CAP_DAC_OVERRIDE\n\
-         AmbientCapabilities=CAP_DAC_OVERRIDE\n\
+         CapabilityBoundingSet={CAPABILITY_BOUNDING_SET}\n\
+         AmbientCapabilities={AMBIENT_CAPABILITIES}\n\
          ProtectSystem=full\n\
          ProtectHome=yes\n\
          PrivateTmp=yes\n\
@@ -422,10 +435,7 @@ fn write_unit() -> Result<(), Box<dyn std::error::Error>> {
          \n\
          [Install]\n\
          WantedBy=multi-user.target\n"
-    );
-    std::fs::write(UNIT_PATH, unit)?;
-    println!("systemd unit written: {UNIT_PATH}");
-    Ok(())
+    )
 }
 
 fn systemctl(args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
@@ -448,7 +458,6 @@ unsafe fn libc_geteuid() -> u32 {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
-
     fn enrolled() -> AgentEnrollResponse {
         AgentEnrollResponse {
             agent_id: "agent-id".into(),
@@ -493,5 +502,18 @@ mod tests {
         assert_eq!(loaded.controller_url, "https://new.example");
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn sudo_child_capabilities_are_bounded_but_not_ambient() {
+        let unit = render_unit("SupplementaryGroups=docker\n");
+
+        assert!(unit.contains(&format!(
+            "CapabilityBoundingSet={CAPABILITY_BOUNDING_SET}\n"
+        )));
+        assert!(unit.contains(&format!("AmbientCapabilities={AMBIENT_CAPABILITIES}\n")));
+        assert!(!AMBIENT_CAPABILITIES.contains("CAP_SETUID"));
+        assert!(!AMBIENT_CAPABILITIES.contains("CAP_SETGID"));
+        assert!(!AMBIENT_CAPABILITIES.contains("CAP_AUDIT_WRITE"));
     }
 }

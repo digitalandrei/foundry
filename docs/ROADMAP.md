@@ -501,3 +501,10 @@ reflected in the affected docs in the same commit set:
   approved volume IDs only, traversal/symlink rejection, and requires agent
   ≥0.56.0 installed via `--setup-apps`. Affects API, ARCHITECTURE, SECURITY,
   DATABASE, DEPLOYMENT, UI-DESIGN, TESTING, and codebase-map.
+- **2026-07-20** (0.57.0) — **Restore sudo-scoped nginx publishing after
+  file-browser hardening.** The agent still receives only
+  `CAP_DAC_OVERRIDE` ambiently, while its systemd capability bounding set now
+  retains `CAP_SETUID`, `CAP_SETGID`, and `CAP_AUDIT_WRITE` for the
+  setuid-root sudo child. This fixes `nginx -t` failing its root GID
+  transition/audit initialization after 0.56.0. Affects ARCHITECTURE,
+  SECURITY, and DEPLOYMENT.

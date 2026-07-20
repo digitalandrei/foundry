@@ -204,8 +204,9 @@ sudoers rule scoped to `nginx -t`/`-s reload` (SECURITY.md § App
 Publishing), prepares `/storage/containers` for persistent volumes
 (service-user-owned; listed in the unit's ReadWritePaths), installs the
 0.56.0+ file-browser capability (`CAP_DAC_OVERRIDE`, needed when a container
-UID owns bind-mounted files), rewrites the systemd unit, and restarts the
-service.
+UID owns bind-mounted files), preserves `CAP_SETUID`, `CAP_SETGID`, and
+`CAP_AUDIT_WRITE` only in the unit's bounding set for the sudo-scoped nginx
+child, rewrites the systemd unit, and restarts the service.
 
 **HTTP/S app publishing prerequisites per GPU server** (operator,
 once, **per server**): install nginx **≥ 1.25.1** (the vhost template

@@ -92,6 +92,10 @@ reload` — no shell, no other arguments. Defense in depth around it:
   logs/temp under `/var` inside the unit's namespace).
   `ReadWritePaths` stays limited to `/etc/foundry-agent` and
   `/etc/nginx/foundry-apps`.
+- Only `CAP_DAC_OVERRIDE` is ambient in the agent. The bounding set retains
+  `CAP_SETUID`, `CAP_SETGID`, and `CAP_AUDIT_WRITE` so the setuid-root sudo
+  child can change identity and initialize Ubuntu's audit plugin; those
+  capabilities are not granted ambiently to the long-running agent.
 - The wildcard TLS certificate + key are **operator-placed** at
   `/etc/foundry-agent/tls/` on each GPU server. Private keys never
   transit the controller, the database, or the task queue.

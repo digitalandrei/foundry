@@ -458,10 +458,13 @@ Host prerequisites (`foundry-agent --setup-apps`, also run by
 point, the sudoers rule, the persistent-volume root
 (`/storage/containers`, owned by the service user — first real deploy
 failed without it), and the updated systemd unit (ReadWritePaths
-covers it). Since 0.56.0 the unit also grants only `CAP_DAC_OVERRIDE` so
-authorized file sessions can work across arbitrary container UID ownership;
-the code still confines paths to controller-approved storage roots. The same
-command is the agent **upgrade path** (reinstalls
+covers it). Since 0.56.0 the unit grants only `CAP_DAC_OVERRIDE` as an
+ambient agent capability so authorized file sessions can work across
+arbitrary container UID ownership; the code still confines paths to
+controller-approved storage roots. The capability bounding set also retains
+`CAP_SETUID`, `CAP_SETGID`, and `CAP_AUDIT_WRITE` for the setuid-root `sudo`
+child only, otherwise sudo cannot perform the two allowed nginx commands.
+The same command is the agent **upgrade path** (reinstalls
 the binary, refreshes the unit, restarts the service).
 
 The deploy dialog pre-fills ports and persistent mounts from image metadata
