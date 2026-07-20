@@ -73,6 +73,9 @@ pub async fn create(
             server.name,
         )));
     }
+    if req.volumes.iter().any(|volume| volume.purge_on_redeploy) {
+        super::volumes::require_purge_support(&mut tx, server_id).await?;
+    }
     // HTTP/S deploys need app publishing on the target server. Fail fast
     // with the agent-reported reason rather than dispatching a deploy
     // that the agent can only fail on (operator request). Only blocks

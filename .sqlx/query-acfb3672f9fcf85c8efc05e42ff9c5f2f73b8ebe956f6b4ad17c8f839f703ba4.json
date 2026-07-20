@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT agent_version FROM server_agents WHERE server_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "agent_version",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 256
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "acfb3672f9fcf85c8efc05e42ff9c5f2f73b8ebe956f6b4ad17c8f839f703ba4"
+}

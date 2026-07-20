@@ -43,7 +43,8 @@ add or tighten one. Don't claim completion without running the relevant set.
   state.
 - Persistent-directory executors hard-reject every remove/purge target
   outside `/storage/containers/`; purge batches run before deploy as one
-  sequential task.
+  sequential task. Controller version parsing prevents PURGE_VOLUMES dispatch
+  to pre-0.54 agents.
 
 ## Frontend (`frontend/`)
 

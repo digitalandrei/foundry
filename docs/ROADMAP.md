@@ -483,3 +483,10 @@ reflected in the affected docs in the same commit set:
   or replacement. ComfyUI is only the first image declaring these general
   policy defaults. Affects API, ARCHITECTURE, SECURITY, DATABASE, UI-DESIGN,
   TESTING, and codebase-map.
+- **2026-07-20** (0.55.0) — **Purge rolling-upgrade safety.** The enrolled
+  GPU hosts still reported agent 0.48.0 when the new task type went live, so
+  the controller now refuses manual clean or purge-on-redeploy until the
+  target reports foundry-agent ≥0.54.0. This prevents an older agent from
+  receiving an enum variant it cannot deserialize while leaving ordinary
+  deploy/mount/delete operations compatible. Affects API, ARCHITECTURE,
+  DEPLOYMENT, TESTING, and codebase-map.

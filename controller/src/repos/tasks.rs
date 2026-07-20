@@ -600,6 +600,7 @@ async fn enqueue_purge_volumes(
     if volumes.is_empty() {
         return Ok(false);
     }
+    super::volumes::require_purge_support(tx, row.server_id.into()).await?;
     enqueue(
         tx,
         row.server_id.into(),

@@ -108,7 +108,8 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   persistent volumes → `controller/src/repos/volumes.rs`; deployment +
   volume routes → `controller/src/routes/volumes.rs`; live project
   authorization → `controller/src/gitlab/access.rs`; policy-aware
-  storage management UI → `frontend/src/pages/storage.tsx`; dispatch
+  storage management UI → `frontend/src/pages/storage.tsx`; purge-task
+  rolling-upgrade gate → `repos/volumes.rs::require_purge_support`; dispatch
   enrichment (env decrypt + pull-token mint) →
   `controller/src/routes/agent.rs`
 - GPU groups & multi-use slots (group a GPU set, soft-share a slot among

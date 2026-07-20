@@ -352,6 +352,13 @@ replacement insert one atomic `PURGE_VOLUMES` agent task before
 `DEPLOY_CONTAINER`. Application-level shared-file coordination is the
 workload's responsibility.
 
+`PURGE_VOLUMES` entered the agent wire contract in 0.54.0. The controller
+checks the target's heartbeat-reported agent version before accepting a purge
+policy, manual clean, or enqueueing the task; older agents receive an
+actionable upgrade error instead of an unknown task variant that would poison
+their long-poll queue. Ordinary mounts/deploys and `REMOVE_VOLUME` remain
+backward-compatible.
+
 Results are reported to `/agent/tasks/result`; the controller advances the
 deployment state machine accordingly. Task execution must be idempotent —
 the agent may re-receive a task after a crash.

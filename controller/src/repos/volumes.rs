@@ -17,6 +17,45 @@ use uuid::Uuid;
 use crate::error::AppError;
 
 pub const VOLUME_ROOT: &str = "/storage/containers";
+const PURGE_MIN_AGENT_VERSION: (u32, u32, u32) = (0, 54, 0);
+
+fn parse_version(version: &str) -> Option<(u32, u32, u32)> {
+    let version = version.trim().trim_start_matches('v');
+    let core = version.split(['-', '+']).next()?;
+    let mut parts = core.split('.');
+    let parsed = (
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+    );
+    parts.next().is_none().then_some(parsed)
+}
+
+/// PURGE_VOLUMES is a new wire enum. Never enqueue it to an older agent:
+/// unknown task variants would make its long-poll response fail to decode.
+pub async fn require_purge_support(
+    tx: &mut MySqlConnection,
+    server_id: ServerId,
+) -> Result<(), AppError> {
+    let version = sqlx::query_scalar!(
+        "SELECT agent_version FROM server_agents WHERE server_id = ?",
+        server_id.0
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+    if version
+        .as_deref()
+        .and_then(parse_version)
+        .is_some_and(|version| version >= PURGE_MIN_AGENT_VERSION)
+    {
+        return Ok(());
+    }
+    Err(AppError::BadRequest(format!(
+        "volume purge requires foundry-agent 0.54.0 or newer on this server (reported {})",
+        version.as_deref().unwrap_or("unknown")
+    )))
+}
 
 pub fn validate_volume_name(name: &str) -> Result<(), AppError> {
     let ok = !name.is_empty()
@@ -354,6 +393,7 @@ pub async fn clean_guarded(
 ) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
     lock_and_require_detached(&mut tx, id).await?;
+    require_purge_support(&mut tx, server_id).await?;
     super::tasks::enqueue(
         &mut tx,
         server_id,
@@ -382,4 +422,18 @@ pub async fn clean_guarded(
     .await?;
     tx.commit().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_version;
+
+    #[test]
+    fn agent_versions_compare_without_accepting_malformed_values() {
+        assert_eq!(parse_version("0.54.0"), Some((0, 54, 0)));
+        assert_eq!(parse_version("v1.2.3-dev"), Some((1, 2, 3)));
+        assert_eq!(parse_version("0.53.9"), Some((0, 53, 9)));
+        assert_eq!(parse_version("0.54"), None);
+        assert_eq!(parse_version("unknown"), None);
+    }
 }
