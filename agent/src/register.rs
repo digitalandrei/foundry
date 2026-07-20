@@ -2,17 +2,19 @@
 //! GitLab-agent-style one-shot registration (docs/ARCHITECTURE.md
 //! § Server Enrollment). Idempotent pieces, root required:
 //!
-//! 1. enroll against the controller (token is single-use),
-//! 2. install this binary to /usr/local/bin/foundry-agent,
-//! 3. create the foundry-agent system user (+ docker/video/render
+//! 1. preflight and install this binary to /usr/local/bin/foundry-agent,
+//! 2. create the foundry-agent system user (+ docker/video/render
 //!    groups where they exist),
-//! 4. write /etc/foundry-agent/config.toml (0600),
-//! 5. set up HTTP/S app publishing (nginx include + vhost dir, TLS
+//! 3. set up HTTP/S app publishing (nginx include + vhost dir, TLS
 //!    drop point, narrow sudoers rule — docs/SECURITY.md),
-//! 6. write the systemd unit, daemon-reload, enable --now.
+//! 4. write the systemd unit and daemon-reload,
+//! 5. enroll against the controller (token is single-use),
+//! 6. atomically replace /etc/foundry-agent/config.toml (0600), then
+//!    enable --now. Fallible host prerequisites therefore do not burn a
+//!    token, and a previous config remains until the new one is durable.
 //!
-//! `foundry-agent --setup-apps` re-runs 2/3/5/6 on an already-enrolled
-//! server — the agent upgrade path.
+//! `foundry-agent --setup-apps` refreshes the binary, service user, app
+//! publishing, and unit on an already-enrolled server — the upgrade path.
 
 use std::path::Path;
 use std::process::Command;
@@ -57,7 +59,18 @@ pub async fn run(args: RegisterArgs) -> Result<(), Box<dyn std::error::Error>> {
         .into());
     }
 
-    // 1. Enroll.
+    // Complete every fallible host prerequisite before consuming the
+    // single-use token or rotating an existing controller credential.
+    if system_mode {
+        install_self()?;
+        create_service_user()?;
+        prepare_config_directory(&config_path)?;
+        setup_apps()?;
+        write_unit()?;
+        systemctl(&["daemon-reload"])?;
+    }
+
+    // Enroll only after the host is ready to persist and run the identity.
     let url = args.url.trim_end_matches('/').to_string();
     let endpoint = if args.fleet {
         "/agent/enroll/fleet"
@@ -94,17 +107,9 @@ pub async fn run(args: RegisterArgs) -> Result<(), Box<dyn std::error::Error>> {
         enrolled.server_name, enrolled.server_id
     );
 
-    // 2..6 — system integration.
-    if system_mode {
-        install_self()?;
-        create_service_user()?;
-    }
     write_config(&config_path, &url, &enrolled, system_mode)?;
     println!("config written: {}", config_path.display());
     if system_mode {
-        setup_apps()?;
-        write_unit()?;
-        systemctl(&["daemon-reload"])?;
         systemctl(&["enable", "--now", "foundry-agent"])?;
         println!("service enabled and started: systemctl status foundry-agent");
     }
@@ -244,31 +249,82 @@ fn write_config(
     enrolled: &AgentEnrollResponse,
     system_mode: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
     use std::os::unix::fs::PermissionsExt;
 
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(dir)?;
+    #[derive(serde::Serialize)]
+    struct StoredConfig<'a> {
+        controller_url: &'a str,
+        agent_id: &'a str,
+        agent_secret: &'a str,
+        server_name: &'a str,
+        poll_interval_secs: u64,
     }
     let body = format!(
-        "# Written by `foundry-agent --register` — identity for this server.\n\
-         controller_url = \"{url}\"\n\
-         agent_id = \"{}\"\n\
-         agent_secret = \"{}\"\n\
-         server_name = \"{}\"\n\
-         poll_interval_secs = {}\n",
-        enrolled.agent_id, enrolled.agent_secret, enrolled.server_name, enrolled.poll_interval_secs,
+        "# Written by `foundry-agent --register` — identity for this server.\n{}",
+        toml::to_string(&StoredConfig {
+            controller_url: url,
+            agent_id: &enrolled.agent_id,
+            agent_secret: &enrolled.agent_secret,
+            server_name: &enrolled.server_name,
+            poll_interval_secs: enrolled.poll_interval_secs,
+        })?
     );
-    std::fs::write(path, body)?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-    if system_mode {
-        // The service user must be able to read its identity.
-        let status = Command::new("chown")
-            .args(["-R", &format!("{SERVICE_USER}:{SERVICE_USER}")])
-            .arg(path.parent().unwrap_or(path))
-            .status()?;
-        if !status.success() {
-            return Err("chown of /etc/foundry-agent failed".into());
+
+    // Write, chmod/chown, and fsync a sibling before the atomic rename. The
+    // previous working config remains intact until every preparation step
+    // succeeds, which makes `--force` credential rotation recoverable.
+    let temp = dir.join(format!(
+        ".{}.{}.tmp",
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("config"),
+        uuid::Uuid::now_v7()
+    ));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true).mode(0o600);
+    let mut file = options.open(&temp)?;
+    if let Err(err) = (|| -> Result<(), Box<dyn std::error::Error>> {
+        file.write_all(body.as_bytes())?;
+        file.sync_all()?;
+        std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o600))?;
+        if system_mode {
+            let status = Command::new("chown")
+                .arg(format!("{SERVICE_USER}:{SERVICE_USER}"))
+                .arg(&temp)
+                .status()?;
+            if !status.success() {
+                return Err("chown of the staged agent config failed".into());
+            }
         }
+        std::fs::rename(&temp, path)?;
+        std::fs::File::open(dir)?.sync_all()?;
+        Ok(())
+    })() {
+        let _ = std::fs::remove_file(&temp);
+        return Err(err);
+    }
+    Ok(())
+}
+
+/// Make directory creation, ownership, and permissions a pre-enrollment
+/// prerequisite. After the controller issues a credential, only the staged
+/// file write/chown/fsync/rename remains.
+fn prepare_config_directory(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = path.parent().ok_or("agent config path has no parent")?;
+    std::fs::create_dir_all(dir)?;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o750))?;
+    let status = Command::new("chown")
+        .arg(format!("{SERVICE_USER}:{SERVICE_USER}"))
+        .arg(dir)
+        .status()?;
+    if !status.success() {
+        return Err("chown of /etc/foundry-agent failed".into());
     }
     Ok(())
 }
@@ -382,4 +438,56 @@ unsafe fn libc_geteuid() -> u32 {
         fn geteuid() -> u32;
     }
     unsafe { geteuid() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn enrolled() -> AgentEnrollResponse {
+        AgentEnrollResponse {
+            agent_id: "agent-id".into(),
+            agent_secret: "secret-with-\"quote".into(),
+            server_id: foundry_shared::ServerId::new(),
+            server_name: "GPU \"west\"".into(),
+            poll_interval_secs: 17,
+        }
+    }
+
+    fn test_dir() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("foundry-register-{}", uuid::Uuid::now_v7()))
+    }
+
+    #[test]
+    fn config_write_is_parseable_private_and_atomic() {
+        let dir = test_dir();
+        let path = dir.join("config.toml");
+        write_config(&path, "https://controller.example", &enrolled(), false).unwrap();
+
+        let loaded = crate::config::load(&path).unwrap();
+        assert_eq!(loaded.controller_url, "https://controller.example");
+        assert_eq!(loaded.agent_secret, "secret-with-\"quote");
+        assert_eq!(loaded.server_name.as_deref(), Some("GPU \"west\""));
+        assert_eq!(loaded.poll_interval_secs, 17);
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn reenrollment_replaces_previous_config_without_staging_debris() {
+        let dir = test_dir();
+        let path = dir.join("config.toml");
+        write_config(&path, "https://old.example", &enrolled(), false).unwrap();
+        write_config(&path, "https://new.example", &enrolled(), false).unwrap();
+
+        let loaded = crate::config::load(&path).unwrap();
+        assert_eq!(loaded.controller_url, "https://new.example");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

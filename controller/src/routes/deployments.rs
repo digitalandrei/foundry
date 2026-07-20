@@ -6,11 +6,8 @@ use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::Json;
 use foundry_shared::dto::{CreateDeploymentRequest, DeployTarget, DeploymentSummary, ServerVolume};
-use foundry_shared::{
-    ActorType, DeploymentId, DeploymentState, ServerId, ServerVolumeId, TaskType,
-};
+use foundry_shared::{DeploymentId, DeploymentState, ServerId, ServerVolumeId, TaskType};
 
-use crate::audit::{self, AuditEntry};
 use crate::auth::client_ip;
 use crate::auth::session::CurrentUser;
 use crate::error::AppError;
@@ -62,28 +59,7 @@ pub async fn create(
         user.id,
         None,
         state.apps_domain.as_deref(),
-    )
-    .await?;
-
-    let mut tx = state.pool.begin().await?;
-    tasks::enqueue_deploy(&mut tx, new.id).await?;
-    tx.commit().await?;
-
-    audit::record(
-        &state.pool,
-        AuditEntry {
-            actor_type: ActorType::User,
-            actor_id: Some(user.id),
-            action: "DEPLOYMENT_CREATED",
-            subject_type: Some("deployment"),
-            subject_id: Some(new.id.0),
-            detail: Some(serde_json::json!({
-                "image_ref": image_ref,
-                "name": new.container_name,
-                "target": serde_json::to_value(&req.target).ok(),
-            })),
-            ip_address: client_ip(&headers).as_deref(),
-        },
+        client_ip(&headers).as_deref(),
     )
     .await?;
 
@@ -145,6 +121,7 @@ pub async fn logs(
 pub async fn stop(
     State(state): State<AppState>,
     user: CurrentUser,
+    headers: HeaderMap,
     Path(id): Path<DeploymentId>,
 ) -> Result<Json<DeploymentSummary>, AppError> {
     let d = deployments::get(&state.pool, id).await?;
@@ -157,6 +134,7 @@ pub async fn stop(
         TaskType::StopContainer,
         (d.state, DeploymentState::Stopping),
         user.id,
+        client_ip(&headers).as_deref(),
     )
     .await?;
     summary_of(&state, id).await.map(Json)
@@ -165,6 +143,7 @@ pub async fn stop(
 pub async fn restart(
     State(state): State<AppState>,
     user: CurrentUser,
+    headers: HeaderMap,
     Path(id): Path<DeploymentId>,
 ) -> Result<Json<DeploymentSummary>, AppError> {
     let d = deployments::get(&state.pool, id).await?;
@@ -174,13 +153,14 @@ pub async fn restart(
     // Stop tears the container and image down (no host garbage), so there
     // is nothing to "start" — restart re-pulls and recreates from the
     // stored spec.
-    tasks::enqueue_restart(&state.pool, &d, user.id).await?;
+    tasks::enqueue_restart(&state.pool, &d, user.id, client_ip(&headers).as_deref()).await?;
     summary_of(&state, id).await.map(Json)
 }
 
 pub async fn remove(
     State(state): State<AppState>,
     user: CurrentUser,
+    headers: HeaderMap,
     Path(id): Path<DeploymentId>,
 ) -> Result<Json<DeploymentSummary>, AppError> {
     let d = deployments::get(&state.pool, id).await?;
@@ -193,6 +173,7 @@ pub async fn remove(
         TaskType::RemoveContainer,
         (d.state, DeploymentState::Removing),
         user.id,
+        client_ip(&headers).as_deref(),
     )
     .await?;
     summary_of(&state, id).await.map(Json)
@@ -210,22 +191,8 @@ pub async fn dismiss(
     if d.created_by != user.id && !user.is_admin {
         return Err(AppError::Forbidden);
     }
-    deployments::dismiss(&state.pool, id).await?;
+    deployments::dismiss(&state.pool, id, user.id, client_ip(&headers).as_deref()).await?;
     crate::state::lock_recover(&state.progress).remove(&id.0);
-
-    audit::record(
-        &state.pool,
-        AuditEntry {
-            actor_type: ActorType::User,
-            actor_id: Some(user.id),
-            action: "DEPLOYMENT_DISMISSED",
-            subject_type: Some("deployment"),
-            subject_id: Some(id.0),
-            detail: None,
-            ip_address: client_ip(&headers).as_deref(),
-        },
-    )
-    .await?;
     // The deployment is REMOVED now (gone from the active list).
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
@@ -282,23 +249,7 @@ pub async fn replace(
         user.id,
         Some(old_id),
         state.apps_domain.as_deref(),
-    )
-    .await?;
-
-    audit::record(
-        &state.pool,
-        AuditEntry {
-            actor_type: ActorType::User,
-            actor_id: Some(user.id),
-            action: "DEPLOYMENT_REPLACED",
-            subject_type: Some("deployment"),
-            subject_id: Some(old_id.0),
-            detail: Some(serde_json::json!({
-                "replaced_by": new.id.to_string(),
-                "image_ref": image_ref,
-            })),
-            ip_address: client_ip(&headers).as_deref(),
-        },
+        client_ip(&headers).as_deref(),
     )
     .await?;
 
@@ -330,19 +281,14 @@ pub async fn delete_volume(
     }
     // Attached-check + task + row delete in ONE transaction (review
     // finding: TOCTOU vs a concurrent deploy mounting it).
-    volumes::delete_guarded(&state.pool, volume_id, vol.server_id, &vol.path).await?;
-
-    audit::record(
+    volumes::delete_guarded(
         &state.pool,
-        AuditEntry {
-            actor_type: ActorType::User,
-            actor_id: Some(user.id),
-            action: "VOLUME_DELETED",
-            subject_type: Some("server_volume"),
-            subject_id: Some(volume_id.0),
-            detail: Some(serde_json::json!({ "name": vol.name, "path": vol.path })),
-            ip_address: client_ip(&headers).as_deref(),
-        },
+        volume_id,
+        vol.server_id,
+        &vol.path,
+        &vol.name,
+        user.id,
+        client_ip(&headers).as_deref(),
     )
     .await?;
     Ok(axum::http::StatusCode::NO_CONTENT)

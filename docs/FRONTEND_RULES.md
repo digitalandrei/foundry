@@ -44,11 +44,15 @@ frontend/src/
 
 - TanStack Router; URL is state for filters/selection (server, project,
   search), so views are shareable.
+- Route-level page components are `React.lazy` boundaries behind one
+  accessible Suspense fallback; do not pull all pages into the entry chunk.
 - Forms: react-hook-form + zod + shadcn form primitives — the **Field
   family** (`Field`, `FieldLabel`, `FieldError`, …; shadcn 4.x replaced
   the old `Form` wrapper). Zod schemas validate deployment configs
   (ports, env, volumes) client-side; the server revalidates. Reference
   implementation: `components/instance-admin.tsx`.
+- Subscribe to render-time field values with `useWatch`; do not call
+  `form.watch()` during render or read an unsubscribed `formState` in effects.
 
 ## shadcn/ui & Styling
 
@@ -78,4 +82,7 @@ frontend/src/
 - Loading, error, and empty states for every query-backed view.
 - Both themes verified for every new screen (dark default + light).
 - Accessible: dialog titles, ARIA on drag handles, keyboard nav.
-- `npm run build` clean (this is the verification gate for frontend work).
+- Custom interactive surfaces get Testing Library DOM coverage for naming,
+  focus, and keyboard activation in both theme classes.
+- `npm audit --omit=dev --audit-level=high`, `npm run lint`,
+  `npm run test:run`, and `npm run build` are all frontend gates.

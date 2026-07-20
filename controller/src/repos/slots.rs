@@ -5,7 +5,7 @@
 //! fact. See docs/ARCHITECTURE.md § Multi-use slots.
 
 use foundry_shared::dto::{MAX_OCCUPANTS_MAX, MAX_OCCUPANTS_MIN};
-use foundry_shared::SlotId;
+use foundry_shared::{SlotId, UserId};
 use sqlx::MySqlPool;
 
 use crate::error::AppError;
@@ -18,19 +18,21 @@ pub async fn set_max_occupants(
     pool: &MySqlPool,
     slot_id: SlotId,
     max_occupants: u32,
+    changed_by: UserId,
+    ip_address: Option<&str>,
 ) -> Result<foundry_shared::ServerId, AppError> {
     if !(MAX_OCCUPANTS_MIN..=MAX_OCCUPANTS_MAX).contains(&max_occupants) {
         return Err(AppError::BadRequest(format!(
             "max_occupants must be {MAX_OCCUPANTS_MIN}–{MAX_OCCUPANTS_MAX}"
         )));
     }
-    let server_id = sqlx::query_scalar!(
-        r#"SELECT g.server_id AS "server_id: uuid::Uuid"
-           FROM gpu_slots gs JOIN gpus g ON g.id = gs.gpu_id
-           WHERE gs.id = ?"#,
-        slot_id.0
+    let mut tx = pool.begin().await?;
+    let server_id: uuid::Uuid = sqlx::query_scalar(
+        "SELECT g.server_id FROM gpu_slots gs JOIN gpus g ON g.id = gs.gpu_id \
+         WHERE gs.id = ? FOR UPDATE",
     )
-    .fetch_optional(pool)
+    .bind(slot_id.0)
+    .fetch_optional(&mut *tx)
     .await?
     .ok_or(AppError::NotFound("slot not found"))?;
 
@@ -40,7 +42,21 @@ pub async fn set_max_occupants(
         chrono::Utc::now().naive_utc(),
         slot_id.0,
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(changed_by),
+            action: "SLOT_USE_MODE_SET",
+            subject_type: Some("gpu_slot"),
+            subject_id: Some(slot_id.0),
+            detail: Some(serde_json::json!({ "max_occupants": max_occupants })),
+            ip_address,
+        },
+    )
+    .await?;
+    tx.commit().await?;
     Ok(server_id.into())
 }

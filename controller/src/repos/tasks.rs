@@ -562,6 +562,7 @@ pub async fn enqueue_lifecycle(
     task_type: TaskType,
     from_to: (DeploymentState, DeploymentState),
     user: UserId,
+    ip_address: Option<&str>,
 ) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
     lifecycle::transition_deployment(&mut tx, deployment.id, from_to.1, &Actor::user(user), None)
@@ -587,6 +588,28 @@ pub async fn enqueue_lifecycle(
         &payload,
     )
     .await?;
+    let action = match task_type {
+        TaskType::StopContainer => "DEPLOYMENT_STOP_REQUESTED",
+        TaskType::RemoveContainer => "DEPLOYMENT_REMOVE_REQUESTED",
+        _ => "DEPLOYMENT_ACTION_REQUESTED",
+    };
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(user),
+            action,
+            subject_type: Some("deployment"),
+            subject_id: Some(deployment.id.0),
+            detail: Some(serde_json::json!({
+                "task_type": task_type.as_str(),
+                "from_state": from_to.0.as_str(),
+                "to_state": from_to.1.as_str(),
+            })),
+            ip_address,
+        },
+    )
+    .await?;
     tx.commit().await?;
     Ok(())
 }
@@ -600,6 +623,7 @@ pub async fn enqueue_restart(
     pool: &MySqlPool,
     deployment: &super::deployments::DeploymentRow,
     user: UserId,
+    ip_address: Option<&str>,
 ) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
     lifecycle::transition_deployment(
@@ -611,6 +635,19 @@ pub async fn enqueue_restart(
     )
     .await?;
     enqueue_deploy(&mut tx, deployment.id).await?;
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(user),
+            action: "DEPLOYMENT_RESTART_REQUESTED",
+            subject_type: Some("deployment"),
+            subject_id: Some(deployment.id.0),
+            detail: None,
+            ip_address,
+        },
+    )
+    .await?;
     tx.commit().await?;
     Ok(())
 }

@@ -9,21 +9,22 @@
 
 use std::collections::HashMap;
 
-use foundry_shared::dto::{CreateGpuGroupRequest, GpuGroup, GpuGroupRef};
+use foundry_shared::dto::{CreateGpuGroupRequest, GpuGroup};
 use foundry_shared::{GpuGroupId, GpuId, ServerId, SlotId, UserId};
-use sqlx::{MySqlConnection, MySqlPool};
+use sqlx::{MySqlConnection, MySqlPool, Row};
 use uuid::Uuid;
 
 use crate::error::AppError;
 
-/// A member GPU's FULL slot, resolved (and locked) for a group deploy.
-/// The device UUID is resolved later, at task-enqueue time, from
-/// `deployment_slots`.
+/// A member GPU's FULL slot, resolved (and locked) with its Docker/NVML
+/// device UUID for a group deploy.
 pub struct MemberSlot {
     pub slot_id: SlotId,
     pub gpu_index: u32,
     pub slot_state: String,
     pub mig_enabled: bool,
+    /// Docker/NVML device UUID used to detect unmanaged containers.
+    pub device_uuid: String,
     /// **Non-group** active holders on this slot (individual deploys or
     /// other groups). A group takes whole GPUs from outsiders, so this
     /// must be 0 to deploy; the group's own concurrent containers
@@ -55,14 +56,12 @@ pub async fn member_slots_for_deploy(
     group_id: GpuGroupId,
     exclude: Option<foundry_shared::DeploymentId>,
 ) -> Result<GroupDeployContext, AppError> {
-    let group = sqlx::query!(
-        r#"SELECT server_id AS "server_id: Uuid", max_occupants AS "max_occupants: u32"
-           FROM gpu_groups WHERE id = ?"#,
-        group_id.0
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or(AppError::NotFound("group not found"))?;
+    let group: (Uuid, u32) =
+        sqlx::query_as("SELECT server_id, max_occupants FROM gpu_groups WHERE id = ? FOR UPDATE")
+            .bind(group_id.0)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(AppError::NotFound("group not found"))?;
 
     // Lock every member FULL slot. Occupancy is counted separately (a
     // FOR UPDATE with an aggregate would lock nothing useful).
@@ -117,12 +116,19 @@ pub async fn member_slots_for_deploy(
             gpu_index: r.gpu_index,
             slot_state: r.slot_state,
             mig_enabled: r.mig_enabled,
+            device_uuid: sqlx::query_scalar(
+                "SELECT COALESCE(gs.mig_uuid, g.gpu_uuid) \
+                 FROM gpu_slots gs JOIN gpus g ON g.id = gs.gpu_id WHERE gs.id = ?",
+            )
+            .bind(r.slot_id)
+            .fetch_one(&mut *tx)
+            .await?,
             foreign_occupants,
         });
     }
     Ok(GroupDeployContext {
-        server_id: group.server_id.into(),
-        max_occupants: group.max_occupants,
+        server_id: group.0.into(),
+        max_occupants: group.1,
         group_occupants,
         members,
     })
@@ -136,6 +142,8 @@ pub async fn set_max_occupants(
     pool: &MySqlPool,
     group_id: GpuGroupId,
     max_occupants: u32,
+    changed_by: UserId,
+    ip_address: Option<&str>,
 ) -> Result<ServerId, AppError> {
     use foundry_shared::dto::{MAX_OCCUPANTS_MAX, MAX_OCCUPANTS_MIN};
     if !(MAX_OCCUPANTS_MIN..=MAX_OCCUPANTS_MAX).contains(&max_occupants) {
@@ -143,12 +151,12 @@ pub async fn set_max_occupants(
             "max_occupants must be {MAX_OCCUPANTS_MIN}–{MAX_OCCUPANTS_MAX}"
         )));
     }
-    let server_id: Option<Uuid> = sqlx::query_scalar!(
-        r#"SELECT server_id AS "server_id: Uuid" FROM gpu_groups WHERE id = ?"#,
-        group_id.0
-    )
-    .fetch_optional(pool)
-    .await?;
+    let mut tx = pool.begin().await?;
+    let server_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT server_id FROM gpu_groups WHERE id = ? FOR UPDATE")
+            .bind(group_id.0)
+            .fetch_optional(&mut *tx)
+            .await?;
     let server_id = server_id.ok_or(AppError::NotFound("group not found"))?;
     sqlx::query!(
         "UPDATE gpu_groups SET max_occupants = ?, updated_at = ? WHERE id = ?",
@@ -156,35 +164,23 @@ pub async fn set_max_occupants(
         chrono::Utc::now().naive_utc(),
         group_id.0,
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
-    Ok(server_id.into())
-}
-
-/// Groups keyed by member GPU id — surfaced on every GPU cell so overlap
-/// (a GPU in several groups) is visible on the grid.
-pub async fn memberships_for_server(
-    pool: &MySqlPool,
-    server_id: ServerId,
-) -> Result<HashMap<GpuId, Vec<GpuGroupRef>>, AppError> {
-    let rows = sqlx::query!(
-        r#"SELECT m.gpu_id AS "gpu_id: Uuid", gg.id AS "group_id: Uuid", gg.name
-           FROM gpu_group_members m
-           JOIN gpu_groups gg ON gg.id = m.group_id
-           WHERE gg.server_id = ?
-           ORDER BY gg.name"#,
-        server_id.0
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(changed_by),
+            action: "GPU_GROUP_USE_MODE_SET",
+            subject_type: Some("gpu_group"),
+            subject_id: Some(group_id.0),
+            detail: Some(serde_json::json!({ "max_occupants": max_occupants })),
+            ip_address,
+        },
     )
-    .fetch_all(pool)
     .await?;
-    let mut map: HashMap<GpuId, Vec<GpuGroupRef>> = HashMap::new();
-    for r in rows {
-        map.entry(r.gpu_id.into()).or_default().push(GpuGroupRef {
-            id: r.group_id.into(),
-            name: r.name,
-        });
-    }
-    Ok(map)
+    tx.commit().await?;
+    Ok(server_id.into())
 }
 
 /// All groups on a server, each with combined VRAM, use-mode, current
@@ -207,6 +203,51 @@ pub async fn list(pool: &MySqlPool, server_id: ServerId) -> Result<Vec<GpuGroup>
     .fetch_all(pool)
     .await?;
 
+    struct ListedMember {
+        gpu_id: Uuid,
+        gpu_index: u32,
+        memory_mb: Option<u32>,
+        mig_enabled: bool,
+        slot_id: Option<Uuid>,
+        slot_state: Option<String>,
+        foreign_occupants: i64,
+    }
+    let mut members_by_group: HashMap<GpuGroupId, Vec<ListedMember>> = HashMap::new();
+    for m in sqlx::query(
+        r#"SELECT m.group_id, g.id AS gpu_id, g.display_index AS gpu_index,
+                  g.memory_mb, g.mig_enabled, gs.id AS slot_id, gs.state AS slot_state,
+                  (SELECT COUNT(*) FROM deployment_slots ds
+                   JOIN deployments d ON d.id = ds.deployment_id
+                   WHERE ds.gpu_slot_id = gs.id
+                     AND d.state NOT IN ('REMOVED','REPLACED','FAILED')
+                     AND (d.gpu_group_id IS NULL OR d.gpu_group_id <> m.group_id))
+                      AS foreign_occupants
+           FROM gpu_group_members m
+           JOIN gpu_groups gg ON gg.id = m.group_id
+           JOIN gpus g ON g.id = m.gpu_id
+           LEFT JOIN gpu_slots gs ON gs.gpu_id = g.id AND gs.slot_type = 'FULL_GPU'
+           WHERE gg.server_id = ?
+           ORDER BY m.group_id, g.display_index"#,
+    )
+    .bind(server_id.0)
+    .fetch_all(pool)
+    .await?
+    {
+        let group_id: Uuid = m.try_get("group_id").map_err(AppError::internal)?;
+        members_by_group
+            .entry(group_id.into())
+            .or_default()
+            .push(ListedMember {
+                gpu_id: m.try_get("gpu_id").map_err(AppError::internal)?,
+                gpu_index: m.try_get("gpu_index").map_err(AppError::internal)?,
+                memory_mb: m.try_get("memory_mb").map_err(AppError::internal)?,
+                mig_enabled: m.try_get("mig_enabled").map_err(AppError::internal)?,
+                slot_id: m.try_get("slot_id").map_err(AppError::internal)?,
+                slot_state: m.try_get("slot_state").map_err(AppError::internal)?,
+                foreign_occupants: m.try_get("foreign_occupants").map_err(AppError::internal)?,
+            });
+    }
+
     let mut out = Vec::with_capacity(groups.len());
     for g in groups {
         let group_id: GpuGroupId = g.id.into();
@@ -214,25 +255,7 @@ pub async fn list(pool: &MySqlPool, server_id: ServerId) -> Result<Vec<GpuGroup>
         // order so the reason names GPUs the operator recognises.
         // `foreign_occupants` excludes this group's own deploys — a
         // multi-use group sharing its GPUs is not "busy" with itself.
-        let members = sqlx::query!(
-            r#"SELECT g.id AS "gpu_id: Uuid", g.display_index AS gpu_index,
-                      g.memory_mb, g.mig_enabled AS "mig_enabled: bool",
-                      gs.id AS "slot_id?: Uuid", gs.state AS "slot_state?",
-                      (SELECT COUNT(*) FROM deployment_slots ds
-                       JOIN deployments d ON d.id = ds.deployment_id
-                       WHERE ds.gpu_slot_id = gs.id
-                         AND d.state NOT IN ('REMOVED','REPLACED','FAILED')
-                         AND (d.gpu_group_id IS NULL OR d.gpu_group_id <> ?)) AS "foreign_occupants!: i64"
-               FROM gpu_group_members m
-               JOIN gpus g ON g.id = m.gpu_id
-               LEFT JOIN gpu_slots gs ON gs.gpu_id = g.id AND gs.slot_type = 'FULL_GPU'
-               WHERE m.group_id = ?
-               ORDER BY g.display_index"#,
-            group_id.0,
-            group_id.0
-        )
-        .fetch_all(pool)
-        .await?;
+        let members = members_by_group.remove(&group_id).unwrap_or_default();
 
         let mut gpu_ids = Vec::with_capacity(members.len());
         let mut combined_vram_mb: u32 = 0;
@@ -290,6 +313,7 @@ pub async fn create(
     server_id: ServerId,
     req: &CreateGpuGroupRequest,
     created_by: UserId,
+    ip_address: Option<&str>,
 ) -> Result<GpuGroupId, AppError> {
     let name = req.name.trim();
     if name.is_empty() || name.len() > 64 {
@@ -375,23 +399,41 @@ pub async fn create(
         .execute(&mut *tx)
         .await?;
     }
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(created_by),
+            action: "GPU_GROUP_CREATED",
+            subject_type: Some("gpu_group"),
+            subject_id: Some(id.0),
+            detail: Some(serde_json::json!({
+                "name": name,
+                "gpu_ids": gpu_ids.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            })),
+            ip_address,
+        },
+    )
+    .await?;
     tx.commit().await?;
     Ok(id)
 }
 
 /// Delete a group — refused while a deploy is live on it (mirrors the
 /// volume "refused while mounted" choke point).
-pub async fn delete(pool: &MySqlPool, group_id: GpuGroupId) -> Result<(), AppError> {
+pub async fn delete(
+    pool: &MySqlPool,
+    group_id: GpuGroupId,
+    deleted_by: UserId,
+    ip_address: Option<&str>,
+) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
-    let exists: Option<Uuid> = sqlx::query_scalar!(
-        r#"SELECT id AS "id: Uuid" FROM gpu_groups WHERE id = ? FOR UPDATE"#,
-        group_id.0
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-    if exists.is_none() {
-        return Err(AppError::NotFound("group not found"));
-    }
+    let name: Option<String> =
+        sqlx::query_scalar("SELECT name FROM gpu_groups WHERE id = ? FOR UPDATE")
+            .bind(group_id.0)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let name = name.ok_or(AppError::NotFound("group not found"))?;
     let live: i64 = sqlx::query_scalar!(
         r#"SELECT COUNT(*) FROM deployments d
            WHERE d.gpu_group_id = ? AND d.state NOT IN ('REMOVED','REPLACED','FAILED')"#,
@@ -425,14 +467,19 @@ pub async fn delete(pool: &MySqlPool, group_id: GpuGroupId) -> Result<(), AppErr
     sqlx::query!("DELETE FROM gpu_groups WHERE id = ?", group_id.0)
         .execute(&mut *tx)
         .await?;
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(deleted_by),
+            action: "GPU_GROUP_DELETED",
+            subject_type: Some("gpu_group"),
+            subject_id: Some(group_id.0),
+            detail: Some(serde_json::json!({ "name": name })),
+            ip_address,
+        },
+    )
+    .await?;
     tx.commit().await?;
     Ok(())
-}
-
-/// Name of a group (for audit detail / not-found-safe display).
-pub async fn name_of(pool: &MySqlPool, group_id: GpuGroupId) -> Result<String, AppError> {
-    sqlx::query_scalar!("SELECT name FROM gpu_groups WHERE id = ?", group_id.0)
-        .fetch_optional(pool)
-        .await?
-        .ok_or(AppError::NotFound("group not found"))
 }

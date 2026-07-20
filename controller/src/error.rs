@@ -17,6 +17,11 @@ pub enum AppError {
     NotFound(&'static str),
     #[error("{0}")]
     BadRequest(String),
+    #[error("{message}")]
+    Conflict {
+        message: String,
+        details: serde_json::Value,
+    },
     #[error("GitLab instance is unreachable or returned an error")]
     GitlabUpstream(#[source] Box<dyn std::error::Error + Send + Sync>),
     #[error("database error")]
@@ -40,6 +45,7 @@ impl AppError {
             AppError::Forbidden => (StatusCode::FORBIDDEN, "forbidden"),
             AppError::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, "validation"),
+            AppError::Conflict { .. } => (StatusCode::CONFLICT, "conflict"),
             AppError::GitlabUpstream(_) => (StatusCode::BAD_GATEWAY, "gitlab_upstream"),
             AppError::Db(_) | AppError::Internal(_) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal")
@@ -60,6 +66,12 @@ impl IntoResponse for AppError {
         } else {
             self.to_string()
         };
-        (status, Json(ErrorEnvelope::new(code, message))).into_response()
+        let envelope = match &self {
+            AppError::Conflict { details, .. } => {
+                ErrorEnvelope::with_details(code, message, details.clone())
+            }
+            _ => ErrorEnvelope::new(code, message),
+        };
+        (status, Json(envelope)).into_response()
     }
 }

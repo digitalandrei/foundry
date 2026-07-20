@@ -108,3 +108,29 @@ export function useRegenerateToken() {
     },
   })
 }
+
+/** Hard-delete a server only when the controller confirms it has no durable
+ * workload history. A 409 names the blocking dependency counts. */
+export function useDeleteServer() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (serverId: string) =>
+      api<void>(`/api/servers/${serverId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      toast.success("Unused server deleted")
+      queryClient.invalidateQueries({ queryKey: queryKeys.servers })
+    },
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 409) {
+        const dependencies = (err.details as { dependencies?: Record<string, number> } | undefined)
+          ?.dependencies
+        const blockers = Object.entries(dependencies ?? {})
+          .filter(([, count]) => count > 0)
+          .map(([kind, count]) => `${count} ${kind.replaceAll("_", " ")}`)
+        toast.error(blockers.length ? `Cannot delete: ${blockers.join(", ")}` : err.message)
+      } else {
+        toast.error(err instanceof ApiError ? err.message : "Failed to delete server")
+      }
+    },
+  })
+}

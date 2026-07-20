@@ -173,6 +173,8 @@ users, `state` (see ARCHITECTURE.md § Deployment lifecycle), `container_id`
 (Docker, once created), `container_name`, `adopted_container_id` null (set
 when this wraps an externally-created container — lifecycle/shell/logs
 resolve it by this docker id, not by the `foundry.managed` label; 0.42.0),
+`active_adoption_key` generated null/string (database-enforced uniqueness for
+one non-terminal adoption of a server/container pair),
 `mem_limit_mb` null (Docker
 `--memory` cap in MB from the deploy slider, clamped 32–256 GB;
 NULL = unlimited, the default), `gpu_group_id` FK gpu_groups null

@@ -9,7 +9,7 @@
 use chrono::Utc;
 use foundry_shared::dto::{GpuInfo, InventorySnapshot, ServerContainer};
 use foundry_shared::{ServerId, SlotState, SlotType};
-use sqlx::{MySqlConnection, MySqlPool};
+use sqlx::{MySql, MySqlConnection, MySqlPool, QueryBuilder};
 use uuid::Uuid;
 
 use crate::error::AppError;
@@ -402,112 +402,144 @@ pub async fn gpus_for_server(
     pool: &MySqlPool,
     server_id: ServerId,
 ) -> Result<Vec<foundry_shared::dto::GpuSummary>, AppError> {
-    // device UUID → external occupant (unmanaged running containers).
-    let external = external_occupants(pool, server_id).await?;
-    // gpu id → the groups it belongs to (overlap allowed → may be many).
-    let mut memberships = super::gpu_groups::memberships_for_server(pool, server_id).await?;
-
-    let gpu_rows = sqlx::query!(
-        r#"SELECT id AS "id: Uuid", gpu_uuid, display_index, model, memory_mb,
-                  mig_enabled AS "mig_enabled: bool"
-           FROM gpus WHERE server_id = ?
-           ORDER BY display_index, gpu_uuid"#,
-        server_id.0
-    )
-    .fetch_all(pool)
-    .await?;
-
-    let mut out = Vec::with_capacity(gpu_rows.len());
-    for g in gpu_rows {
-        // LENGTH-first gives natural ordering for "<card>.<slice>" names
-        // ("3.5" < "3.10").
-        let slot_rows = sqlx::query!(
-            r#"SELECT id AS "id: Uuid", name, slot_type, mig_uuid, mig_profile, capacity_mb, state,
-                      max_occupants AS "max_occupants: u32"
-               FROM gpu_slots WHERE gpu_id = ? ORDER BY LENGTH(name), name"#,
-            g.id
-        )
-        .fetch_all(pool)
-        .await?;
-        // Hide structurally-obsolete slots: when a GPU has at least one live
-        // (non-OFFLINE) slot, any OFFLINE slot on it is a leftover from a
-        // prior layout — the full-GPU slot after MIG was enabled, MIG slices
-        // after MIG was disabled, or old MIG UUIDs after a geometry reshape —
-        // and is dropped. When *every* slot is OFFLINE the GPU itself is down
-        // (driver gone, etc.) and we keep them so the operator sees it. The
-        // rows linger in the DB (deployment_slots FKs them, no cascade); the
-        // upsert path restores the right slot to FREE if the layout returns.
-        let has_live = slot_rows.iter().any(|s| s.state != "OFFLINE");
-        let slots = slot_rows
-            .into_iter()
-            .filter(|s| !has_live || s.state != "OFFLINE")
-            .map(|s| {
-                // A slot's device is its MIG UUID, or the parent GPU's
-                // UUID for a full-GPU slot.
-                let device = s.mig_uuid.as_deref().unwrap_or(&g.gpu_uuid);
-                Ok(foundry_shared::dto::SlotSummary {
-                    id: s.id.into(),
-                    name: s.name,
-                    slot_type: s.slot_type.parse().map_err(AppError::internal)?,
-                    mig_uuid: s.mig_uuid.clone(),
-                    mig_profile: s.mig_profile,
-                    capacity_mb: s.capacity_mb,
-                    state: s.state.parse().map_err(AppError::internal)?,
-                    max_occupants: s.max_occupants,
-                    external: external.get(device).cloned(),
-                })
-            })
-            .collect::<Result<Vec<_>, AppError>>()?;
-        let gpu_id: foundry_shared::GpuId = g.id.into();
-        out.push(foundry_shared::dto::GpuSummary {
-            id: gpu_id,
-            gpu_uuid: g.gpu_uuid,
-            index: g.display_index,
-            model: g.model,
-            memory_mb: g.memory_mb,
-            mig_enabled: g.mig_enabled,
-            slots,
-            groups: memberships.remove(&gpu_id).unwrap_or_default(),
-        });
-    }
-    Ok(out)
+    Ok(gpus_for_servers(pool, &[server_id])
+        .await?
+        .remove(&server_id)
+        .unwrap_or_default())
 }
 
-/// device UUID → the non-Foundry container mapped to it. Stopped
-/// containers are included (surfaced as not-running) but a running one
-/// always wins for a given device — `ORDER BY running DESC` + first-
-/// insert-wins.
-async fn external_occupants(
+#[derive(sqlx::FromRow)]
+struct BatchGpuRow {
+    id: Uuid,
+    server_id: Uuid,
+    gpu_uuid: String,
+    display_index: u32,
+    model: Option<String>,
+    memory_mb: Option<u32>,
+    mig_enabled: bool,
+}
+
+#[derive(sqlx::FromRow)]
+struct BatchSlotRow {
+    id: Uuid,
+    gpu_id: Uuid,
+    name: String,
+    slot_type: String,
+    mig_uuid: Option<String>,
+    mig_profile: Option<String>,
+    capacity_mb: Option<u32>,
+    state: String,
+    max_occupants: u32,
+}
+
+#[derive(sqlx::FromRow)]
+struct BatchMembershipRow {
+    gpu_id: Uuid,
+    group_id: Uuid,
+    name: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct BatchExternalRow {
+    server_id: Uuid,
+    name: String,
+    image: String,
+    gpu_uuids: Option<String>,
+    running: bool,
+}
+
+fn push_uuid_filter<'a>(builder: &mut QueryBuilder<'a, MySql>, ids: &'a [ServerId]) {
+    let mut separated = builder.separated(", ");
+    for id in ids {
+        separated.push_bind(id.0);
+    }
+}
+
+/// Batch the full fleet GPU tree in four queries total: GPUs, slots, group
+/// memberships, and unmanaged occupants. This is the hot 10-second polling
+/// path, so query count must depend on relation types, never fleet size.
+pub async fn gpus_for_servers(
     pool: &MySqlPool,
-    server_id: ServerId,
-) -> Result<std::collections::HashMap<String, foundry_shared::dto::ExternalOccupant>, AppError> {
-    // Adopted containers (those wrapped by an active deployment) are no
-    // longer "foreign" — they show as their managed deployment on the slot,
-    // so exclude them here to avoid a double occupant on the same device.
-    let rows = sqlx::query!(
-        r#"SELECT sc.name, sc.image, sc.gpu_uuids, (sc.state = 'running') AS "running: bool"
-           FROM server_containers sc
-           WHERE sc.server_id = ? AND sc.managed = 0
+    server_ids: &[ServerId],
+) -> Result<std::collections::HashMap<ServerId, Vec<foundry_shared::dto::GpuSummary>>, AppError> {
+    use std::collections::HashMap;
+    if server_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let mut gpu_query = QueryBuilder::<MySql>::new(
+        "SELECT id, server_id, gpu_uuid, display_index, model, memory_mb, mig_enabled \
+         FROM gpus WHERE server_id IN (",
+    );
+    push_uuid_filter(&mut gpu_query, server_ids);
+    gpu_query.push(") ORDER BY server_id, display_index, gpu_uuid");
+    let gpu_rows = gpu_query
+        .build_query_as::<BatchGpuRow>()
+        .fetch_all(pool)
+        .await?;
+    let gpu_ids: Vec<foundry_shared::GpuId> = gpu_rows.iter().map(|g| g.id.into()).collect();
+
+    let slot_rows = if gpu_ids.is_empty() {
+        Vec::new()
+    } else {
+        let mut q = QueryBuilder::<MySql>::new(
+            "SELECT id, gpu_id, name, slot_type, mig_uuid, mig_profile, capacity_mb, state, \
+             max_occupants FROM gpu_slots WHERE gpu_id IN (",
+        );
+        {
+            let mut separated = q.separated(", ");
+            for id in &gpu_ids {
+                separated.push_bind(id.0);
+            }
+        }
+        q.push(") ORDER BY gpu_id, LENGTH(name), name");
+        q.build_query_as::<BatchSlotRow>().fetch_all(pool).await?
+    };
+
+    let mut memberships_query = QueryBuilder::<MySql>::new(
+        "SELECT m.gpu_id, gg.id AS group_id, gg.name FROM gpu_group_members m \
+         JOIN gpu_groups gg ON gg.id = m.group_id WHERE gg.server_id IN (",
+    );
+    push_uuid_filter(&mut memberships_query, server_ids);
+    memberships_query.push(") ORDER BY m.gpu_id, gg.name");
+    let memberships = memberships_query
+        .build_query_as::<BatchMembershipRow>()
+        .fetch_all(pool)
+        .await?;
+
+    // Adopted containers are no longer foreign, while stopped external
+    // containers stay visible as non-blocking context.
+    let mut external_query = QueryBuilder::<MySql>::new(
+        r#"SELECT sc.server_id, sc.name, sc.image, sc.gpu_uuids,
+                  (sc.state = 'running') AS running
+           FROM server_containers sc WHERE sc.server_id IN ("#,
+    );
+    push_uuid_filter(&mut external_query, server_ids);
+    external_query.push(
+        r#") AND sc.managed = 0
              AND NOT EXISTS (
                  SELECT 1 FROM deployments d
                  WHERE d.server_id = sc.server_id
                    AND d.adopted_container_id = sc.container_id
                    AND d.state NOT IN ('REMOVED','REPLACED','FAILED','STOPPED')
              )
-           ORDER BY (sc.state = 'running') DESC, sc.name"#,
-        server_id.0
-    )
-    .fetch_all(pool)
-    .await?;
-    let mut map = std::collections::HashMap::new();
-    for r in rows {
+           ORDER BY sc.server_id, (sc.state = 'running') DESC, sc.name"#,
+    );
+    let external_rows = external_query
+        .build_query_as::<BatchExternalRow>()
+        .fetch_all(pool)
+        .await?;
+
+    let mut external = HashMap::new();
+    for r in external_rows {
         let uuids: Vec<String> = r
             .gpu_uuids
             .as_deref()
             .and_then(|j| serde_json::from_str(j).ok())
             .unwrap_or_default();
         for u in uuids {
-            map.entry(u)
+            external
+                .entry((ServerId::from(r.server_id), u))
                 .or_insert_with(|| foundry_shared::dto::ExternalOccupant {
                     name: r.name.clone(),
                     image: r.image.clone(),
@@ -515,7 +547,61 @@ async fn external_occupants(
                 });
         }
     }
-    Ok(map)
+
+    let mut memberships_by_gpu: HashMap<foundry_shared::GpuId, Vec<_>> = HashMap::new();
+    for m in memberships {
+        memberships_by_gpu.entry(m.gpu_id.into()).or_default().push(
+            foundry_shared::dto::GpuGroupRef {
+                id: m.group_id.into(),
+                name: m.name,
+            },
+        );
+    }
+    let mut slots_by_gpu: HashMap<foundry_shared::GpuId, Vec<BatchSlotRow>> = HashMap::new();
+    for slot in slot_rows {
+        slots_by_gpu
+            .entry(slot.gpu_id.into())
+            .or_default()
+            .push(slot);
+    }
+
+    let mut out: HashMap<ServerId, Vec<foundry_shared::dto::GpuSummary>> = HashMap::new();
+    for g in gpu_rows {
+        let gpu_id: foundry_shared::GpuId = g.id.into();
+        let raw_slots = slots_by_gpu.remove(&gpu_id).unwrap_or_default();
+        let has_live = raw_slots.iter().any(|s| s.state != "OFFLINE");
+        let slots = raw_slots
+            .into_iter()
+            .filter(|s| !has_live || s.state != "OFFLINE")
+            .map(|s| {
+                let device = s.mig_uuid.clone().unwrap_or_else(|| g.gpu_uuid.clone());
+                Ok(foundry_shared::dto::SlotSummary {
+                    id: s.id.into(),
+                    name: s.name,
+                    slot_type: s.slot_type.parse().map_err(AppError::internal)?,
+                    mig_uuid: s.mig_uuid,
+                    mig_profile: s.mig_profile,
+                    capacity_mb: s.capacity_mb,
+                    state: s.state.parse().map_err(AppError::internal)?,
+                    max_occupants: s.max_occupants,
+                    external: external.get(&(g.server_id.into(), device)).cloned(),
+                })
+            })
+            .collect::<Result<Vec<_>, AppError>>()?;
+        out.entry(g.server_id.into())
+            .or_default()
+            .push(foundry_shared::dto::GpuSummary {
+                id: gpu_id,
+                gpu_uuid: g.gpu_uuid,
+                index: g.display_index,
+                model: g.model,
+                memory_mb: g.memory_mb,
+                mig_enabled: g.mig_enabled,
+                slots,
+                groups: memberships_by_gpu.remove(&gpu_id).unwrap_or_default(),
+            });
+    }
+    Ok(out)
 }
 
 pub async fn containers_for_server(

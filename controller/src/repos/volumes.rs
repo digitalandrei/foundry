@@ -8,7 +8,7 @@
 
 use foundry_shared::dto::ServerVolume;
 use foundry_shared::{ServerId, ServerVolumeId, UserId};
-use sqlx::{MySqlConnection, MySqlPool};
+use sqlx::{MySqlConnection, MySqlPool, Row};
 use uuid::Uuid;
 
 use crate::error::AppError;
@@ -166,27 +166,46 @@ pub async fn list(
         .filter(|r| only_owner.is_none_or(|owner| r.created_by == owner.0))
         .collect();
 
+    let mut attachments: std::collections::HashMap<ServerVolumeId, Vec<String>> =
+        std::collections::HashMap::new();
+    let owner = only_owner.map(|u| u.0);
+    for attached in sqlx::query(
+        r#"SELECT DISTINCT dv.server_volume_id, d.container_name
+           FROM deployment_volumes dv
+           JOIN deployments d ON d.id = dv.deployment_id
+           JOIN server_volumes v ON v.id = dv.server_volume_id
+           WHERE v.server_id = ? AND (? IS NULL OR v.created_by = ?)
+             AND d.container_name IS NOT NULL
+             AND d.state IN ('PENDING','VALIDATING','PULLING_IMAGE','CREATING_CONTAINER',
+                             'STARTING','RUNNING','STOPPING','STOPPED','RESTARTING',
+                             'REMOVING','FAILED')
+           ORDER BY dv.server_volume_id, d.container_name"#,
+    )
+    .bind(server_id.0)
+    .bind(owner)
+    .bind(owner)
+    .fetch_all(pool)
+    .await?
+    {
+        let volume_id: Uuid = attached
+            .try_get("server_volume_id")
+            .map_err(AppError::internal)?;
+        attachments.entry(volume_id.into()).or_default().push(
+            attached
+                .try_get("container_name")
+                .map_err(AppError::internal)?,
+        );
+    }
+
     let mut out = Vec::with_capacity(rows.len());
     for r in rows {
-        let attached = sqlx::query_scalar!(
-            r#"SELECT DISTINCT d.container_name AS "name!"
-               FROM deployment_volumes dv
-               JOIN deployments d ON d.id = dv.deployment_id
-               WHERE dv.server_volume_id = ?
-                 AND d.container_name IS NOT NULL
-                 AND d.state IN ('PENDING','VALIDATING','PULLING_IMAGE','CREATING_CONTAINER',
-                                 'STARTING','RUNNING','STOPPING','STOPPED','RESTARTING',
-                                 'REMOVING','FAILED')"#,
-            r.id
-        )
-        .fetch_all(pool)
-        .await?;
+        let volume_id: ServerVolumeId = r.id.into();
         out.push(ServerVolume {
-            id: r.id.into(),
+            id: volume_id,
             name: r.name,
             path: r.path,
             created_by_name: r.created_by_name,
-            attached_to: attached,
+            attached_to: attachments.remove(&volume_id).unwrap_or_default(),
             created_at: r.created_at.and_utc(),
         });
     }
@@ -202,6 +221,9 @@ pub async fn delete_guarded(
     id: ServerVolumeId,
     server_id: ServerId,
     path: &str,
+    name: &str,
+    user: UserId,
+    ip_address: Option<&str>,
 ) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
     // Lock the volume row itself — serializes against ensure()/other
@@ -250,6 +272,19 @@ pub async fn delete_guarded(
     sqlx::query!("DELETE FROM server_volumes WHERE id = ?", id.0)
         .execute(&mut *tx)
         .await?;
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(user),
+            action: "VOLUME_DELETED",
+            subject_type: Some("server_volume"),
+            subject_id: Some(id.0),
+            detail: Some(serde_json::json!({ "name": name, "path": path })),
+            ip_address,
+        },
+    )
+    .await?;
     tx.commit().await?;
     Ok(())
 }

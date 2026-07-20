@@ -8,9 +8,8 @@ use axum::Json;
 use foundry_shared::dto::{
     CreateInstanceRequest, InstanceAdmin, InstancePublic, UpdateInstanceRequest,
 };
-use foundry_shared::{ActorType, GitlabInstanceId};
+use foundry_shared::GitlabInstanceId;
 
-use crate::audit::{self, AuditEntry};
 use crate::auth::client_ip;
 use crate::auth::session::AdminUser;
 use crate::error::AppError;
@@ -58,20 +57,8 @@ pub async fn create(
             oauth_client_id: req.oauth_client_id.trim(),
             oauth_client_secret: req.oauth_client_secret.trim(),
         },
-    )
-    .await?;
-
-    audit::record(
-        &state.pool,
-        AuditEntry {
-            actor_type: ActorType::User,
-            actor_id: Some(admin.id),
-            action: "INSTANCE_ONBOARDED",
-            subject_type: Some("gitlab_instance"),
-            subject_id: Some(id.0),
-            detail: Some(serde_json::json!({ "name": name, "base_url": base_url })),
-            ip_address: client_ip(&headers).as_deref(),
-        },
+        Some(admin.id),
+        client_ip(&headers).as_deref(),
     )
     .await?;
 
@@ -120,23 +107,8 @@ pub async fn update(
             oauth_client_secret: secret,
             enabled: req.enabled,
         },
-    )
-    .await?;
-
-    audit::record(
-        &state.pool,
-        AuditEntry {
-            actor_type: ActorType::User,
-            actor_id: Some(admin.id),
-            action: "INSTANCE_UPDATED",
-            subject_type: Some("gitlab_instance"),
-            subject_id: Some(id.0),
-            detail: Some(serde_json::json!({
-                "name": name, "base_url": base_url, "enabled": req.enabled,
-                "secret_rotated": secret.is_some(),
-            })),
-            ip_address: client_ip(&headers).as_deref(),
-        },
+        admin.id,
+        client_ip(&headers).as_deref(),
     )
     .await?;
 
@@ -156,19 +128,6 @@ pub async fn delete(
     headers: HeaderMap,
     Path(id): Path<GitlabInstanceId>,
 ) -> Result<StatusCode, AppError> {
-    instances::delete(&state.pool, id).await?;
-    audit::record(
-        &state.pool,
-        AuditEntry {
-            actor_type: ActorType::User,
-            actor_id: Some(admin.id),
-            action: "INSTANCE_DELETED",
-            subject_type: Some("gitlab_instance"),
-            subject_id: Some(id.0),
-            detail: None,
-            ip_address: client_ip(&headers).as_deref(),
-        },
-    )
-    .await?;
+    instances::delete(&state.pool, id, admin.id, client_ip(&headers).as_deref()).await?;
     Ok(StatusCode::NO_CONTENT)
 }

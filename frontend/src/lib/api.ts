@@ -6,11 +6,13 @@ import type { ErrorEnvelope } from "@/lib/types"
 export class ApiError extends Error {
   readonly code: string
   readonly status: number
+  readonly details: unknown
 
-  constructor(status: number, code: string, message: string) {
+  constructor(status: number, code: string, message: string, details?: unknown) {
     super(message)
     this.code = code
     this.status = status
+    this.details = details
   }
 }
 
@@ -24,14 +26,16 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (!resp.ok) {
     let code = "unknown"
     let message = `request failed (${resp.status})`
+    let details: unknown
     try {
       const body = (await resp.json()) as ErrorEnvelope
       code = body.error.code
       message = body.error.message
+      details = body.error.details
     } catch {
       // non-envelope error body; keep defaults
     }
-    throw new ApiError(resp.status, code, message)
+    throw new ApiError(resp.status, code, message, details)
   }
 
   if (resp.status === 204) {

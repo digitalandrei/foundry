@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Foundry MariaDB backup
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=15m
+Unit=foundry-backup.service
+
+[Install]
+WantedBy=timers.target

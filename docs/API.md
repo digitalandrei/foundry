@@ -9,8 +9,9 @@ they are implemented.
 General rules:
 
 - JSON request/response bodies, `serde`-serialized from `shared` types.
-- Consistent error envelope: `{ "error": { "code": "...", "message": "..." } }`
-  with appropriate HTTP status.
+- Consistent error envelope: `{ "error": { "code": "...", "message": "...",
+  "details"?: ... } }` with appropriate HTTP status. `details` is absent for
+  ordinary errors and carries machine-readable blocker context for conflicts.
 - Every state-changing endpoint writes an `audit_logs` row.
 - Pagination (list endpoints that support it): cursor via
   `?before=<id>&limit=N`; the response carries `next_cursor` (null on the
@@ -36,17 +37,18 @@ user's GitLab account on the instance that owns the resource.
 | `GET /api/registry/updates` | New-image poller: a cheap **name-only** tag sync across the user's available repos; returns tags first seen this poll → `{new_tags[]}` (`{id, tag_name, repo_path, project_id}`). The SPA polls (~90s), baselines its first response, then toasts + sidebar-badges new tags. No per-tag detail; repos-per-poll bounded | ✅ live |
 | `GET /api/servers` | Servers with status/heartbeat/agent version + GPUs and slots (dashboard grid). Each server carries `app_publishing_ready` + `nginx_status` (READY / NGINX_MISSING / NGINX_OUTDATED — nginx < 1.25.1 / NGINX_INACTIVE / NOT_CONFIGURED / TLS_MISSING); each slot carries `external` (a non-Foundry container occupying its GPU/MIG device, with `running`) + `max_occupants` (multi-use cap, 1 = single-use) + `mig_uuid` (MIG device UUID for a MIG slot, joins per-slice telemetry); each GPU carries `groups` (the GPU-groups it belongs to — overlap allowed) | ✅ live |
 | `GET /api/servers/{id}` | Detail: runtime versions, GPUs/slots, docker-ps container snapshot (incl. port mappings + volume mounts; non-Foundry containers carry an **Adopt** action) | ✅ live |
+| `DELETE /api/servers/{id}` | Hard-delete a never-used server — admin; returns 409 + dependency counts if any deployment, volume, GPU group, or task exists. Workload-bearing servers are preserved (no tombstone policy) | ✅ live (0.51.0) |
 | `GET /api/servers/{id}/metrics?minutes=N` | Telemetry series (30s samples, 24h retention; N clamped 5–1440) | ✅ live |
 | `POST /api/servers` | Create a **named** server (GitLab-agent style) — returns the one-time registration command — admin | ✅ live |
 | `POST /api/servers/{id}/enrollment-token` | Re-mint the token (revokes unused older ones) — admin | ✅ live |
 | `GET /api/fleet-tokens` | List live fleet keys (metadata only — id, creator, created/expires, uses/max, expired flag; never the raw token); many may coexist — admin | ✅ live (0.43.0) |
 | `POST /api/fleet-tokens` | Mint a reusable fleet enrollment key `{ttl_hours, max_uses?}` → `{token, command, expires_at, max_uses}` (token shown once) — admin | ✅ live (0.42.0) |
 | `DELETE /api/fleet-tokens/{id}` | Delete (revoke) a fleet key, even before it expires; enrolled hosts stay enrolled — admin | ✅ live (0.43.0) |
-| `POST /api/servers/{id}/containers/{container_id}/adopt` | Adopt an external (unmanaged) container occupying a GPU slot into a RUNNING deployment → `DeploymentSummary` — admin | ✅ live (0.42.0) |
+| `POST /api/servers/{id}/containers/{container_id}/adopt` | Adopt a currently running external (unmanaged) container occupying a GPU slot into a RUNNING deployment → `DeploymentSummary` — admin; serialized against duplicate adoption | ✅ live (0.51.0) |
 | `GET /api/deployments` | Deployments with ports/state/uptime (REMOVED filtered out; latest 200); HTTP/S ports carry their published `hostname`; `status_detail` carries live deploy progress (in-memory overlay), `container_id` joins telemetry | ✅ live |
 | `GET /api/deployments/{id}` | Detail for the slot dialog: summary (flattened) + `mounts` (volume name/host path/container path/ro) + `env` **names** (`is_secret` flagged — values never returned) | ✅ live |
 | `GET /api/metrics/latest` | Newest telemetry sample per server — live GPU/container labels on the dashboard grid | ✅ live |
-| `POST /api/deployments` | Create from drag-drop: `target` (`{type:"slot",slot_id}` or `{type:"group",gpu_group_id}` — exactly one, locked) + tag + ports (per-port kind, pool-allocated; HTTP/S get a unique `<name>.<server>.apps-domain` hostname) + env (secrets encrypted) + persistent volumes + optional `mem_limit_mb` (Docker memory cap; clamped 32–256 GB, omitted → unlimited default); returns it VALIDATING. A slot target needs `occupants < max_occupants`; a group target needs every member at zero occupants (else rejected, naming the busy GPUs). **Rejected fast** when the target server's Docker daemon is down (`docker_ok = false`), or — for HTTP/S deploys — when it isn't publish-ready (with the nginx reason) | ✅ live |
+| `POST /api/deployments` | Create from drag-drop: `target` (`{type:"slot",slot_id}` or `{type:"group",gpu_group_id}` — exactly one, locked) + tag + ports (per-port kind, pool-allocated; HTTP/S get a unique `<name>.<server>.apps-domain` hostname) + env (secrets encrypted) + persistent volumes + optional `mem_limit_mb` (Docker memory cap; clamped 32–256 GB, omitted → unlimited default); returns it VALIDATING. A slot target needs `occupants < max_occupants`; a group target needs every member at zero occupants (else rejected, naming the busy GPUs). The controller also rejects any target device occupied by a running unmanaged container (stopped external containers are non-blocking). Deployment row, reservation, initial task, event, and audit are one transaction. **Rejected fast** when the target server's Docker daemon is down (`docker_ok = false`), or — for HTTP/S deploys — when it isn't publish-ready (with the nginx reason) | ✅ live (atomic/external guard 0.51.0) |
 | `POST /api/deployments/{id}/replace` | Replacement chain: stop old → remove old → REPLACED → deploy successor on the same slot(s) — re-locks the same group/slot the outgoing held | ✅ live |
 | `POST /api/deployments/{id}/stop` · `/restart` | Lifecycle actions (legality enforced by the transition table) | ✅ live |
 | `POST /api/deployments/{id}/dismiss` | Clear a FAILED deployment (→ REMOVED) and free its stuck slot — controller-side, no agent; owner/admin | ✅ live |
@@ -140,4 +142,6 @@ Agent protocol invariants:
 ## Observability Endpoints
 
 - `GET /health` — liveness (no auth)
-- `GET /metrics` — Prometheus metrics (bind/allowlist per `DEPLOYMENT.md`)
+- `GET /metrics` — **planned, not implemented**. Nginx explicitly returns
+  404 so no future implementation is public by accident; current telemetry is
+  the authenticated `/api/metrics/*` surface.

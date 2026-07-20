@@ -6,6 +6,7 @@ use chrono::{Duration, Utc};
 use foundry_shared::dto::ServerSummary;
 use foundry_shared::{ServerId, ServerStatus};
 use sqlx::MySqlPool;
+use sqlx::Row;
 use uuid::Uuid;
 
 use crate::crypto::{random_token, token_hash};
@@ -36,6 +37,9 @@ pub async fn list(pool: &MySqlPool) -> Result<Vec<ServerSummary>, AppError> {
     .fetch_all(pool)
     .await?;
 
+    let server_ids: Vec<ServerId> = rows.iter().map(|r| r.id.into()).collect();
+    let mut gpus_by_server = super::inventory::gpus_for_servers(pool, &server_ids).await?;
+
     let mut out = Vec::with_capacity(rows.len());
     for r in rows {
         let status: ServerStatus = r.status.parse().map_err(AppError::internal)?;
@@ -52,7 +56,7 @@ pub async fn list(pool: &MySqlPool) -> Result<Vec<ServerSummary>, AppError> {
             nginx_status: r.nginx_status,
             docker_ok: r.docker_ok,
             enrolled: r.agent_id.is_some(),
-            gpus: super::inventory::gpus_for_server(pool, id).await?,
+            gpus: gpus_by_server.remove(&id).unwrap_or_default(),
             containers_running: r.containers_running,
         });
     }
@@ -115,21 +119,29 @@ pub async fn get_summary(pool: &MySqlPool, id: ServerId) -> Result<ServerSummary
     })
 }
 
-/// Create a named server (GitLab-agent style: name first, enroll later).
-pub async fn create(pool: &MySqlPool, name: &str) -> Result<ServerId, AppError> {
-    let id = Uuid::now_v7();
-    let now = Utc::now().naive_utc();
-    // hostname is left NULL until the agent enrolls (it is the fleet
-    // identity and carries a UNIQUE index, so empty strings can't share it).
+/// Create the named server, mint its first enrollment token, and append the
+/// operator audit record in one transaction. A failure cannot leave a server
+/// row without the one-time credential the response promises.
+pub async fn create_with_enrollment(
+    pool: &MySqlPool,
+    name: &str,
+    created_by: foundry_shared::UserId,
+    ip_address: Option<&str>,
+) -> Result<(ServerId, String, chrono::DateTime<Utc>), AppError> {
+    let id = ServerId::new();
+    let token = random_token();
+    let now = Utc::now();
+    let expires_at = now + Duration::hours(TOKEN_TTL_HOURS);
+    let mut tx = pool.begin().await?;
     sqlx::query!(
         r#"INSERT INTO servers (id, name, status, created_at, updated_at)
            VALUES (?, ?, 'OFFLINE', ?, ?)"#,
-        id,
+        id.0,
         name,
-        now,
-        now,
+        now.naive_utc(),
+        now.naive_utc(),
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await
     .map_err(|e| match &e {
         sqlx::Error::Database(db) if db.is_unique_violation() => {
@@ -137,7 +149,35 @@ pub async fn create(pool: &MySqlPool, name: &str) -> Result<ServerId, AppError> 
         }
         _ => AppError::Db(e),
     })?;
-    Ok(id.into())
+    sqlx::query!(
+        r#"INSERT INTO enrollment_tokens
+           (id, token_hash, server_id, created_by, expires_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)"#,
+        Uuid::now_v7(),
+        token_hash(&token),
+        id.0,
+        created_by.0,
+        expires_at.naive_utc(),
+        now.naive_utc(),
+        now.naive_utc(),
+    )
+    .execute(&mut *tx)
+    .await?;
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(created_by),
+            action: "SERVER_CREATED",
+            subject_type: Some("server"),
+            subject_id: Some(id.0),
+            detail: Some(serde_json::json!({ "name": name })),
+            ip_address,
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    Ok((id, token, expires_at))
 }
 
 /// Mint a fresh enrollment token for a server, expiring older unused
@@ -147,6 +187,8 @@ pub async fn issue_enrollment_token(
     pool: &MySqlPool,
     server_id: ServerId,
     created_by: foundry_shared::UserId,
+    server_name: &str,
+    ip_address: Option<&str>,
 ) -> Result<(String, chrono::DateTime<Utc>), AppError> {
     let token = random_token();
     let now = Utc::now();
@@ -178,6 +220,19 @@ pub async fn issue_enrollment_token(
     )
     .execute(&mut *tx)
     .await?;
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(created_by),
+            action: "ENROLLMENT_TOKEN_CREATED",
+            subject_type: Some("server"),
+            subject_id: Some(server_id.0),
+            detail: Some(serde_json::json!({ "name": server_name })),
+            ip_address,
+        },
+    )
+    .await?;
     tx.commit().await?;
     Ok((token, expires_at))
 }
@@ -193,10 +248,12 @@ pub async fn issue_fleet_token(
     ttl_hours: i64,
     max_uses: Option<u32>,
     created_by: foundry_shared::UserId,
+    ip_address: Option<&str>,
 ) -> Result<(String, chrono::DateTime<Utc>), AppError> {
     let token = random_token();
     let now = Utc::now();
     let expires_at = now + Duration::hours(ttl_hours);
+    let mut tx = pool.begin().await?;
     sqlx::query!(
         r#"INSERT INTO enrollment_tokens
            (id, token_hash, server_id, kind, max_uses, uses, created_by,
@@ -210,8 +267,25 @@ pub async fn issue_fleet_token(
         now.naive_utc(),
         now.naive_utc(),
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(created_by),
+            action: "FLEET_TOKEN_CREATED",
+            subject_type: None,
+            subject_id: None,
+            detail: Some(serde_json::json!({
+                "ttl_hours": ttl_hours,
+                "max_uses": max_uses,
+            })),
+            ip_address,
+        },
+    )
+    .await?;
+    tx.commit().await?;
     Ok((token, expires_at))
 }
 
@@ -251,16 +325,135 @@ pub async fn list_fleet_tokens(
 /// Delete (revoke) a FLEET key — usable anytime, even before it expires.
 /// Hard delete: a fleet key is not a per-server consumption record, so
 /// nothing references it.
-pub async fn delete_fleet_token(pool: &MySqlPool, id: Uuid) -> Result<(), AppError> {
+pub async fn delete_fleet_token(
+    pool: &MySqlPool,
+    id: Uuid,
+    deleted_by: foundry_shared::UserId,
+    ip_address: Option<&str>,
+) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
     let res = sqlx::query!(
         "DELETE FROM enrollment_tokens WHERE id = ? AND kind = 'FLEET'",
         id,
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
     if res.rows_affected() == 0 {
         return Err(AppError::NotFound("fleet key not found"));
     }
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(deleted_by),
+            action: "FLEET_TOKEN_DELETED",
+            subject_type: None,
+            subject_id: Some(id),
+            detail: None,
+            ip_address,
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Hard-delete a server only when it has never carried durable workload
+/// history. Inventory, telemetry, credentials, and unused enrollment tokens
+/// are transient and are removed with it; workload-bearing servers are kept
+/// forever under the current no-tombstone policy.
+pub async fn delete_unused(
+    pool: &MySqlPool,
+    server_id: ServerId,
+    deleted_by: foundry_shared::UserId,
+    ip_address: Option<&str>,
+) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    let server_name: String =
+        sqlx::query_scalar("SELECT name FROM servers WHERE id = ? FOR UPDATE")
+            .bind(server_id.0)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(AppError::NotFound("server not found"))?;
+
+    let counts = sqlx::query(
+        r#"SELECT
+             (SELECT COUNT(*) FROM deployments WHERE server_id = ?) AS deployments,
+             (SELECT COUNT(*) FROM server_volumes WHERE server_id = ?) AS volumes,
+             (SELECT COUNT(*) FROM gpu_groups WHERE server_id = ?) AS gpu_groups,
+             (SELECT COUNT(*) FROM agent_tasks WHERE server_id = ?) AS tasks"#,
+    )
+    .bind(server_id.0)
+    .bind(server_id.0)
+    .bind(server_id.0)
+    .bind(server_id.0)
+    .fetch_one(&mut *tx)
+    .await?;
+    let deployments: i64 = counts.try_get("deployments").map_err(AppError::internal)?;
+    let volumes: i64 = counts.try_get("volumes").map_err(AppError::internal)?;
+    let gpu_groups: i64 = counts.try_get("gpu_groups").map_err(AppError::internal)?;
+    let tasks: i64 = counts.try_get("tasks").map_err(AppError::internal)?;
+    if deployments + volumes + gpu_groups + tasks > 0 {
+        return Err(AppError::Conflict {
+            message: "server has workload history and cannot be deleted".into(),
+            details: serde_json::json!({
+                "dependencies": {
+                    "deployments": deployments,
+                    "volumes": volumes,
+                    "gpu_groups": gpu_groups,
+                    "tasks": tasks,
+                }
+            }),
+        });
+    }
+
+    // Delete leaf/transient rows in FK order. The workload guards above are
+    // intentionally stricter than the schema: no historical row is erased.
+    sqlx::query("DELETE FROM enrollment_tokens WHERE server_id = ? OR used_by_server_id = ?")
+        .bind(server_id.0)
+        .bind(server_id.0)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM server_metrics WHERE server_id = ?")
+        .bind(server_id.0)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM server_containers WHERE server_id = ?")
+        .bind(server_id.0)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "DELETE gs FROM gpu_slots gs JOIN gpus g ON g.id = gs.gpu_id WHERE g.server_id = ?",
+    )
+    .bind(server_id.0)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("DELETE FROM gpus WHERE server_id = ?")
+        .bind(server_id.0)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM server_agents WHERE server_id = ?")
+        .bind(server_id.0)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM servers WHERE id = ?")
+        .bind(server_id.0)
+        .execute(&mut *tx)
+        .await?;
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(deleted_by),
+            action: "SERVER_DELETED",
+            subject_type: Some("server"),
+            subject_id: Some(server_id.0),
+            detail: Some(serde_json::json!({ "name": server_name })),
+            ip_address,
+        },
+    )
+    .await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -340,6 +533,24 @@ pub async fn enroll(
         server_id,
     )
     .execute(&mut *tx)
+    .await?;
+
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::Agent,
+            actor_id: None,
+            action: "AGENT_ENROLLED",
+            subject_type: Some("server"),
+            subject_id: Some(server_id),
+            detail: Some(serde_json::json!({
+                "server": row.name,
+                "hostname": hostname,
+                "agent_version": agent_version,
+            })),
+            ip_address: None,
+        },
+    )
     .await?;
 
     tx.commit().await?;
@@ -460,6 +671,24 @@ pub async fn enroll_fleet(
         server_id,
     )
     .execute(&mut *tx)
+    .await?;
+
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::Agent,
+            actor_id: None,
+            action: "AGENT_FLEET_ENROLLED",
+            subject_type: Some("server"),
+            subject_id: Some(server_id),
+            detail: Some(serde_json::json!({
+                "server": server_name,
+                "hostname": hostname,
+                "agent_version": agent_version,
+            })),
+            ip_address: None,
+        },
+    )
     .await?;
 
     tx.commit().await?;

@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router"
+import { Link } from "@tanstack/react-router"
 import { CircleAlertIcon, RocketIcon, TerminalIcon } from "lucide-react"
 
 import { DeploymentActions } from "@/components/deployment-actions"
@@ -75,19 +75,18 @@ export function DeploymentsPage() {
 }
 
 function DeploymentRow({ deployment: d }: { deployment: DeploymentSummary }) {
-  const navigate = useNavigate()
   const meta = DEPLOYMENT_STATE_META[d.state]
-  const open = () => navigate({ to: "/deployments/$deploymentId", params: { deploymentId: d.id } })
 
   return (
-    <TableRow
-      className="cursor-pointer"
-      onClick={open}
-      role="button"
-      aria-label={`Open ${d.name}`}
-    >
+    <TableRow>
       <TableCell className="font-medium">
-        {d.name}
+        <Link
+          to="/deployments/$deploymentId"
+          params={{ deploymentId: d.id }}
+          className="rounded-sm underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {d.name}
+        </Link>
         {d.adopted ? (
           <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground align-middle">
             adopted
@@ -131,18 +130,22 @@ function DeploymentRow({ deployment: d }: { deployment: DeploymentSummary }) {
           : "—"}
       </TableCell>
       <TableCell className="text-muted-foreground">{d.created_by_name}</TableCell>
-      {/* Action buttons must not trigger the row's navigate. */}
-      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+      <TableCell className="text-right">
         <div className="flex justify-end gap-1">
           <Button
             variant="outline"
             size="icon"
             className="size-8"
-            onClick={open}
             aria-label="Console / logs"
             title="Console & logs"
+            asChild
           >
-            <TerminalIcon className="size-3.5" />
+            <Link
+              to="/deployments/$deploymentId"
+              params={{ deploymentId: d.id }}
+            >
+              <TerminalIcon className="size-3.5" />
+            </Link>
           </Button>
           <DeploymentActions deployment={d} />
         </div>

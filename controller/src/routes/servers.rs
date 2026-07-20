@@ -8,9 +8,8 @@ use foundry_shared::dto::{
     CreateFleetTokenRequest, CreateServerRequest, EnrollmentTokenResponse, FleetTokenResponse,
     FleetTokenSummary, ServerSummary,
 };
-use foundry_shared::{ActorType, ServerId};
+use foundry_shared::ServerId;
 
-use crate::audit::{self, AuditEntry};
 use crate::auth::client_ip;
 use crate::auth::session::{AdminUser, CurrentUser};
 use crate::error::AppError;
@@ -90,23 +89,12 @@ pub async fn adopt_container(
     Path((server_id, container_id)): Path<(ServerId, String)>,
 ) -> Result<Json<foundry_shared::dto::DeploymentSummary>, AppError> {
     let container_id = container_id.trim();
-    let dep_id =
-        crate::repos::deployments::adopt(&state.pool, server_id, container_id, admin.id).await?;
-
-    audit::record(
+    let dep_id = crate::repos::deployments::adopt(
         &state.pool,
-        AuditEntry {
-            actor_type: ActorType::User,
-            actor_id: Some(admin.id),
-            action: "CONTAINER_ADOPTED",
-            subject_type: Some("deployment"),
-            subject_id: Some(dep_id.0),
-            detail: Some(serde_json::json!({
-                "server_id": server_id,
-                "container_id": container_id,
-            })),
-            ip_address: client_ip(&headers).as_deref(),
-        },
+        server_id,
+        container_id,
+        admin.id,
+        client_ip(&headers).as_deref(),
     )
     .await?;
 
@@ -134,23 +122,12 @@ pub async fn create_fleet_token(
         }
     }
 
-    let (token, expires_at) =
-        servers::issue_fleet_token(&state.pool, ttl_hours, req.max_uses, admin.id).await?;
-
-    audit::record(
+    let (token, expires_at) = servers::issue_fleet_token(
         &state.pool,
-        AuditEntry {
-            actor_type: ActorType::User,
-            actor_id: Some(admin.id),
-            action: "FLEET_TOKEN_CREATED",
-            subject_type: None,
-            subject_id: None,
-            detail: Some(serde_json::json!({
-                "ttl_hours": ttl_hours,
-                "max_uses": req.max_uses,
-            })),
-            ip_address: client_ip(&headers).as_deref(),
-        },
+        ttl_hours,
+        req.max_uses,
+        admin.id,
+        client_ip(&headers).as_deref(),
     )
     .await?;
 
@@ -177,20 +154,7 @@ pub async fn delete_fleet_token(
     headers: HeaderMap,
     Path(id): Path<uuid::Uuid>,
 ) -> Result<axum::http::StatusCode, AppError> {
-    servers::delete_fleet_token(&state.pool, id).await?;
-    audit::record(
-        &state.pool,
-        AuditEntry {
-            actor_type: ActorType::User,
-            actor_id: Some(admin.id),
-            action: "FLEET_TOKEN_DELETED",
-            subject_type: None,
-            subject_id: Some(id),
-            detail: None,
-            ip_address: client_ip(&headers).as_deref(),
-        },
-    )
-    .await?;
+    servers::delete_fleet_token(&state.pool, id, admin.id, client_ip(&headers).as_deref()).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
@@ -205,21 +169,11 @@ pub async fn create(
         return Err(AppError::BadRequest("name must be 1–255 characters".into()));
     }
 
-    let server_id = servers::create(&state.pool, name).await?;
-    let (token, expires_at) =
-        servers::issue_enrollment_token(&state.pool, server_id, admin.id).await?;
-
-    audit::record(
+    let (server_id, token, expires_at) = servers::create_with_enrollment(
         &state.pool,
-        AuditEntry {
-            actor_type: ActorType::User,
-            actor_id: Some(admin.id),
-            action: "SERVER_CREATED",
-            subject_type: Some("server"),
-            subject_id: Some(server_id.0),
-            detail: Some(serde_json::json!({ "name": name })),
-            ip_address: client_ip(&headers).as_deref(),
-        },
+        name,
+        admin.id,
+        client_ip(&headers).as_deref(),
     )
     .await?;
 
@@ -231,6 +185,24 @@ pub async fn create(
     }))
 }
 
+/// Remove a server that has never carried durable workload history. Admin
+/// only; dependency counts are returned as a structured 409 conflict.
+pub async fn delete(
+    State(state): State<AppState>,
+    AdminUser(admin): AdminUser,
+    headers: HeaderMap,
+    Path(server_id): Path<ServerId>,
+) -> Result<axum::http::StatusCode, AppError> {
+    servers::delete_unused(
+        &state.pool,
+        server_id,
+        admin.id,
+        client_ip(&headers).as_deref(),
+    )
+    .await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
 /// Re-mint the enrollment token (e.g. expired before use, or
 /// deliberate re-enrollment). Older unused tokens are revoked.
 pub async fn regenerate_token(
@@ -240,20 +212,12 @@ pub async fn regenerate_token(
     Path(server_id): Path<ServerId>,
 ) -> Result<Json<EnrollmentTokenResponse>, AppError> {
     let server = servers::get_summary(&state.pool, server_id).await?;
-    let (token, expires_at) =
-        servers::issue_enrollment_token(&state.pool, server_id, admin.id).await?;
-
-    audit::record(
+    let (token, expires_at) = servers::issue_enrollment_token(
         &state.pool,
-        AuditEntry {
-            actor_type: ActorType::User,
-            actor_id: Some(admin.id),
-            action: "ENROLLMENT_TOKEN_CREATED",
-            subject_type: Some("server"),
-            subject_id: Some(server_id.0),
-            detail: Some(serde_json::json!({ "name": server.name })),
-            ip_address: client_ip(&headers).as_deref(),
-        },
+        server_id,
+        admin.id,
+        &server.name,
+        client_ip(&headers).as_deref(),
     )
     .await?;
 

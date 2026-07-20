@@ -14,6 +14,9 @@ mod routes;
 mod shell;
 mod state;
 
+#[cfg(test)]
+mod db_tests;
+
 use std::error::Error;
 use std::sync::Arc;
 use std::time::Duration;

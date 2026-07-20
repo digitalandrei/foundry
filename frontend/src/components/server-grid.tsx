@@ -1,14 +1,22 @@
 import { Link, useNavigate } from "@tanstack/react-router"
 import { useDroppable } from "@dnd-kit/core"
-import { BoxesIcon, CheckCircle2Icon, ServerOffIcon, TriangleAlertIcon } from "lucide-react"
+import { BoxesIcon, ServerOffIcon } from "lucide-react"
 
 import { EmptyState } from "@/components/empty-state"
+import { InteractiveSurface } from "@/components/interactive-surface"
+import {
+  DockerStatus,
+  HostAlerts,
+  NginxStatus,
+  StatusDot,
+} from "@/components/server-grid-status"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useDeployments, useLatestMetrics } from "@/hooks/use-deployments"
 import { useServerGroups } from "@/hooks/use-gpu-groups"
 import { useServers } from "@/hooks/use-servers"
 import { formatLoad, formatMemGb } from "@/lib/format"
+import { hostAlerts } from "@/lib/server-alerts"
 import {
   groupSlotPositions,
   gpuSlotPositions,
@@ -25,7 +33,6 @@ import type {
   DropSlotData,
   GpuGroup,
   GpuSummary,
-  HostMetrics,
   MetricsSample,
   ServerSummary,
 } from "@/lib/types"
@@ -38,29 +45,6 @@ function containerMetrics(sample: MetricsSample | undefined, containerId: string
     (c) => c.container_id.startsWith(containerId) || containerId.startsWith(c.container_id),
   )
 }
-
-// Host-usage warning thresholds (operator request). Amber "heads-up"
-// badges, not hard failures: disk/mem near-full cause real failures
-// (pull/write errors, OOM kills); CPU saturated (1-min load ≥ cores)
-// just means contention.
-const DISK_WARN_PCT = 90
-const MEM_WARN_PCT = 90
-const CPU_WARN_RATIO = 1.0
-
-function hostAlerts(host: HostMetrics) {
-  const diskPct = (host.disk_used_gb / Math.max(1, host.disk_total_gb)) * 100
-  const memPct = (host.mem_used_mb / Math.max(1, host.mem_total_mb)) * 100
-  const cpuRatio = host.load_avg_1m / Math.max(1, host.cpu_cores)
-  return {
-    disk: diskPct >= DISK_WARN_PCT,
-    mem: memPct >= MEM_WARN_PCT,
-    cpu: cpuRatio >= CPU_WARN_RATIO,
-    diskPct,
-    memPct,
-    cpuRatio,
-  }
-}
-type HostAlertFlags = ReturnType<typeof hostAlerts>
 
 /** "Servers & GPU Slots" — the dashboard grid (docs/UI-DESIGN.md § 2).
  * One row per server; GPU cells split the full row width; slot chips
@@ -374,10 +358,10 @@ function GroupSlotChip({
       : "blocked"
 
   return (
-    <div
-      ref={setNodeRef}
-      onClick={occupant ? () => onSelect(occupant.id) : undefined}
-      role={occupant ? "button" : undefined}
+    <InteractiveSurface
+      nodeRef={setNodeRef}
+      onActivate={occupant ? () => onSelect(occupant.id) : undefined}
+      activationLabel={occupant ? `Open deployment ${occupant.name}` : undefined}
       className={cn(
         "flex min-w-32 flex-1 flex-col gap-0.5 rounded-md border px-3 py-2 transition-colors",
         occupant && "cursor-pointer hover:bg-accent/40",
@@ -411,7 +395,7 @@ function GroupSlotChip({
         )}
       </span>
       {occupant ? <OccupantUsageLine deployment={occupant} sample={sample} /> : null}
-    </div>
+    </InteractiveSurface>
   )
 }
 
@@ -541,10 +525,10 @@ function SlotChip({
         : "free"
 
   return (
-    <div
-      ref={setNodeRef}
-      onClick={occupant ? () => onSelect(occupant.id) : undefined}
-      role={occupant ? "button" : undefined}
+    <InteractiveSurface
+      nodeRef={setNodeRef}
+      onActivate={occupant ? () => onSelect(occupant.id) : undefined}
+      activationLabel={occupant ? `Open deployment ${occupant.name}` : undefined}
       className={cn(
         "flex min-w-32 flex-1 flex-col gap-0.5 rounded-md border px-3 py-2 transition-colors",
         occupant && "cursor-pointer hover:bg-accent/40",
@@ -595,7 +579,7 @@ function SlotChip({
           {external.image}
         </span>
       ) : null}
-    </div>
+    </InteractiveSurface>
   )
 }
 
@@ -643,135 +627,5 @@ function OccupantUsageLine({
         ? deployment.status_detail
         : `${formatLoad(usage!.cpu_pct / 100, usage!.cpu_cores)} · ${formatMemGb(usage!.mem_used_mb, usage!.mem_limit_mb)}`}
     </span>
-  )
-}
-
-/** Host-usage warnings (operator request): amber badges shown only when a
- * threshold trips — disk/RAM near-full or CPU saturated. Quiet otherwise;
- * the live numbers already sit in the host readout on the right. */
-function HostAlerts({ alerts }: { alerts: HostAlertFlags }) {
-  const badges = [
-    alerts.disk && {
-      key: "disk",
-      label: `disk ${alerts.diskPct.toFixed(0)}%`,
-      title:
-        "Root filesystem is nearly full — image pulls and container writes will start failing. Free space on the server.",
-    },
-    alerts.mem && {
-      key: "mem",
-      label: `mem ${alerts.memPct.toFixed(0)}%`,
-      title: "Host memory is nearly exhausted — new containers risk being OOM-killed.",
-    },
-    alerts.cpu && {
-      key: "cpu",
-      label: `cpu ${alerts.cpuRatio.toFixed(1)}×`,
-      title:
-        "1-minute load average exceeds the logical core count — the host is CPU-saturated and work will contend.",
-    },
-  ].filter(Boolean) as { key: string; label: string; title: string }[]
-
-  return (
-    <>
-      {badges.map((b) => (
-        <span
-          key={b.key}
-          className="inline-flex items-center gap-1 text-xs text-slot-reserved"
-          title={b.title}
-        >
-          <TriangleAlertIcon className="size-3.5" aria-hidden />
-          {b.label}
-        </span>
-      ))}
-    </>
-  )
-}
-
-/** Per-server Docker daemon health (same shape as nginx). Active → quiet
- * green; down → red "deploys blocked"; unknown (no snapshot yet) → silent. */
-function DockerStatus({ ok }: { ok: boolean | null }) {
-  if (ok === null) return null
-  if (ok) {
-    return (
-      <span
-        className="inline-flex items-center gap-1 text-xs text-slot-free"
-        title="The Docker daemon is running — deployments are allowed."
-      >
-        <CheckCircle2Icon className="size-3.5" aria-hidden />
-        docker: active
-      </span>
-    )
-  }
-  return (
-    <span
-      className="inline-flex items-center gap-1 text-xs text-slot-failed"
-      title="The Docker daemon is not responding on this server. Start it (`sudo systemctl start docker`); deploys are blocked until it's back."
-    >
-      <TriangleAlertIcon className="size-3.5" aria-hidden />
-      Docker stopped — deploys blocked
-    </span>
-  )
-}
-
-/** Per-server nginx / HTTP-S-publishing health. Healthy → a quiet green
- * "nginx: active"; otherwise a precise, actionable warning. */
-function NginxStatus({ status, ready }: { status: string | null; ready: boolean | null }) {
-  // No snapshot yet / pre-0.16 agent with unknown readiness → say nothing.
-  if (status === null && ready === null) return null
-
-  if (status === "READY" || (status === null && ready === true)) {
-    return (
-      <span className="inline-flex items-center gap-1 text-xs text-slot-free" title="nginx is active and configured — HTTP/S app publishing is ready.">
-        <CheckCircle2Icon className="size-3.5" aria-hidden />
-        nginx: active
-      </span>
-    )
-  }
-
-  const warn: Record<string, { label: string; title: string }> = {
-    NGINX_MISSING: {
-      label: "nginx not installed — HTTP/S off",
-      title: "Install nginx, then run `sudo foundry-agent --setup-apps`.",
-    },
-    NGINX_OUTDATED: {
-      label: "nginx too old — HTTP/S off",
-      title: "nginx is older than 1.25.1 (no `http2` directive). Upgrade nginx on the server.",
-    },
-    NGINX_INACTIVE: {
-      label: "nginx stopped — HTTP/S off",
-      title: "nginx is installed but not running. `sudo systemctl enable --now nginx`.",
-    },
-    NOT_CONFIGURED: {
-      label: "nginx up · not configured — HTTP/S off",
-      title: "nginx is running but not set up for Foundry. Run `sudo foundry-agent --setup-apps`.",
-    },
-    TLS_MISSING: {
-      label: "TLS cert missing — HTTP/S off",
-      title: "nginx is ready but the wildcard certificate is missing. Install fullchain.pem + privkey.pem under /etc/foundry-agent/tls/.",
-    },
-  }
-  const w = (status && warn[status]) || {
-    label: "HTTP/S publishing off",
-    title: "The agent reports HTTP/S app publishing is unavailable on this server.",
-  }
-  return (
-    <span className="inline-flex items-center gap-1 text-xs text-slot-reserved" title={w.title}>
-      <TriangleAlertIcon className="size-3.5" aria-hidden />
-      {w.label}
-    </span>
-  )
-}
-
-/** Running = green, stopped/other = gray (or the passed Foundry-state
- * color). One source for the run-state dot on every slot occupant. */
-function StatusDot({ running, className }: { running: boolean; className?: string }) {
-  return (
-    <span
-      className={cn(
-        "size-2 shrink-0 rounded-full",
-        className ?? (running ? "bg-slot-running" : "bg-slot-offline"),
-      )}
-      title={running ? "running" : "stopped"}
-      aria-hidden
-    />
   )
 }

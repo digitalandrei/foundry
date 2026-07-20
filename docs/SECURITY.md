@@ -173,4 +173,5 @@ relaxation, not a removal of that rule:
 - Controller binds localhost; Nginx is the only public listener
   (see `DEPLOYMENT.md` for Cloudflare specifics, real-IP restoration, and
   rate limiting on `/auth` + `/agent/enroll`).
-- `/metrics` is not publicly exposed.
+- Prometheus `/metrics` is not implemented yet and remains blocked at nginx;
+  it must not be publicly exposed when added.

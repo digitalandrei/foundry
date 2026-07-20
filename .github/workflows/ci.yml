@@ -21,12 +21,17 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-deny
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy
         run: cargo clippy --all-targets -- -D warnings
       - name: test
         run: cargo test
+      - name: dependency advisories
+        run: cargo deny check advisories
+      - name: backup script smoke test
+        run: bash scripts/test-backup.sh
 
   frontend:
     runs-on: ubuntu-latest
@@ -43,9 +48,50 @@ jobs:
       - name: lint
         run: npm run lint
         working-directory: frontend
+      - name: dependency audit
+        run: npm audit --omit=dev --audit-level=high
+        working-directory: frontend
       - name: test
         run: npm run test:run
         working-directory: frontend
       - name: build
         run: npm run build
         working-directory: frontend
+
+  mariadb-integration:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: foundry-test
+          MARIADB_DATABASE: foundry_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      DATABASE_URL: mysql://root:foundry-test@127.0.0.1:3306/foundry_test
+      # Compile checked queries from the committed cache; sqlx::test still
+      # uses DATABASE_URL at runtime and migrates one disposable schema/test.
+      SQLX_OFFLINE: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: migration, repository, and HTTP integration tests
+        run: cargo test -p foundry-controller -- --ignored
+      - name: install MariaDB client
+        run: sudo apt-get update && sudo apt-get install -y mariadb-client
+      - name: backup and restore round trip
+        run: |
+          printf '%s\n' '[client]' 'user=root' 'password=foundry-test' 'host=127.0.0.1' > /tmp/foundry-backup.cnf
+          chmod 600 /tmp/foundry-backup.cnf
+          mariadb --defaults-extra-file=/tmp/foundry-backup.cnf -e 'CREATE TABLE foundry_test.backup_probe (id INT PRIMARY KEY); INSERT INTO foundry_test.backup_probe VALUES (1);'
+          FOUNDRY_BACKUP_DEFAULTS_FILE=/tmp/foundry-backup.cnf FOUNDRY_BACKUP_DIR=/tmp/foundry-backups FOUNDRY_BACKUP_DATABASE=foundry_test scripts/backup.sh
+          mariadb --defaults-extra-file=/tmp/foundry-backup.cnf -e 'DROP DATABASE foundry_test;'
+          gzip -cd /tmp/foundry-backups/foundry-*.sql.gz | mariadb --defaults-extra-file=/tmp/foundry-backup.cnf
+          test "$(mariadb --defaults-extra-file=/tmp/foundry-backup.cnf --skip-column-names -e 'SELECT COUNT(*) FROM foundry_test.backup_probe;')" = 1

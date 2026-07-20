@@ -9,9 +9,8 @@ use axum::Json;
 use foundry_shared::dto::{
     CreateGpuGroupRequest, GpuGroup, SetGroupUseModeRequest, SetSlotUseModeRequest,
 };
-use foundry_shared::{ActorType, GpuGroupId, ServerId, SlotId};
+use foundry_shared::{GpuGroupId, ServerId, SlotId};
 
-use crate::audit::{self, AuditEntry};
 use crate::auth::client_ip;
 use crate::auth::session::{AdminUser, CurrentUser};
 use crate::error::AppError;
@@ -35,21 +34,12 @@ pub async fn create(
     Path(server_id): Path<ServerId>,
     Json(req): Json<CreateGpuGroupRequest>,
 ) -> Result<Json<GpuGroup>, AppError> {
-    let id = gpu_groups::create(&state.pool, server_id, &req, admin.id).await?;
-    audit::record(
+    let id = gpu_groups::create(
         &state.pool,
-        AuditEntry {
-            actor_type: ActorType::User,
-            actor_id: Some(admin.id),
-            action: "GPU_GROUP_CREATED",
-            subject_type: Some("gpu_group"),
-            subject_id: Some(id.0),
-            detail: Some(serde_json::json!({
-                "name": req.name,
-                "gpu_ids": req.gpu_ids.iter().map(|g| g.to_string()).collect::<Vec<_>>(),
-            })),
-            ip_address: client_ip(&headers).as_deref(),
-        },
+        server_id,
+        &req,
+        admin.id,
+        client_ip(&headers).as_deref(),
     )
     .await?;
     // Return the freshly created group with its computed deployability.
@@ -67,19 +57,11 @@ pub async fn delete(
     headers: HeaderMap,
     Path(group_id): Path<GpuGroupId>,
 ) -> Result<StatusCode, AppError> {
-    let name = gpu_groups::name_of(&state.pool, group_id).await?;
-    gpu_groups::delete(&state.pool, group_id).await?;
-    audit::record(
+    gpu_groups::delete(
         &state.pool,
-        AuditEntry {
-            actor_type: ActorType::User,
-            actor_id: Some(admin.id),
-            action: "GPU_GROUP_DELETED",
-            subject_type: Some("gpu_group"),
-            subject_id: Some(group_id.0),
-            detail: Some(serde_json::json!({ "name": name })),
-            ip_address: client_ip(&headers).as_deref(),
-        },
+        group_id,
+        admin.id,
+        client_ip(&headers).as_deref(),
     )
     .await?;
     Ok(StatusCode::NO_CONTENT)
@@ -93,18 +75,12 @@ pub async fn set_group_use_mode(
     Path(group_id): Path<GpuGroupId>,
     Json(req): Json<SetGroupUseModeRequest>,
 ) -> Result<StatusCode, AppError> {
-    gpu_groups::set_max_occupants(&state.pool, group_id, req.max_occupants).await?;
-    audit::record(
+    gpu_groups::set_max_occupants(
         &state.pool,
-        AuditEntry {
-            actor_type: ActorType::User,
-            actor_id: Some(admin.id),
-            action: "GPU_GROUP_USE_MODE_SET",
-            subject_type: Some("gpu_group"),
-            subject_id: Some(group_id.0),
-            detail: Some(serde_json::json!({ "max_occupants": req.max_occupants })),
-            ip_address: client_ip(&headers).as_deref(),
-        },
+        group_id,
+        req.max_occupants,
+        admin.id,
+        client_ip(&headers).as_deref(),
     )
     .await?;
     Ok(StatusCode::NO_CONTENT)
@@ -118,18 +94,12 @@ pub async fn set_slot_use_mode(
     Path(slot_id): Path<SlotId>,
     Json(req): Json<SetSlotUseModeRequest>,
 ) -> Result<StatusCode, AppError> {
-    slots::set_max_occupants(&state.pool, slot_id, req.max_occupants).await?;
-    audit::record(
+    slots::set_max_occupants(
         &state.pool,
-        AuditEntry {
-            actor_type: ActorType::User,
-            actor_id: Some(admin.id),
-            action: "SLOT_USE_MODE_SET",
-            subject_type: Some("gpu_slot"),
-            subject_id: Some(slot_id.0),
-            detail: Some(serde_json::json!({ "max_occupants": req.max_occupants })),
-            ip_address: client_ip(&headers).as_deref(),
-        },
+        slot_id,
+        req.max_occupants,
+        admin.id,
+        client_ip(&headers).as_deref(),
     )
     .await?;
     Ok(StatusCode::NO_CONTENT)

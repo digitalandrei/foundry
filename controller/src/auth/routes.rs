@@ -7,12 +7,11 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Redirect;
 use axum_extra::extract::CookieJar;
-use foundry_shared::{ActorType, GitlabInstanceId};
+use foundry_shared::GitlabInstanceId;
 use serde::Deserialize;
 
 use super::cookies;
 use super::session;
-use crate::audit::{self, AuditEntry};
 use crate::error::AppError;
 use crate::gitlab::client::GitlabApi;
 use crate::gitlab::oauth;
@@ -119,22 +118,17 @@ async fn callback_inner(
 
     let ip = super::client_ip(headers);
     let user_agent = headers.get("user-agent").and_then(|v| v.to_str().ok());
-    let token = session::create(&state.pool, user_id, ip.as_deref(), user_agent).await?;
-
-    audit::record(
+    let token = session::create(
         &state.pool,
-        AuditEntry {
-            actor_type: ActorType::User,
-            actor_id: Some(user_id),
-            action: "LOGIN",
-            subject_type: Some("gitlab_instance"),
-            subject_id: Some(instance.id.0),
-            detail: Some(serde_json::json!({
-                "instance": instance.name,
-                "username": gl_user.username,
-            })),
-            ip_address: ip.as_deref(),
-        },
+        user_id,
+        ip.as_deref(),
+        user_agent,
+        Some("gitlab_instance"),
+        Some(instance.id.0),
+        serde_json::json!({
+            "instance": instance.name,
+            "username": gl_user.username,
+        }),
     )
     .await?;
 
@@ -161,34 +155,19 @@ pub async fn local_login(
         })
         .ok_or(AppError::Unauthorized)?;
 
-    let now = chrono::Utc::now().naive_utc();
-    sqlx::query!(
-        "UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?",
-        now,
-        now,
-        account.user_id.0,
-    )
-    .execute(&state.pool)
-    .await?;
-
     let ip = super::client_ip(&headers);
     let user_agent = headers.get("user-agent").and_then(|v| v.to_str().ok());
-    let token = session::create(&state.pool, account.user_id, ip.as_deref(), user_agent).await?;
-
-    audit::record(
+    let token = session::create(
         &state.pool,
-        AuditEntry {
-            actor_type: ActorType::User,
-            actor_id: Some(account.user_id),
-            action: "LOGIN",
-            subject_type: None,
-            subject_id: None,
-            detail: Some(serde_json::json!({
-                "method": "local",
-                "username": req.username.trim(),
-            })),
-            ip_address: ip.as_deref(),
-        },
+        account.user_id,
+        ip.as_deref(),
+        user_agent,
+        None,
+        None,
+        serde_json::json!({
+            "method": "local",
+            "username": req.username.trim(),
+        }),
     )
     .await?;
 
@@ -202,20 +181,12 @@ pub async fn logout(
     headers: HeaderMap,
     jar: CookieJar,
 ) -> Result<(CookieJar, StatusCode), AppError> {
-    if let Some(cookie) = jar.get(cookies::SESSION_COOKIE) {
-        session::delete_by_token(&state.pool, cookie.value()).await?;
-    }
-    audit::record(
+    session::delete_with_audit(
         &state.pool,
-        AuditEntry {
-            actor_type: ActorType::User,
-            actor_id: Some(user.id),
-            action: "LOGOUT",
-            subject_type: None,
-            subject_id: None,
-            detail: None,
-            ip_address: super::client_ip(&headers).as_deref(),
-        },
+        jar.get(cookies::SESSION_COOKIE)
+            .map(|cookie| cookie.value()),
+        user.id,
+        super::client_ip(&headers).as_deref(),
     )
     .await?;
     let jar = jar.add(cookies::clear_session_cookie());

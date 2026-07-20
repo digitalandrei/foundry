@@ -1,0 +1,7 @@
+# Install as /etc/foundry/mysql-backup.cnf owned by root:root, mode 0600.
+# Use a dedicated account with the minimum grants needed by mariadb-dump.
+[client]
+user=foundry_backup
+password=replace-me
+host=localhost
+protocol=socket

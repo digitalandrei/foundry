@@ -95,6 +95,8 @@ async fn instance_add(rest: &[String]) -> Result<(), Box<dyn std::error::Error>>
             oauth_client_id: client_id.trim(),
             oauth_client_secret: client_secret.trim(),
         },
+        None,
+        None,
     )
     .await?;
 

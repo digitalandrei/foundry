@@ -13,6 +13,11 @@ pub struct ErrorBody {
     pub code: String,
     /// Human-readable message; never contains internals or secrets.
     pub message: String,
+    /// Optional machine-readable context for actionable conflicts. Kept
+    /// absent on ordinary errors so the long-standing envelope stays wire
+    /// compatible.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
 }
 
 impl ErrorEnvelope {
@@ -21,6 +26,21 @@ impl ErrorEnvelope {
             error: ErrorBody {
                 code: code.into(),
                 message: message.into(),
+                details: None,
+            },
+        }
+    }
+
+    pub fn with_details(
+        code: impl Into<String>,
+        message: impl Into<String>,
+        details: serde_json::Value,
+    ) -> Self {
+        Self {
+            error: ErrorBody {
+                code: code.into(),
+                message: message.into(),
+                details: Some(details),
             },
         }
     }

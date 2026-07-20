@@ -34,5 +34,8 @@ subtle = "2"
 # cookie max-age durations (the cookie crate's time type)
 time = "0.3"
 
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+
 [lints]
 workspace = true

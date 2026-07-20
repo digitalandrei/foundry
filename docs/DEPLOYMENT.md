@@ -80,8 +80,12 @@ and modest to stay within proxy limits.
   `DATABASE_URL`); the production copy moves to `/srv/foundry/.env` in
   Phase 10.
 - Schema applied exclusively via `sqlx migrate run` from `migrations/`.
-- Backups: daily dump + pre-migration dump before any destructive migration,
-  keep last 10 (same discipline as other projects on this host).
+- Backups are implemented by `/srv/foundry/bin/foundry-backup` (source:
+  `scripts/backup.sh`) plus `foundry-backup.timer`: daily and before every
+  deploy restart/migration, compressed under
+  `/srv/foundry/backups/mysql`, mode 0600, newest 10 retained. Credentials
+  come only from `/etc/foundry/mysql-backup.cnf` (root:root 0600; template in
+  `deployment/mysql-backup.cnf.example`) and never appear in argv/logs.
 
 ## Deploy Flow (live)
 
@@ -91,8 +95,10 @@ parity, **rebuilds both the controller/agent and the frontend** (a version
 bump never ships a stale GUI), **replaces the SPA tree wholesale** (no
 leftover hashed bundles accumulating under `/srv/foundry/frontend/assets`),
 installs the controller + agent binaries, restarts the service, and
-verifies `/health` reports the new version. Schema migrations apply on the
-controller's boot (`sqlx::migrate!`) when the restarted service comes up.
+verifies `/health` reports the new version. Before replacing live artifacts it
+installs/enables the backup timer and takes a validated dump; any backup
+failure aborts the deploy. Schema migrations apply on the controller's boot
+(`sqlx::migrate!`) when the restarted service comes up.
 
 > **Run it as your normal user — NOT `sudo ./scripts/deploy.sh`.** The
 > script `sudo`s only the privileged steps (SPA copy, binary install,
@@ -106,6 +112,22 @@ cd /opt/foundry
 ./scripts/deploy.sh          # as your user — it sudos the privileged steps
 curl -fsS https://foundry.cloudcraft.ro/health   # end-to-end through Cloudflare
 ```
+
+One-time backup credential setup (before the next deploy):
+
+```bash
+sudo install -m 600 deployment/mysql-backup.cnf.example /etc/foundry/mysql-backup.cnf
+sudoedit /etc/foundry/mysql-backup.cnf
+# Provision the dedicated account/grants, then test without exposing its password:
+sudo FOUNDRY_BACKUP_DIR=/srv/foundry/backups/mysql ./scripts/backup.sh
+```
+
+Restore is an explicit maintenance operation: stop the controller, preserve a
+copy of the current database, verify the chosen archive with `gzip -t`, restore
+into a newly created empty `foundry` database using
+`gzip -cd <archive> | mariadb --defaults-extra-file=/etc/foundry/mysql-backup.cnf`,
+then start the controller and verify `/health`. Never restore over a running
+controller or directly into the only copy of the database.
 
 Equivalent manual steps (only when debugging the script) — note the
 **clean** before copying the SPA, which the old flow lacked and which
@@ -206,7 +228,8 @@ The published binary lives at `/srv/foundry/downloads/foundry-agent`
 
 ## Observability
 
-- `GET /health` — liveness; `GET /metrics` — Prometheus (localhost).
+- `GET /health` — liveness. Prometheus `/metrics` is still planned; it is not
+  registered and Nginx returns 404 for that path.
 - Structured JSON logs in journald for both services.
 - **Container logs** (Phase 7, 0.19.0): agents push incremental
   stdout+stderr to `/agent/logs` every 10s; the controller keeps a
@@ -228,5 +251,5 @@ The published binary lives at `/srv/foundry/downloads/foundry-agent`
 ## Runtime Truth
 
 For troubleshooting, check current truth before reading code:
-`/health`, `/metrics`, journald for controller/agent, MySQL state, and the
-audit log — not docs alone.
+`/health`, journald for controller/agent, MySQL state, backup timer status, and
+the audit log — not docs alone.

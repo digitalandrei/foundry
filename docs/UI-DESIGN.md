@@ -23,6 +23,12 @@ help, theme, and user controls stay on the bar. The app shell is
 `overflow-x-clip` so no wide child (table, grid, console) can drag the
 whole page sideways; wide content scrolls inside its own box.
 
+Routes are lazy-loaded behind one named, live-region loading state so the ten
+pages do not inflate the initial application chunk. Any occupied GPU/group
+surface that opens a deployment is focusable, has an accessible name, and
+activates with Enter or Space as well as pointer input; its drop-only free
+counterpart stays out of the tab order.
+
 ## Dashboard Layout (the core screen)
 
 Three regions:

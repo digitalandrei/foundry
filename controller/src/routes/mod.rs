@@ -46,7 +46,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/servers", get(servers::list))
         .route("/api/servers", post(servers::create))
         .route("/api/metrics/latest", get(servers::metrics_latest))
-        .route("/api/servers/{server_id}", get(servers::detail))
+        .route(
+            "/api/servers/{server_id}",
+            get(servers::detail).delete(servers::delete),
+        )
         .route("/api/servers/{server_id}/metrics", get(servers::metrics))
         // GPU groups + slot use-mode (admin-only; docs/API.md § GPU groups)
         .route(

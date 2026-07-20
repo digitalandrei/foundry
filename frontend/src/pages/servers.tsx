@@ -1,12 +1,13 @@
 import { useState } from "react"
 import { Link } from "@tanstack/react-router"
-import { ContainerIcon, KeyRoundIcon, ServerIcon } from "lucide-react"
+import { ContainerIcon, KeyRoundIcon, ServerIcon, Trash2Icon } from "lucide-react"
 
+import { useConfirm } from "@/components/confirm-context"
 import { EmptyState } from "@/components/empty-state"
 import { EnrollServerDialog, RegistrationCommand } from "@/components/enroll-server-dialog"
 import { FleetKeysSection } from "@/components/fleet-keys-section"
 import { useMe } from "@/hooks/use-auth"
-import { useRegenerateToken, useServers } from "@/hooks/use-servers"
+import { useDeleteServer, useRegenerateToken, useServers } from "@/hooks/use-servers"
 import { formatRelative } from "@/lib/format"
 import { SERVER_STATUS_META } from "@/lib/states"
 import type { EnrollmentTokenResponse } from "@/lib/types"
@@ -34,6 +35,8 @@ export function ServersPage() {
   const servers = useServers()
   const me = useMe()
   const regenerate = useRegenerateToken()
+  const deleteServer = useDeleteServer()
+  const confirm = useConfirm()
   const [tokenResult, setTokenResult] = useState<EnrollmentTokenResponse | null>(null)
   const isAdmin = me.data?.is_admin ?? false
 
@@ -108,17 +111,38 @@ export function ServersPage() {
                           </Link>
                         </Button>
                         {isAdmin ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={regenerate.isPending}
-                            onClick={() =>
-                              regenerate.mutate(server.id, { onSuccess: setTokenResult })
-                            }
-                          >
-                            <KeyRoundIcon className="size-3.5" aria-hidden />
-                            New token
-                          </Button>
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={regenerate.isPending}
+                              onClick={() =>
+                                regenerate.mutate(server.id, { onSuccess: setTokenResult })
+                              }
+                            >
+                              <KeyRoundIcon className="size-3.5" aria-hidden />
+                              New token
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="icon-sm"
+                              aria-label={`Delete unused server ${server.name}`}
+                              disabled={deleteServer.isPending}
+                              onClick={async () => {
+                                const accepted = await confirm({
+                                  title: `Delete ${server.name}?`,
+                                  description:
+                                    "Only a server with no deployments, volumes, GPU groups, or tasks can be deleted. This removes its inventory and credentials.",
+                                  confirmLabel: "DELETE SERVER",
+                                  destructive: true,
+                                  requireConfirmText: server.name,
+                                })
+                                if (accepted) deleteServer.mutate(server.id)
+                              }}
+                            >
+                              <Trash2Icon className="size-3.5" aria-hidden />
+                            </Button>
+                          </>
                         ) : null}
                       </div>
                     </TableCell>

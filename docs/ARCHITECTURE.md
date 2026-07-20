@@ -441,7 +441,9 @@ requests and `NVIDIA_VISIBLE_DEVICES`, indices mapped to UUIDs via
 NVML) and reports them in inventory. The controller maps non-Foundry
 containers onto the slot whose device they occupy, so the dashboard
 shows externally-used GPUs (and does not offer a *running* one as a
-deploy target) — Foundry never touches those containers, only reflects
+deploy target). The same check is authoritative in the controller's locked
+target-resolution transaction, so a crafted API request cannot bypass the UI.
+Foundry never touches those containers, only reflects
 them. Stopped containers are surfaced too (shown as stopped; the
 device stays free), and every slot occupant — Foundry or external —
 carries a clear running/stopped indicator.
@@ -449,10 +451,14 @@ carries a clear running/stopped indicator.
 ## Server Enrollment
 
 1. Admin generates a single-use, expiring enrollment token in the UI.
-2. Operator installs `foundry-agent` on the GPU server and runs enrollment
-   with the token.
+2. Operator runs `foundry-agent --register`; it validates root/config state,
+   installs the binary, prepares the service user, app-publishing host pieces,
+   and systemd unit, then daemon-reloads. These fallible prerequisites happen
+   before token consumption.
 3. Agent calls `/agent/enroll`, receives its permanent identity (agent id +
-   secret), and stores config at `/etc/foundry-agent/config.toml`.
+   secret), and atomically fsyncs/renames a 0600 config at
+   `/etc/foundry-agent/config.toml`. `--force` keeps the previous working
+   config until the replacement is durable.
 4. From then on the agent authenticates every request with its identity;
    tokens are rotatable (see `SECURITY.md`).
 
@@ -469,6 +475,12 @@ enrolled a host stays enrolled until an operator removes it. Hostnames must be
 unique across the fleet (set each instance's hostname to a stable unique value,
 e.g. its cloud instance id). Provisioning the hosts themselves (AMIs, cloud
 fleets) is out of scope — the operator's infra.
+
+Removal is deliberately narrow: an admin may hard-delete only a server with
+no deployments (including history), volumes, GPU groups, or agent tasks. The
+command removes transient inventory/telemetry/credentials in one transaction
+and is audited. Any workload-bearing server remains as durable history; there
+is no tombstone mode.
 
 ## API Surface
 
@@ -510,8 +522,9 @@ docs too — each document owns one topic.
 
 ## Observability
 
-- **Metrics**: Prometheus-compatible `/metrics` on the controller; agent
-  metrics flow through heartbeat/inventory.
+- **Metrics**: authenticated host/GPU/container telemetry flows through
+  `/agent/metrics` to `/api/metrics/*`. A Prometheus-compatible `/metrics`
+  endpoint is planned for Phase 10 and is not currently registered.
 - **Logging**: structured JSON via `tracing` in both controller and agent.
 - **Tracing**: OpenTelemetry-ready (instrumented spans; exporter optional).
 

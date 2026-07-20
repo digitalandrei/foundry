@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useForm } from "react-hook-form"
+import { useForm, useWatch } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Link } from "@tanstack/react-router"
 import { PencilIcon, Trash2Icon } from "lucide-react"
@@ -259,6 +259,7 @@ function InstanceEditDialog({
         }
       : undefined,
   })
+  const enabled = useWatch({ control: form.control, name: "enabled" })
 
   if (!instance) return null
 
@@ -331,7 +332,7 @@ function InstanceEditDialog({
             </Field>
             <label className="flex items-center gap-2 text-sm">
               <Checkbox
-                checked={form.watch("enabled")}
+                checked={enabled}
                 onCheckedChange={(v) => form.setValue("enabled", v === true)}
               />
               Enabled (available for login and deployments)

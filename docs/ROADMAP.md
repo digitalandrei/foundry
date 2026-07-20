@@ -14,9 +14,9 @@ in `docs/plans/`.
 | 5 | Inventory (GPU/MIG discovery & reconciliation) | [plans/phase-05.md](plans/phase-05.md) | ✅ Done (2026-06-12) — inventory verified on real L40S servers (0.3/0.4); host+GPU telemetry (0.5.0), per-MIG-slice memory + fleet Telemetry tab (0.46.0) |
 | 6 | Deployments (lifecycle, replacement) | [plans/phase-06.md](plans/phase-06.md) | ✅ Done — full lifecycle + replacement live on real GPU servers; persistent volumes, per-server HTTP/S publishing + EXPOSE discovery, live progress, interactive container shell (0.22.0), GPU groups + multi-use slots (0.35.0), adopt & control of external containers (0.42.0) |
 | 7 | Logs | [plans/phase-07.md](plans/phase-07.md) | ✅ Done — agent push-loop capture (incremental stdout+stderr, managed only) + bounded 7-day store + UI viewer; capturing on enrolled servers |
-| 8 | UI (full dashboard, dark+light themes) | [plans/phase-08.md](plans/phase-08.md) | 🔶 In progress — functional UI shipped incrementally (10 pages: dashboard slot grid, deployment detail, servers, fleet Telemetry, audit, settings); remaining per phase-08: light-mode-complete sweep, a11y/keyboard-dnd, empty/loading/error pass |
+| 8 | UI (full dashboard, dark+light themes) | [plans/phase-08.md](plans/phase-08.md) | 🔶 In progress — functional UI shipped incrementally (10 pages); route-level code splitting + keyboard interaction/DOM coverage landed in 0.51.0; remaining per phase-08: light-mode-complete visual sweep and empty/loading/error pass |
 | 9 | Security hardening | [plans/phase-09.md](plans/phase-09.md) | ⬜ Not started — carries agent-credential rotation (deferred from Phase 4) |
-| 10 | Production readiness | [plans/phase-10.md](plans/phase-10.md) | 🔶 In progress — service live early since 2026-06-11; CI gate (0.44.0), audit read-path, telemetry, structured logs in place; formal backups/runbook/hardening pass pending |
+| 10 | Production readiness | [plans/phase-10.md](plans/phase-10.md) | 🔶 In progress — service live; CI, audit, telemetry, structured logs, local backup automation + restore CI, dependency gates, and MariaDB integration tests in place; production timer observation, Prometheus, and load acceptance pending |
 | 11 | GPU groups + multi-use slots | (retired — see Amendments 2026-06-16) | ✅ Done (0.35.0) — one container across N whole GPUs; multi-use slots soft-share a GPU among ≤4; MIG/group mutual exclusion self-heals (0.47.0) |
 
 ## Success Criteria (v1 done)
@@ -442,3 +442,16 @@ reflected in the affected docs in the same commit set:
   identity → no project/registry/deploy rights. `POST /auth/local` +
   operator form on the login page. First account `admin` created on
   production.
+- **2026-07-15** (0.51.0) — **Full doctrine/code audit remediation.**
+  Deployment commands now commit reservation/task/event/audit atomically and
+  server-side scheduling rejects running unmanaged GPU occupants; adoption is
+  running-only and serialized. Fleet polling repositories batch deployments,
+  GPU trees, groups, and volumes with bounded query counts. Daily plus
+  pre-migration local MariaDB backups (keep 10), Rust/npm advisory gates, and
+  disposable MariaDB integration CI landed. Agent registration completes host
+  prerequisites before token consumption and atomically replaces its config.
+  Admins may delete never-used servers only (structured dependency blockers;
+  workload history is preserved). SPA routes are lazy chunks; React compiler
+  warnings and audited keyboard/table navigation were fixed with DOM coverage.
+  Prometheus `/metrics` is explicitly documented as pending, not live. Affects
+  API, ARCHITECTURE, DEPLOYMENT, TESTING, UI-DESIGN/codebase-map.

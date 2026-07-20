@@ -13,8 +13,8 @@ doc-drift hook nudges when watched code paths change without a docs change).
 | `shared/` | Wire contract: DTOs, state enums, ID newtypes | live |
 | `frontend/` | React + TS + Vite + shadcn SPA | live: shell, theming, 10 pages |
 | `migrations/` | sqlx MySQL migrations (embedded into controller, run at startup) | live: 28-table schema |
-| `deployment/` | systemd units, nginx vhost (drafts until Phase 10) | drafted |
-| `scripts/` | `check.sh` — fmt + clippy `-D warnings` + test + frontend build | live |
+| `deployment/` | production systemd, nginx, and MariaDB backup artifacts | controller/nginx live; backup installed by next canonical deploy |
+| `scripts/` | verification, deploy, and atomic local-backup automation | live |
 | `docs/` | knowledge base (you are here) | live |
 | `.claude/` | agents, skills, hooks, settings | live |
 
@@ -45,17 +45,22 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   `gitlab/tokens.rs`; response types → `gitlab/types.rs`
 - Data access → `controller/src/repos/{instances,users,mirror,local_admins,servers}.rs`
   (local_admins: argon2id operator accounts; servers: enrollment
-  tokens, agent identity, heartbeat, offline sweeper)
+  tokens, agent identity, heartbeat, offline sweeper, guarded unused-server
+  deletion). Deployment reads, target locking, and external-container adoption
+  are separated into `deployment_{queries,targets,adoption}.rs`; command
+  orchestration remains in `deployments.rs`.
 - Agent auth extractor → `controller/src/auth/agent.rs`; agent routes →
   `controller/src/routes/{servers,agent}.rs`
 - Routes (one module per resource) → `controller/src/routes/{health,me,instances,projects,registry}.rs`
 - Bootstrap CLI (`instance add`) → `controller/src/cli.rs`
 - Embedded migrations → `controller/src/main.rs` (`MIGRATOR`) reading
-  `migrations/*.sql`
+  `migrations/*.sql`; disposable MariaDB repository/HTTP integration tests →
+  `controller/src/db_tests.rs` (ignored locally, explicit CI job)
 - Agent config (TOML, `FOUNDRY_AGENT_CONFIG` override) →
   `agent/src/config.rs`; heartbeat + inventory loops, CLI dispatch →
   `agent/src/main.rs`; `--register` (enroll, self-install, user, unit)
-  → `agent/src/register.rs`; NVML/Docker snapshot collection (incl.
+  → `agent/src/register.rs` (host prerequisites before token consumption,
+  atomic mode-0600 credential config); NVML/Docker snapshot collection (incl.
   `nvidia-smi -L` MIG parse) → `agent/src/inventory.rs`
 - Inventory reconcile (two-phase OFFLINE/upsert, containers
   replace-all incl. ports) → `controller/src/repos/inventory.rs`
@@ -65,7 +70,8 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   `frontend/src/components/server-telemetry.tsx` (+ `metric-sparkline.tsx`),
   shown on the server page `pages/server-detail.tsx` and the fleet-wide
   Telemetry tab `pages/telemetry.tsx`
-- Frontend pages → `frontend/src/pages/{dashboard,deployments,servers,audit,settings,login,help-gitlab-oauth}.tsx`
+- Frontend pages → `frontend/src/pages/{dashboard,deployments,servers,audit,settings,login,help-gitlab-oauth}.tsx`;
+  lazy route boundaries and Suspense fallback → `frontend/src/router.tsx`
 - Layout shell / nav / session guard → `frontend/src/components/layout/app-shell.tsx`
 - API client + query keys → `frontend/src/lib/api.ts`; hooks →
   `frontend/src/hooks/{use-auth,use-instances,use-projects}.ts`
@@ -80,7 +86,9 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   detail 15s)
 - Dashboard slot grid → `frontend/src/components/server-grid.tsx`
   (ServerRow/GpuStrip/SlotChip); docker-ps detail dialog →
-  `components/server-detail-dialog.tsx`
+  `components/server-detail-dialog.tsx`; host/service status presentation →
+  `components/server-grid-status.tsx`; alert thresholds →
+  `frontend/src/lib/server-alerts.ts`
 - Fleet enrollment keys (list / create / delete reusable fleet tokens) →
   `frontend/src/components/fleet-keys-section.tsx` + `fleet-key-dialog.tsx`
   on the Servers page; handlers `servers::{list,create,delete}_fleet_token`
@@ -120,7 +128,9 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   `controller/src/routes/registry.rs` (`exposed_ports`)
 - Frontend deployments: hooks → `hooks/use-deployments.ts` (incl.
   useLatestMetrics + useDeploymentDetail); deploy/replace dialog →
-  `components/deploy-dialog.tsx`; tap/drag sources in
+  `components/deploy-dialog.tsx`, with typed field sections in
+  `components/deploy-dialog-fields.tsx` and schema/defaults in
+  `lib/deployment-form.ts`; tap/drag sources in
   `containers-panel.tsx`, drop targets + live slot chips + per-server
   Docker/nginx status badges in `server-grid.tsx`; tap-to-deploy slot
   picker → `components/slot-picker-dialog.tsx` (opened via
@@ -164,6 +174,11 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   `servers.docker_ok` (`repos/inventory.rs`) → `ServerSummary.docker_ok`
   (`repos/servers.rs`); deploy gate in `repos/deployments.rs::create`;
   UI badge + drop-disable in `server-grid.tsx`
+
+- Production backup gate → `scripts/backup.sh` (atomic gzip, validation,
+  root-only permissions, keep 10), `deployment/systemd/foundry-backup.*`,
+  and the mandatory pre-migration step in `scripts/deploy.sh`; hermetic smoke
+  test → `scripts/test-backup.sh`, real restore round-trip → CI MariaDB job
 
 ## Maintenance
 

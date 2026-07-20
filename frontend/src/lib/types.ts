@@ -2,7 +2,7 @@
 // Rust serde output exactly; change both sides in the same commit.
 
 export interface ErrorEnvelope {
-  error: { code: string; message: string }
+  error: { code: string; message: string; details?: unknown }
 }
 
 export interface InstancePublic {

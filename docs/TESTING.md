@@ -12,11 +12,14 @@ add or tighten one. Don't claim completion without running the relevant set.
   test database; migrations applied automatically). Cover: enrollment flow,
   task queue dispatch/result handling, deployment transaction atomicity
   (state + event + audit commit together).
-  *Open item (noted Phase 3):* the scoped `foundry` DB user cannot
-  create `sqlx::test` databases; the harness needs either a dedicated
-  `foundry_test` DB + grant or a test-only MySQL user. Until then,
-  route behavior is verified live (curl probes: auth required on every
-  protected route, error envelopes, health) as done in Phase 3.
+  The MariaDB GitHub Actions job supplies a privileged disposable test-only
+  user/database; tests are `#[ignore]` in the fast offline suite and CI runs
+  them explicitly with `cargo test -p foundry-controller -- --ignored`.
+  Covered today: migrated health router; atomic deployment reservation/task/
+  event/audit success; authoritative external-GPU zero-write rejection;
+  repository + database adoption uniqueness; enrollment token/credential/audit
+  consistency; batched fleet output shape; and allowed/blocked guarded server
+  removal.
 - HTTP-level tests with `axum`'s `tower::ServiceExt::oneshot` — auth
   required on every `/api` and `/agent` route is itself a test.
 - sqlx note: `query!` macros compile against the live dev DB
@@ -43,17 +46,23 @@ add or tighten one. Don't claim completion without running the relevant set.
   `lib/` logic — the state→color map (`states.test.ts`) and slot
   occupancy/deploy-eligibility (`slots.test.ts`). Add tests beside the module,
   importing `{ describe, it, expect }` from `vitest`.
-- **Open item**: component/DOM tests (Testing Library) for load-bearing pieces
-  — the deploy-dialog zod validation, the type-to-confirm gate on destructive
-  ops for adopted containers, slot-chip rendering — and visual/both-theme
-  regression. Both themes are spot-checked manually until then.
+- **Testing Library component/DOM coverage** now includes named/focusable
+  GPU interaction surfaces and Enter/Space activation under both theme
+  classes. Open items remain for load-bearing pieces — deploy-dialog zod
+  validation, the type-to-confirm gate on destructive ops for adopted
+  containers, slot-chip rendering — and visual/both-theme regression. Both
+  themes are spot-checked manually until then.
 
 ## Commands
 
 ```bash
-cargo test                       # workspace
-cargo test -p foundry-controller
-cargo test -p foundry-agent
-cargo clippy --all-targets -- -D warnings
-cd frontend && npm run lint && npm run test:run && npm run build
+SQLX_OFFLINE=true bash scripts/check.sh  # canonical local gate
+
+# Disposable privileged MariaDB only (CI runs this automatically):
+DATABASE_URL=mysql://... SQLX_OFFLINE=true \
+  cargo test -p foundry-controller -- --ignored
 ```
+
+The canonical gate includes fmt, clippy, Rust tests, `cargo deny`, the
+hermetic backup test, npm audit, frontend lint/DOM tests, and production build.
+CI additionally performs a real MariaDB dump/restore round trip.

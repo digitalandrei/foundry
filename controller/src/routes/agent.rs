@@ -8,9 +8,7 @@ use axum::Json;
 use foundry_shared::dto::{
     AgentEnrollRequest, AgentEnrollResponse, HeartbeatRequest, HeartbeatResponse,
 };
-use foundry_shared::ActorType;
 
-use crate::audit::{self, AuditEntry};
 use crate::auth::agent::AuthenticatedAgent;
 use crate::error::AppError;
 use crate::repos::servers;
@@ -37,23 +35,6 @@ pub async fn enroll(
     )
     .await?;
 
-    audit::record(
-        &state.pool,
-        AuditEntry {
-            actor_type: ActorType::Agent,
-            actor_id: None,
-            action: "AGENT_ENROLLED",
-            subject_type: Some("server"),
-            subject_id: Some(enrolled.server_id.0),
-            detail: Some(serde_json::json!({
-                "server": enrolled.server_name,
-                "hostname": hostname,
-                "agent_version": req.agent_version,
-            })),
-            ip_address: None,
-        },
-    )
-    .await?;
     tracing::info!(server = %enrolled.server_name, %hostname, "agent enrolled");
 
     Ok(Json(enroll_response(enrolled)))
@@ -80,23 +61,6 @@ pub async fn enroll_fleet(
     )
     .await?;
 
-    audit::record(
-        &state.pool,
-        AuditEntry {
-            actor_type: ActorType::Agent,
-            actor_id: None,
-            action: "AGENT_FLEET_ENROLLED",
-            subject_type: Some("server"),
-            subject_id: Some(enrolled.server_id.0),
-            detail: Some(serde_json::json!({
-                "server": enrolled.server_name,
-                "hostname": hostname,
-                "agent_version": req.agent_version,
-            })),
-            ip_address: None,
-        },
-    )
-    .await?;
     tracing::info!(server = %enrolled.server_name, %hostname, "agent fleet-enrolled");
 
     Ok(Json(enroll_response(enrolled)))

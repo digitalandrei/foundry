@@ -24,6 +24,19 @@ cargo build --release -p foundry-controller -p foundry-agent
 echo "▶ building frontend…"
 (cd frontend && npm run build)
 
+# ── Backup: mandatory before the restart can run embedded migrations ─
+echo "▶ installing backup job + taking pre-migration backup…"
+sudo install -d -m 755 "$SRV/bin"
+sudo install -d -m 700 "$SRV/backups/mysql"
+sudo install -m 755 scripts/backup.sh "$SRV/bin/foundry-backup"
+sudo install -m 644 deployment/systemd/foundry-backup.service \
+  /etc/systemd/system/foundry-backup.service
+sudo install -m 644 deployment/systemd/foundry-backup.timer \
+  /etc/systemd/system/foundry-backup.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now foundry-backup.timer
+sudo "$SRV/bin/foundry-backup"
+
 # ── Frontend: replace the tree wholesale (no stale bundles) ─────────
 echo "▶ publishing SPA (clean)…"
 sudo find "$SRV/frontend" -mindepth 1 -maxdepth 1 -exec \rm -rf {} +

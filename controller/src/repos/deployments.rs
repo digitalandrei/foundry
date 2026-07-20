@@ -1,13 +1,12 @@
-//! Deployment creation, listing, and the per-server host-port
-//! allocator (plans/phase-06.md § Networking conditions 1–2, 6).
+//! Deployment command orchestration and the per-server host-port allocator
+//! (plans/phase-06.md § Networking conditions 1–2, 6). Read/adoption/target
+//! concerns live in the sibling `deployment_*` modules.
 
 use foundry_shared::dto::{
-    CreateDeploymentRequest, DeployTarget, DeploymentPort, DeploymentSummary, EnvSpec, PortSpec,
-    MEM_LIMIT_MAX_MB, MEM_LIMIT_MIN_MB,
+    CreateDeploymentRequest, DeploymentPort, EnvSpec, PortSpec, MEM_LIMIT_MAX_MB, MEM_LIMIT_MIN_MB,
 };
 use foundry_shared::{
-    DeploymentId, DeploymentState, GpuGroupId, PortKind, ServerId, SlotId, SlotState, TaskType,
-    UserId,
+    DeploymentId, DeploymentState, PortKind, ServerId, SlotState, TaskType, UserId,
 };
 use sqlx::{MySqlConnection, MySqlPool};
 use uuid::Uuid;
@@ -16,14 +15,18 @@ use crate::crypto::SecretBox;
 use crate::error::AppError;
 use crate::lifecycle::{self, Actor};
 
+pub use super::deployment_adoption::adopt;
+pub use super::deployment_queries::{adopted_for_server, detail, get, list, DeploymentRow};
+use super::deployment_targets::{fetch_server_precheck, nginx_status_hint, resolve_target};
+
 /// Controller-allocated host-port pool (per server) and the ports we
 /// never hand out even if requested.
 pub const PORT_POOL: std::ops::RangeInclusive<u16> = 20000..=29999;
 const RESERVED_HOST_PORTS: &[u16] = &[22];
 
+#[derive(Debug)]
 pub struct NewDeployment {
     pub id: DeploymentId,
-    pub container_name: String,
 }
 
 /// Validate + insert a deployment in one transaction: the target's
@@ -40,6 +43,7 @@ pub async fn create(
     created_by: UserId,
     replaces: Option<DeploymentId>,
     apps_domain: Option<&str>,
+    ip_address: Option<&str>,
 ) -> Result<NewDeployment, AppError> {
     validate_ports(&req.ports, apps_domain)?;
     let owner_slug_in_create = &super::volumes::owner_slug(pool, created_by).await?;
@@ -292,303 +296,48 @@ pub async fn create(
     )
     .await?;
 
-    tx.commit().await?;
-    Ok(NewDeployment { id, container_name })
-}
-
-/// Adopt an externally-created container into a RUNNING deployment so it
-/// gets Foundry's control surface (logs, console, stop/delete, replace).
-/// The container must currently occupy at least one GPU slot (resolved
-/// from its device UUIDs) — that slot becomes the deployment's. Resolved
-/// by docker id thereafter, never by label. Admin-gated at the route.
-pub async fn adopt(
-    pool: &MySqlPool,
-    server_id: ServerId,
-    container_id: &str,
-    created_by: UserId,
-) -> Result<DeploymentId, AppError> {
-    let now = chrono::Utc::now().naive_utc();
-    let mut tx = pool.begin().await?;
-
-    let c = sqlx::query!(
-        r#"SELECT name, image, gpu_uuids, managed AS "managed: bool"
-           FROM server_containers WHERE server_id = ? AND container_id = ?"#,
-        server_id.0,
-        container_id,
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or(AppError::NotFound(
-        "container not found in the latest snapshot",
-    ))?;
-    if c.managed {
-        return Err(AppError::BadRequest(
-            "this container is already managed by Foundry".into(),
-        ));
+    // Creation is a command, not a collection of best-effort writes: the
+    // deployment, its reservation, its first task, and its business audit
+    // record either all commit or all roll back. Replacement tasks are
+    // enqueued above as part of the same transaction.
+    if replaces.is_none() {
+        super::tasks::enqueue_deploy(&mut tx, id).await?;
     }
-    let already = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) FROM deployments
-           WHERE server_id = ? AND adopted_container_id = ?
-             AND state NOT IN ('REMOVED','REPLACED','FAILED','STOPPED')"#,
-        server_id.0,
-        container_id,
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-    if already > 0 {
-        return Err(AppError::BadRequest(
-            "this container is already adopted".into(),
-        ));
-    }
-
-    // Resolve the GPU slot(s) the container occupies from its device UUIDs.
-    let uuids: Vec<String> = c
-        .gpu_uuids
-        .as_deref()
-        .and_then(|j| serde_json::from_str(j).ok())
-        .unwrap_or_default();
-    if uuids.is_empty() {
-        return Err(AppError::BadRequest(
-            "only a container occupying a GPU can be adopted".into(),
-        ));
-    }
-    let mut member_slot_ids: Vec<SlotId> = Vec::new();
-    for u in &uuids {
-        if let Some(s) = sqlx::query!(
-            r#"SELECT gs.id AS "id: Uuid"
-               FROM gpu_slots gs JOIN gpus g ON g.id = gs.gpu_id
-               WHERE g.server_id = ? AND COALESCE(gs.mig_uuid, g.gpu_uuid) = ?
-               FOR UPDATE"#,
-            server_id.0,
-            u,
-        )
-        .fetch_optional(&mut *tx)
-        .await?
-        {
-            member_slot_ids.push(s.id.into());
-        }
-    }
-    if member_slot_ids.is_empty() {
-        return Err(AppError::BadRequest(
-            "the container's GPU does not map to any known slot on this server".into(),
-        ));
-    }
-    let primary_slot_id = member_slot_ids[0];
-
-    let id = DeploymentId::new();
-    sqlx::query!(
-        r#"INSERT INTO deployments
-           (id, gpu_slot_id, server_id, image_ref, created_by, state, container_name,
-            container_id, adopted_container_id, started_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 'RUNNING', ?, ?, ?, ?, ?, ?)"#,
-        id.0,
-        primary_slot_id.0,
-        server_id.0,
-        c.image.chars().take(1024).collect::<String>(),
-        created_by.0,
-        c.name.chars().take(255).collect::<String>(),
-        container_id,
-        container_id,
-        now,
-        now,
-        now,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    for slot_id in &member_slot_ids {
-        sqlx::query!(
-            "INSERT INTO deployment_slots (deployment_id, gpu_slot_id) VALUES (?, ?)",
+    let (action, subject_id, detail) = match replaces {
+        Some(old_id) => (
+            "DEPLOYMENT_REPLACED",
+            old_id.0,
+            serde_json::json!({
+                "replaced_by": id.to_string(),
+                "image_ref": image_ref,
+            }),
+        ),
+        None => (
+            "DEPLOYMENT_CREATED",
             id.0,
-            slot_id.0,
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-    lifecycle::transition_member_slots(&mut tx, id, SlotState::Running).await?;
-
-    // The row starts at RUNNING (the container already runs), so record the
-    // initial event/audit directly rather than via a from→to transition.
-    sqlx::query!(
-        r#"INSERT INTO deployment_events
-           (id, deployment_id, from_state, to_state, actor_type, actor_id, detail, created_at)
-           VALUES (?, ?, NULL, 'RUNNING', 'User', ?, ?, ?)"#,
-        Uuid::now_v7(),
-        id.0,
-        created_by.0,
-        serde_json::to_string(&serde_json::json!({ "adopted_container_id": container_id }))
-            .map_err(AppError::internal)?,
-        now,
+            serde_json::json!({
+                "image_ref": image_ref,
+                "name": container_name,
+                "target": serde_json::to_value(&req.target).ok(),
+            }),
+        ),
+    };
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(created_by),
+            action,
+            subject_type: Some("deployment"),
+            subject_id: Some(subject_id),
+            detail: Some(detail),
+            ip_address,
+        },
     )
-    .execute(&mut *tx)
     .await?;
 
     tx.commit().await?;
-    Ok(id)
-}
-
-/// A deploy target resolved to its locked member slots.
-struct ResolvedTarget {
-    server_id: ServerId,
-    /// Denormalised primary slot (first member) for `deployments.gpu_slot_id`.
-    primary_slot_id: SlotId,
-    /// GPU-index hint for the generated container name.
-    primary_slot_name: String,
-    member_slot_ids: Vec<SlotId>,
-    group_id: Option<GpuGroupId>,
-}
-
-/// Lock the target's slot(s) and enforce occupancy. `replaces` is the
-/// outgoing deployment of a replacement, excluded from occupancy counts
-/// (its successor reuses the same slots).
-async fn resolve_target(
-    tx: &mut MySqlConnection,
-    target: &DeployTarget,
-    replaces: Option<DeploymentId>,
-) -> Result<ResolvedTarget, AppError> {
-    let exclude = replaces.map(|d| d.0).unwrap_or_else(Uuid::nil);
-    match target {
-        DeployTarget::Slot { slot_id } => {
-            let slot = sqlx::query!(
-                r#"SELECT gs.name AS slot_name, gs.state,
-                          gs.max_occupants AS "max_occupants: u32",
-                          g.server_id AS "server_id: Uuid"
-                   FROM gpu_slots gs JOIN gpus g ON g.id = gs.gpu_id
-                   WHERE gs.id = ? FOR UPDATE"#,
-                slot_id.0
-            )
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or(AppError::NotFound("slot not found"))?;
-            let slot_state: SlotState = slot.state.parse().map_err(AppError::internal)?;
-            if slot_state == SlotState::Offline {
-                return Err(AppError::BadRequest("slot is offline".into()));
-            }
-            // Count-based deployability: active occupants below the cap.
-            // Single-use (cap 1) is just the count-0 special case. Group
-            // deploys are independent of member slots (they occupy the
-            // group, not the GPU's own slot), so `gpu_group_id IS NULL`
-            // keeps them from counting against an individual slot's
-            // capacity — a GPU running a group container stays individually
-            // deployable (operator owns the over-subscription).
-            let occupants: i64 = sqlx::query_scalar!(
-                r#"SELECT COUNT(*) FROM deployment_slots ds
-                   JOIN deployments d ON d.id = ds.deployment_id
-                   WHERE ds.gpu_slot_id = ? AND d.id <> ?
-                     AND d.gpu_group_id IS NULL
-                     AND d.state NOT IN ('REMOVED','REPLACED','FAILED')"#,
-                slot_id.0,
-                exclude,
-            )
-            .fetch_one(&mut *tx)
-            .await?;
-            if occupants as u32 >= slot.max_occupants {
-                return Err(AppError::BadRequest(format!(
-                    "slot is at capacity ({}/{})",
-                    occupants, slot.max_occupants
-                )));
-            }
-            Ok(ResolvedTarget {
-                server_id: slot.server_id.into(),
-                primary_slot_id: *slot_id,
-                primary_slot_name: slot.slot_name,
-                member_slot_ids: vec![*slot_id],
-                group_id: None,
-            })
-        }
-        DeployTarget::Group { gpu_group_id } => {
-            let ctx =
-                super::gpu_groups::member_slots_for_deploy(tx, *gpu_group_id, replaces).await?;
-            // Group concurrency cap (multi-use): up to `max_occupants`
-            // containers share the grouped GPUs (single-use = 1 = exclusive).
-            if ctx.group_occupants as u32 >= ctx.max_occupants {
-                return Err(AppError::BadRequest(format!(
-                    "group is at capacity ({}/{})",
-                    ctx.group_occupants, ctx.max_occupants
-                )));
-            }
-            // A group takes its whole GPUs from outsiders: no member may be
-            // held by a non-group deploy. Members must also be online and
-            // MIG-disabled. Name the blockers (an overlapping group or an
-            // individual deploy may be the holder).
-            let mut busy = Vec::new();
-            for m in &ctx.members {
-                if m.slot_state == "OFFLINE" {
-                    busy.push(format!("GPU {} (offline)", m.gpu_index));
-                } else if m.mig_enabled {
-                    busy.push(format!("GPU {} (MIG enabled)", m.gpu_index));
-                } else if m.foreign_occupants > 0 {
-                    busy.push(format!("GPU {} (in individual use)", m.gpu_index));
-                }
-            }
-            if !busy.is_empty() {
-                return Err(AppError::BadRequest(format!(
-                    "group not deployable — {}",
-                    busy.join(", ")
-                )));
-            }
-            Ok(ResolvedTarget {
-                server_id: ctx.server_id,
-                primary_slot_id: ctx.members[0].slot_id,
-                primary_slot_name: ctx.members[0].gpu_index.to_string(),
-                member_slot_ids: ctx.members.iter().map(|m| m.slot_id).collect(),
-                group_id: Some(*gpu_group_id),
-            })
-        }
-    }
-}
-
-struct ServerPrecheck {
-    status: String,
-    name: String,
-    app_publishing_ready: Option<bool>,
-    nginx_status: Option<String>,
-    docker_ok: Option<bool>,
-}
-
-async fn fetch_server_precheck(
-    tx: &mut MySqlConnection,
-    server_id: ServerId,
-) -> Result<ServerPrecheck, AppError> {
-    let r = sqlx::query!(
-        r#"SELECT status, name,
-                  app_publishing_ready AS "app_publishing_ready: bool", nginx_status,
-                  docker_ok AS "docker_ok: bool"
-           FROM servers WHERE id = ?"#,
-        server_id.0
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or(AppError::NotFound("server not found"))?;
-    Ok(ServerPrecheck {
-        status: r.status,
-        name: r.name,
-        app_publishing_ready: r.app_publishing_ready,
-        nginx_status: r.nginx_status,
-        docker_ok: r.docker_ok,
-    })
-}
-
-/// Operator-readable reason behind a not-ready app-publishing server.
-fn nginx_status_hint(status: Option<&str>) -> &'static str {
-    match status {
-        Some("NGINX_MISSING") => {
-            "nginx is not installed — install it and run `sudo foundry-agent --setup-apps`"
-        }
-        Some("NGINX_OUTDATED") => {
-            "nginx on the server is too old — Foundry needs ≥ 1.25.1 (the `http2` directive); upgrade nginx"
-        }
-        Some("NGINX_INACTIVE") => {
-            "nginx is installed but not running — start it (`sudo systemctl enable --now nginx`)"
-        }
-        Some("NOT_CONFIGURED") => {
-            "nginx is running but not set up for Foundry — run `sudo foundry-agent --setup-apps`"
-        }
-        Some("TLS_MISSING") => {
-            "the server's wildcard TLS certificate is missing — install fullchain.pem + privkey.pem under /etc/foundry-agent/tls/"
-        }
-        _ => "the agent reports app publishing is unavailable",
-    }
+    Ok(NewDeployment { id })
 }
 
 fn validate_ports(specs: &[PortSpec], apps_domain: Option<&str>) -> Result<(), AppError> {
@@ -874,28 +623,16 @@ pub async fn env_for_payload(
         .collect()
 }
 
-pub struct DeploymentRow {
-    pub id: DeploymentId,
-    pub state: DeploymentState,
-    pub server_id: ServerId,
-    pub slot_id: SlotId,
-    /// Set when this was a group deploy — the replacement targets the
-    /// same group so the successor re-locks the same member GPUs.
-    pub gpu_group_id: Option<GpuGroupId>,
-    /// `None` for an adopted (externally-created) deployment — it has no
-    /// registry origin.
-    pub instance_id: Option<foundry_shared::GitlabInstanceId>,
-    pub created_by: UserId,
-    /// Set when this deployment wraps an externally-created container:
-    /// lifecycle/shell target it by this docker id, not by label.
-    pub adopted_container_id: Option<String>,
-}
-
 /// Dismiss a FAILED deployment: mark it REMOVED (clears it from the
 /// active list — it stays as an audit/event log) and free the slot if
 /// it is still stuck FAILED. Controller-side only — a failed deploy
 /// left no container, so no agent round-trip is needed (0.11.0).
-pub async fn dismiss(pool: &MySqlPool, id: DeploymentId) -> Result<(), AppError> {
+pub async fn dismiss(
+    pool: &MySqlPool,
+    id: DeploymentId,
+    user: UserId,
+    ip_address: Option<&str>,
+) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
     let row = sqlx::query!(
         "SELECT state FROM deployments WHERE id = ? FOR UPDATE",
@@ -914,7 +651,7 @@ pub async fn dismiss(pool: &MySqlPool, id: DeploymentId) -> Result<(), AppError>
         &mut tx,
         id,
         DeploymentState::Removed,
-        &Actor::controller(),
+        &Actor::user(user),
         Some(serde_json::json!({ "reason": "dismissed by operator" })),
     )
     .await?;
@@ -931,215 +668,19 @@ pub async fn dismiss(pool: &MySqlPool, id: DeploymentId) -> Result<(), AppError>
     )
     .execute(&mut *tx)
     .await?;
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(user),
+            action: "DEPLOYMENT_DISMISSED",
+            subject_type: Some("deployment"),
+            subject_id: Some(id.0),
+            detail: None,
+            ip_address,
+        },
+    )
+    .await?;
     tx.commit().await?;
     Ok(())
-}
-
-pub async fn get(pool: &MySqlPool, id: DeploymentId) -> Result<DeploymentRow, AppError> {
-    let r = sqlx::query!(
-        r#"SELECT id AS "id: Uuid", state, server_id AS "server_id: Uuid",
-                  gpu_slot_id AS "slot_id: Uuid",
-                  gpu_group_id AS "gpu_group_id: Uuid",
-                  gitlab_instance_id AS "instance_id: Uuid",
-                  adopted_container_id,
-                  created_by AS "created_by: Uuid"
-           FROM deployments WHERE id = ?"#,
-        id.0
-    )
-    .fetch_optional(pool)
-    .await?
-    .ok_or(AppError::NotFound("deployment not found"))?;
-    Ok(DeploymentRow {
-        id: r.id.into(),
-        state: r.state.parse().map_err(AppError::internal)?,
-        server_id: r.server_id.into(),
-        slot_id: r.slot_id.into(),
-        gpu_group_id: r.gpu_group_id.map(Into::into),
-        instance_id: r.instance_id.map(Into::into),
-        created_by: r.created_by.into(),
-        adopted_container_id: r.adopted_container_id,
-    })
-}
-
-pub async fn list(pool: &MySqlPool) -> Result<Vec<DeploymentSummary>, AppError> {
-    summaries(pool, None).await
-}
-
-/// Adopted (externally-created) containers the controller actively tracks
-/// for a server — handed to the agent on heartbeat so it ships their logs
-/// (they carry no `foundry.managed` label to key on).
-pub async fn adopted_for_server(
-    pool: &MySqlPool,
-    server_id: ServerId,
-) -> Result<Vec<foundry_shared::dto::AdoptedContainerRef>, AppError> {
-    let rows = sqlx::query!(
-        r#"SELECT id AS "id: Uuid", adopted_container_id AS "cid!"
-           FROM deployments
-           WHERE server_id = ? AND adopted_container_id IS NOT NULL
-             AND state NOT IN ('REMOVED','REPLACED','FAILED','STOPPED')"#,
-        server_id.0
-    )
-    .fetch_all(pool)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|r| foundry_shared::dto::AdoptedContainerRef {
-            container_id: r.cid,
-            deployment_id: r.id.into(),
-        })
-        .collect())
-}
-
-/// One query serves both the list (recent, REMOVED filtered) and the
-/// detail lookup (any state — history stays inspectable).
-async fn summaries(
-    pool: &MySqlPool,
-    filter_id: Option<DeploymentId>,
-) -> Result<Vec<DeploymentSummary>, AppError> {
-    let rows = sqlx::query!(
-        r#"SELECT d.id AS "id: Uuid", d.container_name, d.image_ref, d.state,
-                  d.error_message, d.container_id,
-                  (d.adopted_container_id IS NOT NULL) AS "adopted: bool",
-                  d.created_at, d.started_at,
-                  d.server_id AS "server_id: Uuid", s.name AS server_name,
-                  d.gpu_slot_id AS "slot_id: Uuid", gs.name AS slot_name,
-                  d.gpu_group_id AS "gpu_group_id: Uuid", gg.name AS "group_name?",
-                  g.display_index AS gpu_index, g.model AS gpu_model,
-                  u.display_name AS created_by_name
-           FROM deployments d
-           JOIN servers s ON s.id = d.server_id
-           JOIN gpu_slots gs ON gs.id = d.gpu_slot_id
-           JOIN gpus g ON g.id = gs.gpu_id
-           JOIN users u ON u.id = d.created_by
-           LEFT JOIN gpu_groups gg ON gg.id = d.gpu_group_id
-           WHERE (? IS NULL AND d.state <> 'REMOVED') OR d.id = ?
-           ORDER BY d.created_at DESC
-           LIMIT 200"#,
-        filter_id.map(|i| i.0),
-        filter_id.map(|i| i.0),
-    )
-    .fetch_all(pool)
-    .await?;
-
-    let mut out = Vec::with_capacity(rows.len());
-    for r in rows {
-        let id: DeploymentId = r.id.into();
-        let port_rows = sqlx::query!(
-            "SELECT container_port, host_port, protocol, kind, hostname FROM deployment_ports
-             WHERE deployment_id = ? ORDER BY container_port",
-            id.0
-        )
-        .fetch_all(pool)
-        .await?;
-        // Every member slot this deployment occupies — the grid folds the
-        // occupant chip across all of them (group → each member cell).
-        let slot_ids: Vec<SlotId> = sqlx::query_scalar!(
-            r#"SELECT gpu_slot_id AS "id: Uuid" FROM deployment_slots WHERE deployment_id = ?"#,
-            id.0
-        )
-        .fetch_all(pool)
-        .await?
-        .into_iter()
-        .map(Into::into)
-        .collect();
-        out.push(DeploymentSummary {
-            id,
-            name: r.container_name.unwrap_or_default(),
-            image_ref: r.image_ref,
-            state: r.state.parse().map_err(AppError::internal)?,
-            // Transient text lives in AppState.progress; the route
-            // layer overlays it (in-memory by design).
-            status_detail: None,
-            container_id: r.container_id,
-            error_message: r.error_message,
-            server_id: r.server_id.into(),
-            server_name: r.server_name,
-            slot_id: r.slot_id.into(),
-            slot_name: r.slot_name,
-            // Fall back to the primary when the join table has no rows
-            // (defensive — every live deploy writes at least one).
-            slot_ids: if slot_ids.is_empty() {
-                vec![r.slot_id.into()]
-            } else {
-                slot_ids
-            },
-            gpu_group_id: r.gpu_group_id.map(Into::into),
-            group_name: r.group_name,
-            gpu_label: format!(
-                "GPU {}{}",
-                r.gpu_index,
-                r.gpu_model.map(|m| format!(" ({m})")).unwrap_or_default()
-            ),
-            created_by_name: r.created_by_name,
-            adopted: r.adopted,
-            ports: port_rows
-                .into_iter()
-                .map(|p| {
-                    Ok(DeploymentPort {
-                        container_port: p.container_port,
-                        host_port: p.host_port,
-                        protocol: p.protocol,
-                        kind: p.kind.parse().map_err(AppError::internal)?,
-                        hostname: p.hostname,
-                    })
-                })
-                .collect::<Result<Vec<_>, AppError>>()?,
-            created_at: r.created_at.and_utc(),
-            started_at: r.started_at.map(|t| t.and_utc()),
-        });
-    }
-    Ok(out)
-}
-
-/// `GET /api/deployments/{id}` — summary + mounts + env *names* (values
-/// never leave the server; docs/SECURITY.md).
-pub async fn detail(
-    pool: &MySqlPool,
-    id: DeploymentId,
-) -> Result<foundry_shared::dto::DeploymentDetail, AppError> {
-    let summary = summaries(pool, Some(id))
-        .await?
-        .into_iter()
-        .next()
-        .ok_or(AppError::NotFound("deployment not found"))?;
-
-    let mounts = sqlx::query!(
-        r#"SELECT sv.name AS "volume_name?", dv.host_path, dv.container_path,
-                  dv.read_only AS "read_only: bool"
-           FROM deployment_volumes dv
-           LEFT JOIN server_volumes sv ON sv.id = dv.server_volume_id
-           WHERE dv.deployment_id = ?
-           ORDER BY dv.container_path"#,
-        id.0
-    )
-    .fetch_all(pool)
-    .await?
-    .into_iter()
-    .map(|r| foundry_shared::dto::DeploymentMount {
-        volume_name: r.volume_name,
-        host_path: r.host_path,
-        container_path: r.container_path,
-        read_only: r.read_only,
-    })
-    .collect();
-
-    let env = sqlx::query!(
-        r#"SELECT env_key, is_secret AS "is_secret: bool"
-           FROM deployment_env WHERE deployment_id = ? ORDER BY env_key"#,
-        id.0
-    )
-    .fetch_all(pool)
-    .await?
-    .into_iter()
-    .map(|r| foundry_shared::dto::DeploymentEnvKey {
-        key: r.env_key,
-        is_secret: r.is_secret,
-    })
-    .collect();
-
-    Ok(foundry_shared::dto::DeploymentDetail {
-        summary,
-        mounts,
-        env,
-    })
 }

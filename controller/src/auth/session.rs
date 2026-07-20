@@ -20,9 +20,21 @@ pub async fn create(
     user_id: UserId,
     ip: Option<&str>,
     user_agent: Option<&str>,
+    subject_type: Option<&str>,
+    subject_id: Option<uuid::Uuid>,
+    detail: serde_json::Value,
 ) -> Result<String, AppError> {
     let token = random_token();
     let now = Utc::now();
+    let mut tx = pool.begin().await?;
+    sqlx::query!(
+        "UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?",
+        now.naive_utc(),
+        now.naive_utc(),
+        user_id.0,
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!(
         r#"INSERT INTO sessions
            (id, token_hash, user_id, ip_address, user_agent, expires_at, created_at)
@@ -35,18 +47,54 @@ pub async fn create(
         (now + Duration::days(SESSION_TTL_DAYS)).naive_utc(),
         now.naive_utc(),
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(user_id),
+            action: "LOGIN",
+            subject_type,
+            subject_id,
+            detail: Some(detail),
+            ip_address: ip,
+        },
+    )
+    .await?;
+    tx.commit().await?;
     Ok(token)
 }
 
-pub async fn delete_by_token(pool: &MySqlPool, token: &str) -> Result<(), AppError> {
-    sqlx::query!(
-        "DELETE FROM sessions WHERE token_hash = ?",
-        token_hash(token)
+pub async fn delete_with_audit(
+    pool: &MySqlPool,
+    token: Option<&str>,
+    user_id: UserId,
+    ip: Option<&str>,
+) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    if let Some(token) = token {
+        sqlx::query!(
+            "DELETE FROM sessions WHERE token_hash = ?",
+            token_hash(token)
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(user_id),
+            action: "LOGOUT",
+            subject_type: None,
+            subject_id: None,
+            detail: None,
+            ip_address: ip,
+        },
     )
-    .execute(pool)
     .await?;
+    tx.commit().await?;
     Ok(())
 }
 

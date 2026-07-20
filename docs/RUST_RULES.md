@@ -94,7 +94,9 @@ hot paths here — clarity and correctness dominate).
 
 - New non-trivial behavior ships with tests; bug fixes tighten a test.
   See `TESTING.md`.
-- Before claiming completion on touched crates:
-  `cargo fmt --all && cargo clippy --all-targets -- -D warnings && cargo test`.
-- Frontend changes also pass `npm run lint && npm run build`. `scripts/check.sh`
-  runs the whole set (backend gate + frontend lint + build).
+- Before claiming completion on touched crates, run fmt, clippy with warnings
+  denied, all Rust tests, and `cargo deny check advisories` (the canonical
+  script below composes them).
+- Frontend changes also pass `npm audit --omit=dev --audit-level=high`, lint,
+  Vitest, and the production build. `scripts/check.sh` is the canonical whole
+  repository gate (including the backup smoke test).

@@ -1,0 +1,4 @@
+[advisories]
+ignore = [
+  { id = "RUSTSEC-2023-0071", reason = "Transitive sqlx-mysql RSA Marvin advisory has no patched release. Foundry's MariaDB account uses local socket/password auth and sqlx connections require rustls; the vulnerable RSA key-decryption path is not reachable. Remove this exception when sqlx replaces rsa 0.9." },
+]

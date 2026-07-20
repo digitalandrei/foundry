@@ -2,8 +2,9 @@
 
 **Status:** 🔶 In progress — the control plane went live early (2026-06-11,
 user-approved) and a CI gate landed in 0.44.0; audit read-path, telemetry,
-and structured JSON logs are in place. Remaining: the formal
-production-readiness pass below — backups, runbook polish, and hardening
+structured JSON logs, daily/pre-migration local backups, dependency gates,
+and MariaDB integration CI are in place. Remaining: Prometheus `/metrics`,
+load/restart verification, and the final runbook/hardening acceptance pass
 (Phase 9 feeds this).
 
 ## Goal
@@ -18,7 +19,9 @@ Foundry runs as a supervised production service on this host at
   Cloudflare proxy
 - `foundry-controller.service` + `/srv/foundry` layout live; deploy flow in
   `../DEPLOYMENT.md` exercised and exact
-- MySQL backup automation (daily + pre-migration, keep 10)
+- MySQL backup automation (daily + pre-migration, keep 10) — **implemented
+  0.51.0**; production credential provisioning/timer observation remains an
+  operator acceptance step
 - Prometheus `/metrics` exposed locally with the core metric set (servers
   online, slots by state, deployments by state, task queue depth, GitLab
   API health); journald JSON logging verified

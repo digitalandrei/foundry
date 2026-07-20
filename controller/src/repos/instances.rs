@@ -2,7 +2,7 @@
 //! decryption happens only here, on demand.
 
 use foundry_shared::dto::{InstanceAdmin, InstancePublic};
-use foundry_shared::GitlabInstanceId;
+use foundry_shared::{GitlabInstanceId, UserId};
 use sqlx::MySqlPool;
 use uuid::Uuid;
 
@@ -87,9 +87,12 @@ pub async fn insert(
     pool: &MySqlPool,
     secrets: &SecretBox,
     new: NewInstance<'_>,
+    created_by: Option<UserId>,
+    ip_address: Option<&str>,
 ) -> Result<GitlabInstanceId, AppError> {
     let id = Uuid::now_v7();
     let now = chrono::Utc::now().naive_utc();
+    let mut tx = pool.begin().await?;
     sqlx::query!(
         r#"INSERT INTO gitlab_instances
            (id, name, base_url, registry_url, oauth_client_id, oauth_client_secret,
@@ -104,7 +107,7 @@ pub async fn insert(
         now,
         now,
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await
     .map_err(|e| match &e {
         sqlx::Error::Database(db) if db.is_unique_violation() => {
@@ -112,6 +115,24 @@ pub async fn insert(
         }
         _ => AppError::Db(e),
     })?;
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: if created_by.is_some() {
+                foundry_shared::ActorType::User
+            } else {
+                foundry_shared::ActorType::Controller
+            },
+            actor_id: created_by,
+            action: "INSTANCE_ONBOARDED",
+            subject_type: Some("gitlab_instance"),
+            subject_id: Some(id),
+            detail: Some(serde_json::json!({ "name": new.name, "base_url": new.base_url })),
+            ip_address,
+        },
+    )
+    .await?;
+    tx.commit().await?;
     Ok(id.into())
 }
 
@@ -130,8 +151,12 @@ pub async fn update(
     secrets: &SecretBox,
     id: GitlabInstanceId,
     upd: InstanceUpdate<'_>,
+    changed_by: UserId,
+    ip_address: Option<&str>,
 ) -> Result<(), AppError> {
     let now = chrono::Utc::now().naive_utc();
+    let secret_rotated = upd.oauth_client_secret.is_some();
+    let mut tx = pool.begin().await?;
     let result = match upd.oauth_client_secret {
         Some(secret) => {
             sqlx::query!(
@@ -148,7 +173,7 @@ pub async fn update(
                 now,
                 id.0,
             )
-            .execute(pool)
+            .execute(&mut *tx)
             .await
         }
         None => {
@@ -165,7 +190,7 @@ pub async fn update(
                 now,
                 id.0,
             )
-            .execute(pool)
+            .execute(&mut *tx)
             .await
         }
     }
@@ -178,6 +203,25 @@ pub async fn update(
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("GitLab instance not found"));
     }
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(changed_by),
+            action: "INSTANCE_UPDATED",
+            subject_type: Some("gitlab_instance"),
+            subject_id: Some(id.0),
+            detail: Some(serde_json::json!({
+                "name": upd.name,
+                "base_url": upd.base_url,
+                "enabled": upd.enabled,
+                "secret_rotated": secret_rotated,
+            })),
+            ip_address,
+        },
+    )
+    .await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -185,24 +229,35 @@ pub async fn update(
 /// (linked accounts, mirrored projects, deployments). The admin
 /// disables it instead in that case (disabled hides it from login and
 /// blocks new use without losing history).
-pub async fn delete(pool: &MySqlPool, id: GitlabInstanceId) -> Result<(), AppError> {
+pub async fn delete(
+    pool: &MySqlPool,
+    id: GitlabInstanceId,
+    deleted_by: UserId,
+    ip_address: Option<&str>,
+) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT id FROM gitlab_instances WHERE id = ? FOR UPDATE")
+        .bind(id.0)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(AppError::NotFound("GitLab instance not found"))?;
     let accounts = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM gitlab_accounts WHERE gitlab_instance_id = ?",
         id.0
     )
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await?;
     let projects = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM gitlab_projects WHERE gitlab_instance_id = ?",
         id.0
     )
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await?;
     let deployments = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM deployments WHERE gitlab_instance_id = ?",
         id.0
     )
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await?;
     if accounts + projects + deployments > 0 {
         return Err(AppError::BadRequest(format!(
@@ -211,11 +266,25 @@ pub async fn delete(pool: &MySqlPool, id: GitlabInstanceId) -> Result<(), AppErr
         )));
     }
     let result = sqlx::query!("DELETE FROM gitlab_instances WHERE id = ?", id.0)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("GitLab instance not found"));
     }
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(deleted_by),
+            action: "INSTANCE_DELETED",
+            subject_type: Some("gitlab_instance"),
+            subject_id: Some(id.0),
+            detail: None,
+            ip_address,
+        },
+    )
+    .await?;
+    tx.commit().await?;
     Ok(())
 }
 
