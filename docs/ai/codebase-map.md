@@ -44,6 +44,7 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   (pagination caps) → `gitlab/client.rs`; token refresh →
   `gitlab/tokens.rs`; response types → `gitlab/types.rs`
 - Data access → `controller/src/repos/{instances,users,mirror,local_admins,servers}.rs`
+  (`mirror`: race-safe atomic GitLab project/repository/tag upserts)
   (local_admins: argon2id operator accounts; servers: enrollment
   tokens, agent identity, heartbeat, offline sweeper, guarded unused-server
   deletion). Deployment reads, target locking, and external-container adoption

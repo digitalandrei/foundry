@@ -105,6 +105,12 @@ cache, not an ACL.
   expensive fan-out) stays on the lazy full browse. Bounded to a fixed
   number of repos per poll so a user in many projects can't fan out
   unboundedly; the SPA polls gently (~90s) and only while in the app.
+- Project, repository, and tag mirror writes use atomic MariaDB
+  `INSERT ... ON DUPLICATE KEY UPDATE` statements. The initial dashboard
+  project request and the registry-update poll run concurrently, so a
+  SELECT-then-INSERT cache refresh is not safe: both may discover the same
+  first-seen GitLab object at once. Every caller converges on the one row
+  selected by its natural unique key.
 
 ## Image Pulls on GPU Servers
 

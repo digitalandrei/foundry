@@ -455,3 +455,10 @@ reflected in the affected docs in the same commit set:
   warnings and audited keyboard/table navigation were fixed with DOM coverage.
   Prometheus `/metrics` is explicitly documented as pending, not live. Affects
   API, ARCHITECTURE, DEPLOYMENT, TESTING, UI-DESIGN/codebase-map.
+- **2026-07-20** (0.52.0) — **Concurrent GitLab mirror refreshes are
+  race-safe.** The dashboard project list and registry-update poll can fetch
+  the same first-seen project simultaneously; mirror project, repository, and
+  tag writes now use atomic MariaDB upserts and return the stable row selected
+  by each natural unique key. A disposable-MariaDB concurrency regression test
+  covers all three levels. Affects GITLAB-INTEGRATION, DATABASE, TESTING, and
+  codebase-map.

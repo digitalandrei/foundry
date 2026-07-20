@@ -15,55 +15,38 @@ pub async fn upsert_project(
     p: &GitlabProject,
 ) -> Result<GitlabProjectId, AppError> {
     let now = chrono::Utc::now().naive_utc();
-    let existing = sqlx::query_scalar!(
+    let candidate_id = Uuid::now_v7();
+    sqlx::query!(
+        r#"INSERT INTO gitlab_projects
+           (id, gitlab_instance_id, gitlab_project_id, path_with_namespace,
+            name, avatar_url, last_synced_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             path_with_namespace = VALUES(path_with_namespace),
+             name = VALUES(name),
+             avatar_url = VALUES(avatar_url),
+             last_synced_at = VALUES(last_synced_at),
+             updated_at = VALUES(updated_at)"#,
+        candidate_id,
+        instance_id.0,
+        p.id,
+        p.path_with_namespace,
+        p.name,
+        p.avatar_url,
+        now,
+        now,
+        now,
+    )
+    .execute(pool)
+    .await?;
+    let id = sqlx::query_scalar!(
         r#"SELECT id AS "id: Uuid" FROM gitlab_projects
            WHERE gitlab_instance_id = ? AND gitlab_project_id = ?"#,
         instance_id.0,
         p.id,
     )
-    .fetch_optional(pool)
+    .fetch_one(pool)
     .await?;
-
-    let id = match existing {
-        Some(id) => {
-            sqlx::query!(
-                r#"UPDATE gitlab_projects
-                   SET name = ?, path_with_namespace = ?, avatar_url = ?,
-                       last_synced_at = ?, updated_at = ?
-                   WHERE id = ?"#,
-                p.name,
-                p.path_with_namespace,
-                p.avatar_url,
-                now,
-                now,
-                id,
-            )
-            .execute(pool)
-            .await?;
-            id
-        }
-        None => {
-            let id = Uuid::now_v7();
-            sqlx::query!(
-                r#"INSERT INTO gitlab_projects
-                   (id, gitlab_instance_id, gitlab_project_id, path_with_namespace,
-                    name, avatar_url, last_synced_at, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
-                id,
-                instance_id.0,
-                p.id,
-                p.path_with_namespace,
-                p.name,
-                p.avatar_url,
-                now,
-                now,
-                now,
-            )
-            .execute(pool)
-            .await?;
-            id
-        }
-    };
     Ok(id.into())
 }
 
@@ -96,49 +79,34 @@ pub async fn upsert_repository(
     r: &GitlabRegistryRepository,
 ) -> Result<RegistryRepositoryId, AppError> {
     let now = chrono::Utc::now().naive_utc();
-    let existing = sqlx::query_scalar!(
+    let candidate_id = Uuid::now_v7();
+    sqlx::query!(
+        r#"INSERT INTO registry_repositories
+           (id, gitlab_project_id, gitlab_repository_id, path,
+            last_synced_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             path = VALUES(path),
+             last_synced_at = VALUES(last_synced_at),
+             updated_at = VALUES(updated_at)"#,
+        candidate_id,
+        project_id.0,
+        r.id,
+        r.path,
+        now,
+        now,
+        now,
+    )
+    .execute(pool)
+    .await?;
+    let id = sqlx::query_scalar!(
         r#"SELECT id AS "id: Uuid" FROM registry_repositories
            WHERE gitlab_project_id = ? AND gitlab_repository_id = ?"#,
         project_id.0,
         r.id,
     )
-    .fetch_optional(pool)
+    .fetch_one(pool)
     .await?;
-
-    let id = match existing {
-        Some(id) => {
-            sqlx::query!(
-                r#"UPDATE registry_repositories
-                   SET path = ?, last_synced_at = ?, updated_at = ? WHERE id = ?"#,
-                r.path,
-                now,
-                now,
-                id,
-            )
-            .execute(pool)
-            .await?;
-            id
-        }
-        None => {
-            let id = Uuid::now_v7();
-            sqlx::query!(
-                r#"INSERT INTO registry_repositories
-                   (id, gitlab_project_id, gitlab_repository_id, path,
-                    last_synced_at, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)"#,
-                id,
-                project_id.0,
-                r.id,
-                r.path,
-                now,
-                now,
-                now,
-            )
-            .execute(pool)
-            .await?;
-            id
-        }
-    };
     Ok(id.into())
 }
 
@@ -148,50 +116,36 @@ pub async fn upsert_tag(
     t: &GitlabRegistryTagDetail,
 ) -> Result<foundry_shared::RegistryTagId, AppError> {
     let now = chrono::Utc::now().naive_utc();
-    let existing = sqlx::query_scalar!(
+    let candidate_id = Uuid::now_v7();
+    sqlx::query!(
+        r#"INSERT INTO registry_tags
+           (id, registry_repository_id, name, digest, size_bytes, pushed_at,
+            last_synced_at, created_at, updated_at)
+           VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             size_bytes = VALUES(size_bytes),
+             pushed_at = VALUES(pushed_at),
+             last_synced_at = VALUES(last_synced_at),
+             updated_at = VALUES(updated_at)"#,
+        candidate_id,
+        repository_id.0,
+        t.name,
+        t.total_size,
+        t.created_at.map(|d| d.naive_utc()),
+        now,
+        now,
+        now,
+    )
+    .execute(pool)
+    .await?;
+    let id = sqlx::query_scalar!(
         r#"SELECT id AS "id: Uuid" FROM registry_tags
            WHERE registry_repository_id = ? AND name = ?"#,
         repository_id.0,
         t.name,
     )
-    .fetch_optional(pool)
+    .fetch_one(pool)
     .await?;
-    let id = match existing {
-        Some(id) => {
-            sqlx::query!(
-                "UPDATE registry_tags SET size_bytes = ?, pushed_at = ?,
-                     last_synced_at = ?, updated_at = ? WHERE id = ?",
-                t.total_size,
-                t.created_at.map(|d| d.naive_utc()),
-                now,
-                now,
-                id,
-            )
-            .execute(pool)
-            .await?;
-            id
-        }
-        None => {
-            let id = Uuid::now_v7();
-            sqlx::query!(
-                r#"INSERT INTO registry_tags
-                   (id, registry_repository_id, name, digest, size_bytes, pushed_at,
-                    last_synced_at, created_at, updated_at)
-                   VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)"#,
-                id,
-                repository_id.0,
-                t.name,
-                t.total_size,
-                t.created_at.map(|d| d.naive_utc()),
-                now,
-                now,
-                now,
-            )
-            .execute(pool)
-            .await?;
-            id
-        }
-    };
     Ok(id.into())
 }
 

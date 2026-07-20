@@ -56,7 +56,9 @@ Tags per repository. Columns: `id`, `registry_repository_id` FK, `name`,
 
 Per-user authorization is enforced at request time against GitLab (with
 short-lived caching) — these mirror tables exist for browsing speed, not for
-access control.
+access control. Refresh writes are atomic upserts on each table's natural
+unique key, so concurrent project browsing and registry polling converge on
+the same mirror row.
 
 ## Infrastructure
 

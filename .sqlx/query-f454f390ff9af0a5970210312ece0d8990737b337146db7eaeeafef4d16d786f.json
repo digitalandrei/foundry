@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO gitlab_projects\n           (id, gitlab_instance_id, gitlab_project_id, path_with_namespace,\n            name, avatar_url, last_synced_at, created_at, updated_at)\n           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)\n           ON DUPLICATE KEY UPDATE\n             path_with_namespace = VALUES(path_with_namespace),\n             name = VALUES(name),\n             avatar_url = VALUES(avatar_url),\n             last_synced_at = VALUES(last_synced_at),\n             updated_at = VALUES(updated_at)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": []
+  },
+  "hash": "f454f390ff9af0a5970210312ece0d8990737b337146db7eaeeafef4d16d786f"
+}

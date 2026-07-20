@@ -18,8 +18,8 @@ add or tighten one. Don't claim completion without running the relevant set.
   Covered today: migrated health router; atomic deployment reservation/task/
   event/audit success; authoritative external-GPU zero-write rejection;
   repository + database adoption uniqueness; enrollment token/credential/audit
-  consistency; batched fleet output shape; and allowed/blocked guarded server
-  removal.
+  consistency; concurrent GitLab project/repository/tag mirror upserts;
+  batched fleet output shape; and allowed/blocked guarded server removal.
 - HTTP-level tests with `axum`'s `tower::ServiceExt::oneshot` — auth
   required on every `/api` and `/agent` route is itself a test.
 - sqlx note: `query!` macros compile against the live dev DB

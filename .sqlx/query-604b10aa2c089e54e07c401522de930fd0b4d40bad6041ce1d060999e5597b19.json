@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO registry_repositories\n           (id, gitlab_project_id, gitlab_repository_id, path,\n            last_synced_at, created_at, updated_at)\n           VALUES (?, ?, ?, ?, ?, ?, ?)\n           ON DUPLICATE KEY UPDATE\n             path = VALUES(path),\n             last_synced_at = VALUES(last_synced_at),\n             updated_at = VALUES(updated_at)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "604b10aa2c089e54e07c401522de930fd0b4d40bad6041ce1d060999e5597b19"
+}

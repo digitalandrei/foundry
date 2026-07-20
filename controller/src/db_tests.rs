@@ -201,6 +201,96 @@ async fn insert_external_container(pool: &MySqlPool, fixture: &RuntimeFixture, i
 
 #[sqlx::test(migrator = "crate::MIGRATOR")]
 #[ignore = "requires privileged disposable MariaDB; CI runs ignored tests"]
+async fn concurrent_gitlab_mirror_upserts_converge(pool: MySqlPool) {
+    use crate::gitlab::types::{GitlabProject, GitlabRegistryRepository, GitlabRegistryTagDetail};
+
+    let now = chrono::Utc::now().naive_utc();
+    let instance_id = GitlabInstanceId::new();
+    sqlx::query(
+        "INSERT INTO gitlab_instances \
+         (id, name, base_url, registry_url, oauth_client_id, oauth_client_secret, enabled, \
+          created_at, updated_at) \
+         VALUES (?, 'mirror-race', 'https://gitlab.test', 'registry.test', 'client', ?, 1, ?, ?)",
+    )
+    .bind(instance_id.0)
+    .bind(Vec::from("encrypted-test-secret".as_bytes()))
+    .bind(now)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let project = GitlabProject {
+        id: 1,
+        name: "comfyui-blank".into(),
+        path_with_namespace: "templates/comfyui-blank".into(),
+        avatar_url: None,
+    };
+    let project_results = tokio::join!(
+        crate::repos::mirror::upsert_project(&pool, instance_id, &project),
+        crate::repos::mirror::upsert_project(&pool, instance_id, &project),
+        crate::repos::mirror::upsert_project(&pool, instance_id, &project),
+        crate::repos::mirror::upsert_project(&pool, instance_id, &project),
+    );
+    let project_ids = [
+        project_results.0.unwrap(),
+        project_results.1.unwrap(),
+        project_results.2.unwrap(),
+        project_results.3.unwrap(),
+    ];
+    assert!(project_ids.iter().all(|id| *id == project_ids[0]));
+
+    let repository = GitlabRegistryRepository {
+        id: 1,
+        path: "templates/comfyui-blank".into(),
+    };
+    let repository_results = tokio::join!(
+        crate::repos::mirror::upsert_repository(&pool, project_ids[0], &repository),
+        crate::repos::mirror::upsert_repository(&pool, project_ids[0], &repository),
+        crate::repos::mirror::upsert_repository(&pool, project_ids[0], &repository),
+        crate::repos::mirror::upsert_repository(&pool, project_ids[0], &repository),
+    );
+    let repository_ids = [
+        repository_results.0.unwrap(),
+        repository_results.1.unwrap(),
+        repository_results.2.unwrap(),
+        repository_results.3.unwrap(),
+    ];
+    assert!(repository_ids.iter().all(|id| *id == repository_ids[0]));
+
+    let tag = GitlabRegistryTagDetail {
+        name: "latest".into(),
+        total_size: Some(1024),
+        created_at: Some(chrono::Utc::now()),
+    };
+    let tag_results = tokio::join!(
+        crate::repos::mirror::upsert_tag(&pool, repository_ids[0], &tag),
+        crate::repos::mirror::upsert_tag(&pool, repository_ids[0], &tag),
+        crate::repos::mirror::upsert_tag(&pool, repository_ids[0], &tag),
+        crate::repos::mirror::upsert_tag(&pool, repository_ids[0], &tag),
+    );
+    let tag_ids = [
+        tag_results.0.unwrap(),
+        tag_results.1.unwrap(),
+        tag_results.2.unwrap(),
+        tag_results.3.unwrap(),
+    ];
+    assert!(tag_ids.iter().all(|id| *id == tag_ids[0]));
+
+    let counts: (i64, i64, i64) = sqlx::query_as(
+        "SELECT \
+           (SELECT COUNT(*) FROM gitlab_projects) AS projects, \
+           (SELECT COUNT(*) FROM registry_repositories) AS repositories, \
+           (SELECT COUNT(*) FROM registry_tags) AS tags",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(counts, (1, 1, 1));
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+#[ignore = "requires privileged disposable MariaDB; CI runs ignored tests"]
 async fn health_router_reports_migrated_database(pool: MySqlPool) {
     let app = crate::routes::router(state(pool));
     let response = app
