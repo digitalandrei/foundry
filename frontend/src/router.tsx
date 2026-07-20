@@ -37,6 +37,9 @@ const SettingsPage = lazy(() =>
 const TelemetryPage = lazy(() =>
   import("@/pages/telemetry").then((m) => ({ default: m.TelemetryPage })),
 )
+const StoragePage = lazy(() =>
+  import("@/pages/storage").then((m) => ({ default: m.StoragePage })),
+)
 
 function RootRoute() {
   return (
@@ -89,6 +92,7 @@ const routeTree = rootRoute.addChildren([
       component: ServerDetailPage,
     }),
     createRoute({ getParentRoute: () => appLayout, path: "/telemetry", component: TelemetryPage }),
+    createRoute({ getParentRoute: () => appLayout, path: "/storage", component: StoragePage }),
     createRoute({ getParentRoute: () => appLayout, path: "/audit", component: AuditPage }),
     createRoute({ getParentRoute: () => appLayout, path: "/settings", component: SettingsPage }),
     createRoute({

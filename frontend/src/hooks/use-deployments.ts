@@ -63,11 +63,46 @@ export function useImageMetadata(tagId: string | null) {
 }
 
 /** Volumes the requester may mount on a server (deploy dialog reuse). */
-export function useServerVolumes(serverId: string | null) {
+export function useServerVolumes(
+  serverId: string | null,
+  projectId: string | null,
+  target?: { slotId?: string; groupId?: string },
+) {
+  const targetKey = target?.slotId ? `slot:${target.slotId}` : target?.groupId ? `group:${target.groupId}` : "all"
+  const query = new URLSearchParams()
+  if (projectId) query.set("project_id", projectId)
+  if (target?.slotId) query.set("slot_id", target.slotId)
+  if (target?.groupId) query.set("gpu_group_id", target.groupId)
   return useQuery({
-    queryKey: queryKeys.serverVolumes(serverId ?? ""),
-    queryFn: () => api<ServerVolume[]>(`/api/servers/${serverId}/volumes`),
-    enabled: serverId !== null,
+    queryKey: queryKeys.serverVolumes(serverId ?? "", projectId ?? "", targetKey),
+    queryFn: () => api<ServerVolume[]>(`/api/servers/${serverId}/volumes?${query}`),
+    enabled: serverId !== null && projectId !== null,
+  })
+}
+
+export function useCleanVolume() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      api<void>(`/api/volumes/${id}/clean`, { method: "POST" }),
+    onSuccess: () => {
+      toast.success("Volume clean queued")
+      queryClient.invalidateQueries({ queryKey: ["servers"] })
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Clean failed"),
+  })
+}
+
+export function useDeleteVolume() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      api<void>(`/api/volumes/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      toast.success("Volume deletion queued")
+      queryClient.invalidateQueries({ queryKey: ["servers"] })
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Delete failed"),
   })
 }
 

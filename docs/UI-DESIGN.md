@@ -11,7 +11,7 @@ approved dashboard mockup (dark mode). Code-level rules live in
 
 ## Pages
 
-Top navigation: **Dashboard · Deployments · Servers · Telemetry · Audit Logs · Settings**
+Top navigation: **Dashboard · Deployments · Servers · Storage · Telemetry · Audit Logs · Settings**
 (+ notification bell, help, user menu with avatar at top right).
 GitLab browsing (the spec's "Projects" and "Registry" pages) lives in the
 persistent left sidebar rather than separate pages.
@@ -23,7 +23,7 @@ help, theme, and user controls stay on the bar. The app shell is
 `overflow-x-clip` so no wide child (table, grid, console) can drag the
 whole page sideways; wide content scrolls inside its own box.
 
-Routes are lazy-loaded behind one named, live-region loading state so the ten
+Routes are lazy-loaded behind one named, live-region loading state so the eleven
 pages do not inflate the initial application chunk. Any occupied GPU/group
 surface that opens a deployment is focusable, has an accessible name, and
 activates with Enter or Space as well as pointer input; its drop-only free
@@ -225,10 +225,17 @@ mockup — final token mapping fixed when the palette lands in Phase 8).
   lifecycle timeline (`deployment_events`) and logs comes with
   Phase 7/8. The deploy dialog (drag-drop) collects name, multi-port
   rows (TCP/UDP now), env rows with secret toggle, and persistent
-  volume mounts with reuse suggestions. Opening it inspects the image:
+  volume mounts with an explicit existing-volume picker, PRIVATE/PROJECT
+  visibility, SLOT/SERVER placement, read-only and purge-on-redeploy
+  controls. Opening it inspects the image:
   EXPOSE ports and persistent mounts declared by Docker `VOLUME` or the
   Foundry volume-default label are prefilled once, remain editable, and do
   not overwrite input the operator has already changed.
+- **Storage** (live since 0.54.0): select a GitLab project and local server,
+  then inspect every accessible volume's visibility, placement, creator and
+  active attachments. Creator/admin actions are type-to-confirm: **Clean**
+  irreversibly wipes contents but retains identity; **Delete** wipes both.
+  Mounted volumes disable both actions.
 - **Servers** (live since 0.2.0): table with status dot (same color
   tokens), hostname/OS/agent version/last heartbeat; admin "Add
   server" dialog → names the server, shows the one-time registration

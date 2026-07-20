@@ -1,0 +1,186 @@
+import { useState } from "react"
+import { DatabaseIcon, EraserIcon, Trash2Icon } from "lucide-react"
+
+import { useConfirm } from "@/components/confirm-context"
+import { EmptyState } from "@/components/empty-state"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
+  useCleanVolume,
+  useDeleteVolume,
+  useServerVolumes,
+} from "@/hooks/use-deployments"
+import { useProjects } from "@/hooks/use-projects"
+import { useServers } from "@/hooks/use-servers"
+import type { ServerVolume } from "@/lib/types"
+
+export function StoragePage() {
+  const projects = useProjects()
+  const servers = useServers()
+  const [projectId, setProjectId] = useState<string | null>(null)
+  const [serverId, setServerId] = useState<string | null>(null)
+  const selectedProjectId = projectId ?? projects.data?.[0]?.id ?? null
+  const selectedServerId = serverId ?? servers.data?.[0]?.id ?? null
+  const volumes = useServerVolumes(selectedServerId, selectedProjectId)
+
+  return (
+    <Card>
+      <CardHeader className="gap-3">
+        <CardTitle className="text-base">Persistent Storage</CardTitle>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Select value={selectedProjectId ?? ""} onValueChange={setProjectId}>
+            <SelectTrigger aria-label="GitLab project">
+              <SelectValue placeholder="Choose a project" />
+            </SelectTrigger>
+            <SelectContent>
+              {(projects.data ?? []).map((project) => (
+                <SelectItem key={project.id} value={project.id}>
+                  {project.path_with_namespace}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={selectedServerId ?? ""} onValueChange={setServerId}>
+            <SelectTrigger aria-label="Server">
+              <SelectValue placeholder="Choose a server" />
+            </SelectTrigger>
+            <SelectContent>
+              {(servers.data ?? []).map((server) => (
+                <SelectItem key={server.id} value={server.id}>
+                  {server.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Project-shared volumes are reusable by current GitLab project members. Private volumes
+          are reusable only by their creator. Clean keeps the volume identity; delete removes it.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {projects.isPending || servers.isPending || volumes.isPending ? (
+          <div className="space-y-2">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : projects.isError || servers.isError || volumes.isError ? (
+          <EmptyState icon={DatabaseIcon} title="Could not load persistent storage" />
+        ) : !selectedProjectId || !selectedServerId ? (
+          <EmptyState
+            icon={DatabaseIcon}
+            title="Choose a project and server"
+            description="Storage is local to one server and always belongs to one GitLab project."
+          />
+        ) : volumes.data.length === 0 ? (
+          <EmptyState
+            icon={DatabaseIcon}
+            title="No volumes in this scope"
+            description="Deploy an image with a persistent mount to create the first one."
+          />
+        ) : (
+          <VolumeTable volumes={volumes.data} />
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function VolumeTable({ volumes }: { volumes: ServerVolume[] }) {
+  const clean = useCleanVolume()
+  const remove = useDeleteVolume()
+  const confirm = useConfirm()
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Name</TableHead>
+          <TableHead>Visibility</TableHead>
+          <TableHead>Placement</TableHead>
+          <TableHead>Creator</TableHead>
+          <TableHead>Attached to</TableHead>
+          <TableHead className="text-right">Actions</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {volumes.map((volume) => {
+          const attached = volume.attached_to.length > 0
+          return (
+            <TableRow key={volume.id}>
+              <TableCell className="font-medium">{volume.name}</TableCell>
+              <TableCell>{volume.visibility === "PROJECT" ? "Project" : "Private"}</TableCell>
+              <TableCell>
+                {volume.placement === "SERVER"
+                  ? "Server"
+                  : `Slot ${volume.slot_name ?? "unknown"}`}
+              </TableCell>
+              <TableCell>{volume.created_by_name}</TableCell>
+              <TableCell className="text-muted-foreground">
+                {attached ? volume.attached_to.join(", ") : "Not attached"}
+              </TableCell>
+              <TableCell className="text-right">
+                <div className="flex justify-end gap-1.5">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!volume.can_manage || attached || clean.isPending}
+                    onClick={async () => {
+                      const accepted = await confirm({
+                        title: `Clean ${volume.name}?`,
+                        description:
+                          "This irreversibly removes every file but keeps the volume available for reuse.",
+                        confirmLabel: "CLEAN VOLUME",
+                        destructive: true,
+                        requireConfirmText: volume.name,
+                      })
+                      if (accepted) clean.mutate(volume.id)
+                    }}
+                  >
+                    <EraserIcon className="size-3.5" aria-hidden />
+                    Clean
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    aria-label={`Delete volume ${volume.name}`}
+                    disabled={!volume.can_manage || attached || remove.isPending}
+                    onClick={async () => {
+                      const accepted = await confirm({
+                        title: `Delete ${volume.name}?`,
+                        description:
+                          "This irreversibly removes the volume identity and all of its files.",
+                        confirmLabel: "DELETE VOLUME",
+                        destructive: true,
+                        requireConfirmText: volume.name,
+                      })
+                      if (accepted) remove.mutate(volume.id)
+                    }}
+                  >
+                    <Trash2Icon className="size-3.5" aria-hidden />
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          )
+        })}
+      </TableBody>
+    </Table>
+  )
+}

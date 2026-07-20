@@ -17,6 +17,7 @@ import {
 import { useMe } from "@/hooks/use-auth"
 import {
   useCreateDeployment,
+  useDeploymentDetail,
   useImageMetadata,
   useReplaceDeployment,
   useServerVolumes,
@@ -67,10 +68,14 @@ export function DeployDialog({
   const replace = useReplaceDeployment()
   const serverId = target?.slot?.serverId ?? target?.group?.serverId ?? null
   const serverName = target?.slot?.serverName ?? target?.group?.serverName ?? ""
-  const volumes = useServerVolumes(serverId)
   const me = useMe()
   const appsDomain = me.data?.apps_domain ?? null
   const discovered = useImageMetadata(target?.tag.registryTagId ?? null)
+  const replacingDetail = useDeploymentDetail(target?.replaces?.id ?? null)
+  const volumes = useServerVolumes(serverId, discovered.data?.project_id ?? null, {
+    slotId: target?.slot?.slotId,
+    groupId: target?.group?.id,
+  })
 
   const form = useForm<DeploymentFormValues>({
     resolver: zodResolver(deploymentFormSchema),
@@ -114,9 +119,20 @@ export function DeployDialog({
       prefilled.current = prefillKey
       return
     }
-    if (discovered.isPending) return
+    if (discovered.isPending || (target?.replaces && replacingDetail.isPending)) return
     const discoveredVolumes = discovered.data?.volumes ?? []
     if (target?.replaces) {
+      const retainedVolumes = (replacingDetail.data?.mounts ?? [])
+        .filter((mount) => mount.volume_name !== null)
+        .map((mount) => ({
+          volume_id: mount.volume_id,
+          volume_name: mount.volume_name!,
+          container_path: mount.container_path,
+          read_only: mount.read_only,
+          visibility: mount.visibility ?? "PRIVATE" as const,
+          placement: mount.placement ?? "SLOT" as const,
+          purge_on_redeploy: mount.purge_on_redeploy,
+        }))
       form.reset({
         name: target.replaces.name,
         ports: target.replaces.ports.map((port) => ({
@@ -125,7 +141,7 @@ export function DeployDialog({
           host_port: "",
         })),
         env: [],
-        volumes: discoveredVolumes,
+        volumes: retainedVolumes.length > 0 ? retainedVolumes : discoveredVolumes,
         mem_limit_gb: MEM_UNLIMITED_GB,
       })
       prefilled.current = prefillKey
@@ -144,7 +160,17 @@ export function DeployDialog({
       mem_limit_gb: MEM_UNLIMITED_GB,
     })
     prefilled.current = prefillKey
-  }, [prefillKey, target, discovered.isPending, discovered.data, appsDomain, isDirty, form])
+  }, [
+    prefillKey,
+    target,
+    discovered.isPending,
+    discovered.data,
+    replacingDetail.isPending,
+    replacingDetail.data,
+    appsDomain,
+    isDirty,
+    form,
+  ])
 
   if (!target) return null
   const pending = create.isPending || replace.isPending
@@ -234,7 +260,7 @@ export function DeployDialog({
               discoveredPorts={discovered.data?.ports}
               discoveredVolumeCount={discovered.data?.volumes.length ?? 0}
               discoverySucceeded={discovered.isSuccess}
-              volumeNames={(volumes.data ?? []).map((volume) => volume.name)}
+              availableVolumes={volumes.data ?? []}
             />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose} disabled={pending}>

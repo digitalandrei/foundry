@@ -1,17 +1,17 @@
 //! `/api/deployments` — create (drag-drop), list, lifecycle actions,
-//! replacement (docs/API.md; plans/phase-06.md). Plus per-server
-//! persistent volumes.
+//! replacement (docs/API.md; plans/phase-06.md).
 
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::Json;
-use foundry_shared::dto::{CreateDeploymentRequest, DeployTarget, DeploymentSummary, ServerVolume};
-use foundry_shared::{DeploymentId, DeploymentState, ServerId, ServerVolumeId, TaskType};
+use foundry_shared::dto::{CreateDeploymentRequest, DeployTarget, DeploymentSummary};
+use foundry_shared::{DeploymentId, DeploymentState, TaskType};
 
 use crate::auth::client_ip;
 use crate::auth::session::CurrentUser;
 use crate::error::AppError;
-use crate::repos::{deployments, mirror, tasks, users, volumes};
+use crate::gitlab::access::authorize_project;
+use crate::repos::{deployments, mirror, tasks};
 use crate::state::AppState;
 
 /// Strip the scheme off a registry URL for image references
@@ -37,18 +37,7 @@ pub async fn create(
         tag.tag_name
     );
 
-    // Authorization stays personal: the deployer needs a GitLab account
-    // on the image's instance (the pull token is minted from THEIR token
-    // at dispatch). is_admin governs Foundry-operational actions only and
-    // never grants deploy — a local operator account with no GitLab
-    // identity cannot deploy (docs/SECURITY.md § Authorization).
-    let has_account = users::account_tokens(&state.pool, &state.secrets, user.id)
-        .await?
-        .iter()
-        .any(|a| a.instance_id == tag.instance_id);
-    if !has_account {
-        return Err(AppError::Forbidden);
-    }
+    authorize_project(&state, user.id, tag.instance_id, tag.gitlab_project_id).await?;
 
     let new = deployments::create(
         &state.pool,
@@ -56,6 +45,7 @@ pub async fn create(
         &req,
         &image_ref,
         tag.instance_id,
+        tag.project_id,
         user.id,
         None,
         state.apps_domain.as_deref(),
@@ -208,11 +198,6 @@ pub async fn replace(
     Json(mut req): Json<CreateDeploymentRequest>,
 ) -> Result<Json<DeploymentSummary>, AppError> {
     let old = deployments::get(&state.pool, old_id).await?;
-    // Lifecycle control is owner/admin-only (fleet *visibility* stays
-    // org-wide by design — docs/SECURITY.md).
-    if old.created_by != user.id && !user.is_admin {
-        return Err(AppError::Forbidden);
-    }
     // The successor re-locks exactly what the outgoing deployment held —
     // the same group (re-locks every member GPU) or the same single slot.
     req.target = match old.gpu_group_id {
@@ -229,12 +214,11 @@ pub async fn replace(
         tag.repo_path,
         tag.tag_name
     );
-    // Same personal-account gate as create: is_admin never grants deploy.
-    let has_account = users::account_tokens(&state.pool, &state.secrets, user.id)
-        .await?
-        .iter()
-        .any(|a| a.instance_id == tag.instance_id);
-    if !has_account {
+    authorize_project(&state, user.id, tag.instance_id, tag.gitlab_project_id).await?;
+    // Creator/admin may replace with another accessible project. A
+    // collaborator may replace only within the deployment's own project;
+    // the live check above proves current GitLab membership.
+    if old.created_by != user.id && !user.is_admin && old.project_id != Some(tag.project_id) {
         return Err(AppError::Forbidden);
     }
 
@@ -246,6 +230,7 @@ pub async fn replace(
         &req,
         &image_ref,
         tag.instance_id,
+        tag.project_id,
         user.id,
         Some(old_id),
         state.apps_domain.as_deref(),
@@ -254,42 +239,4 @@ pub async fn replace(
     .await?;
 
     summary_of(&state, new.id).await.map(Json)
-}
-
-// ── Persistent volumes ──────────────────────────────────────────────
-
-pub async fn list_volumes(
-    State(state): State<AppState>,
-    user: CurrentUser,
-    Path(server_id): Path<ServerId>,
-) -> Result<Json<Vec<ServerVolume>>, AppError> {
-    let scope = if user.is_admin { None } else { Some(user.id) };
-    Ok(Json(volumes::list(&state.pool, server_id, scope).await?))
-}
-
-/// Delete a volume AND its data (explicit, irreversible). Creator or
-/// admin only; refused while any active deployment mounts it.
-pub async fn delete_volume(
-    State(state): State<AppState>,
-    user: CurrentUser,
-    headers: HeaderMap,
-    Path(volume_id): Path<ServerVolumeId>,
-) -> Result<axum::http::StatusCode, AppError> {
-    let vol = volumes::get(&state.pool, volume_id).await?;
-    if vol.created_by != user.id && !user.is_admin {
-        return Err(AppError::Forbidden);
-    }
-    // Attached-check + task + row delete in ONE transaction (review
-    // finding: TOCTOU vs a concurrent deploy mounting it).
-    volumes::delete_guarded(
-        &state.pool,
-        volume_id,
-        vol.server_id,
-        &vol.path,
-        &vol.name,
-        user.id,
-        client_ip(&headers).as_deref(),
-    )
-    .await?;
-    Ok(axum::http::StatusCode::NO_CONTENT)
 }

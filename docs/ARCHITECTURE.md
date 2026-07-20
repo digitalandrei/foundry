@@ -260,9 +260,15 @@ When a user drags an image onto an **occupied** slot:
 
 1. UI shows the current deployment and a replacement confirmation dialog.
 2. User chooses Cancel or Replace.
-3. Replace executes in order: stop old → remove old → pull new → start new.
+3. Replace executes in order: stop old → remove old → purge any successor
+   mounts marked `purge_on_redeploy` → pull new → start new.
    The old deployment ends in state `REPLACED`; the new one follows the normal
    lifecycle. Both are linked in the audit trail.
+
+The creator/admin may replace with any image they can read. A different
+current GitLab member may replace only when the old and successor images
+belong to the same project; this is resolved live against GitLab, never from
+the mirror cache. Project-shared mount IDs then carry across the replacement.
 
 ## Container Labels
 
@@ -316,20 +322,35 @@ The controller enqueues typed tasks; the agent polls and executes:
 | `RESTART_CONTAINER` | Restart (running) / start (stopped) an existing managed container. Not used by the user-facing restart action, which re-deploys (see Deployment Lifecycle); retained as an executor for any directly-enqueued restart |
 | `REMOVE_CONTAINER` | Remove a managed container and reclaim its image (best-effort; persistent volumes survive) |
 | `REMOVE_VOLUME` | Delete a persistent volume directory (amendment: persistent storage; hard-scoped under `/storage/containers/`) |
+| `PURGE_VOLUMES` | Delete and recreate an ordered batch of persistent directories before redeploy, or clean one detached volume explicitly |
 | `REFRESH_INVENTORY` | Re-enumerate GPUs/MIG slots/containers and upload |
 | `UPLOAD_LOGS` | (Reserved task type.) Log capture ships on a periodic **push** loop, not the task queue — see Container logs below |
 
 ### Persistent storage (amendment, Phase 6 — operator requirement)
 
-Users can mount named persistent volumes into containers. Volumes are
-per-server, **per-user namespaced** host directories at
-`/storage/containers/<owner>/<name>`, created on first use at deploy
-time, and independent of any deployment's lifecycle: removing a
-container keeps the data, and the same volume can be mounted into a
-later container (including the successor in a replacement). Deletion
-is explicit (UI/API), refused while any active deployment mounts the
-volume, and wipes the directory via `REMOVE_VOLUME`. Users see and
-mount only their own volumes; admins see all.
+Users can mount named local persistent volumes into containers. Every volume
+belongs to one GitLab project and has two orthogonal policy axes:
+
+- visibility `PRIVATE` (creator only) or `PROJECT` (any current project
+  member);
+- placement `SLOT` (the target's primary physical slot) or `SERVER` (any
+  slot on that server).
+
+The canonical identity is project + visibility scope + placement + logical
+name. New host directories use opaque IDs at
+`/storage/containers/volumes/<volume-uuid>`; the logical name never controls
+the host path. Data is server-local and independent of deployment lifecycle:
+container removal keeps it, and a permitted later deployment can select the
+exact volume ID or deterministically reuse its policy key. GitLab membership
+is checked live before listing/mounting project storage.
+
+Creator/admin may explicitly **clean** a detached volume (purge contents,
+retain identity) or **delete** it (purge contents and identity); both are
+refused while an active deployment references it and are audited. Each
+deployment binding may also opt into `purge_on_redeploy`; restart and
+replacement insert one atomic `PURGE_VOLUMES` agent task before
+`DEPLOY_CONTAINER`. Application-level shared-file coordination is the
+workload's responsibility.
 
 Results are reported to `/agent/tasks/result`; the controller advances the
 deployment state machine accordingly. Task execution must be idempotent —
@@ -420,9 +441,9 @@ The deploy dialog pre-fills ports and persistent mounts from image metadata
 (controller reads the selected linux/amd64 manifest + config blob — API.md
 § `metadata`). Standard Docker `VOLUME` paths get deterministic suggested
 names; the optional `ai.protv.foundry.volumes` JSON label supplies explicit
-`VolumeSpec` defaults for templates that must avoid anonymous Docker
-volumes. Rows remain editable. Discovery is best-effort metadata, never a
-deployment gate.
+`VolumeSpec` defaults (including visibility, placement and purge policy) for
+templates that must avoid anonymous Docker volumes. Rows remain editable.
+Discovery is best-effort metadata, never a deployment gate.
 
 Readiness is reported, not assumed (0.13.0; granular in 0.16.0;
 version + cert checks in 0.17.0): each inventory snapshot carries

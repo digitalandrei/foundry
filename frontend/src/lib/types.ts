@@ -87,6 +87,7 @@ export interface ExposedPort {
 }
 
 export interface ImageMetadataResponse {
+  project_id: string | null
   ports: ExposedPort[]
   volumes: VolumeSpec[]
   /** Compressed layer size from the selected manifest. */
@@ -288,10 +289,17 @@ export interface EnvSpec {
 }
 
 export interface VolumeSpec {
+  volume_id?: string | null
   volume_name: string
   container_path: string
   read_only: boolean
+  visibility: VolumeVisibility
+  placement: VolumePlacement
+  purge_on_redeploy: boolean
 }
+
+export type VolumeVisibility = "PRIVATE" | "PROJECT"
+export type VolumePlacement = "SLOT" | "SERVER"
 
 /** Where a deployment lands — exactly one of a slot or a group. */
 export type DeployTarget =
@@ -351,10 +359,14 @@ export interface DeploymentSummary {
 
 export interface DeploymentMount {
   /** null when the backing persistent volume was deleted later. */
+  volume_id: string | null
   volume_name: string | null
   host_path: string
   container_path: string
   read_only: boolean
+  visibility: VolumeVisibility | null
+  placement: VolumePlacement | null
+  purge_on_redeploy: boolean
 }
 
 export interface DeploymentEnvKey {
@@ -392,7 +404,14 @@ export interface ServerVolume {
   id: string
   name: string
   path: string
+  project_id: string | null
+  project_name: string | null
+  visibility: VolumeVisibility
+  placement: VolumePlacement
+  slot_id: string | null
+  slot_name: string | null
   created_by_name: string
+  can_manage: boolean
   attached_to: string[]
   created_at: string
 }

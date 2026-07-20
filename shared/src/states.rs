@@ -103,15 +103,46 @@ str_enum! {
 
 str_enum! {
     /// Work items agents poll for (`docs/ARCHITECTURE.md` § Agent Tasks).
-    /// REMOVE_VOLUME is an amendment (persistent storage, Phase 6).
+    /// REMOVE_VOLUME/PURGE_VOLUMES are persistent-storage amendments.
     pub enum TaskType {
         DeployContainer => "DEPLOY_CONTAINER",
         StopContainer => "STOP_CONTAINER",
         RestartContainer => "RESTART_CONTAINER",
         RemoveContainer => "REMOVE_CONTAINER",
         RemoveVolume => "REMOVE_VOLUME",
+        PurgeVolumes => "PURGE_VOLUMES",
         RefreshInventory => "REFRESH_INVENTORY",
         UploadLogs => "UPLOAD_LOGS",
+    }
+}
+
+str_enum! {
+    /// Who may reuse a persistent volume inside its GitLab project.
+    pub enum VolumeVisibility {
+        Private => "PRIVATE",
+        Project => "PROJECT",
+    }
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for VolumeVisibility {
+    fn default() -> Self {
+        Self::Private
+    }
+}
+
+str_enum! {
+    /// Where a persistent volume may be mounted on its server.
+    pub enum VolumePlacement {
+        Slot => "SLOT",
+        Server => "SERVER",
+    }
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for VolumePlacement {
+    fn default() -> Self {
+        Self::Slot
     }
 }
 
@@ -219,7 +250,9 @@ mod tests {
         TaskState,
         ServerStatus,
         ActorType,
-        PortKind
+        PortKind,
+        VolumeVisibility,
+        VolumePlacement
     );
 
     #[test]
@@ -232,6 +265,8 @@ mod tests {
         round_trip::<ServerStatus>();
         round_trip::<ActorType>();
         round_trip::<PortKind>();
+        round_trip::<VolumeVisibility>();
+        round_trip::<VolumePlacement>();
     }
 
     #[test]
@@ -249,5 +284,7 @@ mod tests {
         assert_unique::<TaskState>();
         assert_unique::<ServerStatus>();
         assert_unique::<ActorType>();
+        assert_unique::<VolumeVisibility>();
+        assert_unique::<VolumePlacement>();
     }
 }

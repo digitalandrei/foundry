@@ -1,0 +1,34 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT server_volume_id AS \"volume_id!: Uuid\", host_path\n           FROM deployment_volumes\n           WHERE deployment_id = ? AND purge_on_redeploy = 1\n             AND server_volume_id IS NOT NULL\n           ORDER BY container_path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "volume_id!: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "MULTIPLE_KEY | BINARY",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "host_path",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 4096
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "fa2dc9161088696c466397b4fcc7223e039f6a6649ace54a29558cbf908e80b8"
+}

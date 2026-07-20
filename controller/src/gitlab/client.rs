@@ -84,6 +84,13 @@ impl GitlabApi<'_> {
             .await
     }
 
+    /// Resolve one project through GitLab. Success is the live
+    /// membership/visibility authorization check for scoped resources.
+    pub async fn project(&self, project_id: i64) -> Result<GitlabProject, AppError> {
+        let url = format!("{}/api/v4/projects/{project_id}", self.base_url);
+        Ok(self.get_json(&url).await?.0)
+    }
+
     /// Registry repositories of one project.
     pub async fn registry_repositories(
         &self,

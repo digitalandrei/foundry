@@ -1,8 +1,10 @@
 # Phase 6 — Deployments (Lifecycle & Replacement)
 
 **Status:** ✅ Done — full lifecycle (deploy/stop/restart/remove),
-replacement chain, TCP/UDP port publishing per the design below, per-user
-persistent volumes (`/storage/containers/<owner>/<name>`, REMOVE_VOLUME
+replacement chain, TCP/UDP port publishing per the design below, persistent
+volumes (originally per-user paths; superseded by 0.54.0 project visibility +
+slot/server placement with opaque `/storage/containers/volumes/<uuid>` paths,
+REMOVE_VOLUME
 task), pull-token mint at dispatch (variant 1 with variant-2 fallback),
 container-crash reconcile, dnd-kit drag-drop with the per-port-kind dialog —
 all live on real GPU servers. The original "Remaining" items shipped:

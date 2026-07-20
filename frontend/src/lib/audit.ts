@@ -19,6 +19,7 @@ const KNOWN: Record<string, AuditActionMeta> = {
   DEPLOYMENT_REPLACED: { label: "Deployment replaced", variant: "default" },
   DEPLOYMENT_DISMISSED: { label: "Deployment dismissed", variant: "destructive" },
   VOLUME_DELETED: { label: "Volume deleted", variant: "destructive" },
+  VOLUME_CLEAN_REQUESTED: { label: "Volume clean requested", variant: "destructive" },
   AGENT_ENROLLED: { label: "Agent enrolled", variant: "default" },
   SERVER_CREATED: { label: "Server created", variant: "default" },
   ENROLLMENT_TOKEN_CREATED: { label: "Enrollment token minted", variant: "secondary" },

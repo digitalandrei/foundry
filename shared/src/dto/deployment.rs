@@ -4,7 +4,10 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{DeploymentState, GpuGroupId, PortKind, RegistryTagId, ServerId, SlotId};
+use crate::{
+    DeploymentState, GitlabProjectId, GpuGroupId, PortKind, RegistryTagId, ServerId,
+    ServerVolumeId, SlotId, VolumePlacement, VolumeVisibility,
+};
 
 /// Docker memory-cap slider bounds (MB). Operator request (2026-06-16):
 /// min 32 GB, max 256 GB, or unlimited (the default — `None`). When a
@@ -32,15 +35,25 @@ pub struct EnvSpec {
     pub is_secret: bool,
 }
 
-/// Persistent storage mount: create-or-reuse the named per-server
-/// volume at `/storage/containers/<volume_name>` and bind it at
-/// `container_path`. Volumes outlive deployments; deletion is explicit.
+/// Persistent storage mount. `volume_id` explicitly reuses an accessible
+/// existing volume; otherwise Foundry creates or reuses the canonical
+/// project/scope/placement/name volume. Volumes outlive deployments.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VolumeSpec {
+    #[serde(default)]
+    pub volume_id: Option<ServerVolumeId>,
     pub volume_name: String,
     pub container_path: String,
     #[serde(default)]
     pub read_only: bool,
+    #[serde(default)]
+    pub visibility: VolumeVisibility,
+    #[serde(default)]
+    pub placement: VolumePlacement,
+    /// Remove all contents immediately before this deployment is
+    /// recreated (restart or replacement), then recreate the directory.
+    #[serde(default)]
+    pub purge_on_redeploy: bool,
 }
 
 /// Where a deployment lands: a single slot (individual deploy, honours
@@ -76,10 +89,20 @@ pub struct CreateDeploymentRequest {
 /// `GET /api/servers/{id}/volumes`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerVolume {
-    pub id: crate::ServerVolumeId,
+    pub id: ServerVolumeId,
     pub name: String,
     pub path: String,
+    /// None only for an unattached pre-scope migration volume.
+    pub project_id: Option<GitlabProjectId>,
+    pub project_name: Option<String>,
+    pub visibility: VolumeVisibility,
+    pub placement: VolumePlacement,
+    pub slot_id: Option<SlotId>,
+    pub slot_name: Option<String>,
     pub created_by_name: String,
+    /// Creator/admin may clean or delete. Project membership grants reuse,
+    /// not destructive management.
+    pub can_manage: bool,
     /// Names of active deployments currently mounting it (empty →
     /// deletable).
     pub attached_to: Vec<String>,
@@ -149,10 +172,14 @@ pub struct DeploymentDetail {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeploymentMount {
     /// None when the backing persistent volume was deleted later.
+    pub volume_id: Option<ServerVolumeId>,
     pub volume_name: Option<String>,
     pub host_path: String,
     pub container_path: String,
     pub read_only: bool,
+    pub visibility: Option<VolumeVisibility>,
+    pub placement: Option<VolumePlacement>,
+    pub purge_on_redeploy: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

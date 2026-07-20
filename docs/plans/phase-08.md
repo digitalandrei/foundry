@@ -1,7 +1,7 @@
 # Phase 8 — UI (Full Dashboard, Dark + Light)
 
 **Status:** 🔶 In progress — functional UI shipped incrementally across
-earlier phases (10 pages, slot grid, deployment-detail page, fleet Telemetry
+earlier phases (11 pages, slot grid, deployment-detail page, Storage, fleet Telemetry
 tab, query-backed Audit table). Remaining: the formal polish pass below —
 light-mode-complete sweep, accessibility/keyboard-dnd, and
 empty/loading/error states everywhere.

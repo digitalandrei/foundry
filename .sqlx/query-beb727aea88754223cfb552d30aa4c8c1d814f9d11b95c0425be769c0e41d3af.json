@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO deployment_volumes\n                   (id, deployment_id, server_volume_id, host_path, container_path,\n                    read_only, purge_on_redeploy, created_at)\n                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "beb727aea88754223cfb552d30aa4c8c1d814f9d11b95c0425be769c0e41d3af"
+}

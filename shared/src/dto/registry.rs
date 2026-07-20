@@ -36,6 +36,9 @@ pub struct RegistryTag {
 /// error — image metadata is advisory and remains editable in the UI.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ImageMetadataResponse {
+    /// Owning mirror project. Always populated by the route even when
+    /// config-blob discovery degrades to empty defaults.
+    pub project_id: Option<GitlabProjectId>,
     pub ports: Vec<ExposedPort>,
     /// Persistent mounts declared by Docker `VOLUME` and/or Foundry's
     /// richer `ai.protv.foundry.volumes` image label.

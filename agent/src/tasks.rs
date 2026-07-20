@@ -14,7 +14,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use foundry_shared::dto::{
     ContainerTarget, DeployPayload, RegistryAuth, TaskEnvelope, TaskPayload, TaskProgressReport,
-    TaskResultReport, VolumeTarget,
+    TaskResultReport, VolumeBatchTarget, VolumeTarget,
 };
 use foundry_shared::{DeploymentState, TaskId, TaskType};
 
@@ -209,6 +209,9 @@ async fn execute(
             remove(engine, t).await.map(|_| None)
         }
         (TaskType::RemoveVolume, TaskPayload::Volume(v)) => remove_volume(v).await.map(|_| None),
+        (TaskType::PurgeVolumes, TaskPayload::VolumeBatch(v)) => {
+            purge_volumes(v).await.map(|_| None)
+        }
         (tt, _) => Err(format!("unsupported task/payload combination: {tt}")),
     };
     match outcome {
@@ -527,6 +530,16 @@ async fn remove_volume(v: VolumeTarget) -> Result<(), String> {
     }
 }
 
+async fn purge_volumes(batch: VolumeBatchTarget) -> Result<(), String> {
+    for volume in batch.volumes {
+        remove_volume(volume.clone()).await?;
+        tokio::fs::create_dir_all(&volume.path)
+            .await
+            .map_err(|e| format!("volume recreation failed for {}: {e}", volume.path))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -697,5 +710,18 @@ mod tests {
         };
         // No matching container — still a success.
         stop(&engine, t).await.expect("idempotent stop");
+    }
+
+    #[tokio::test]
+    async fn purge_refuses_every_path_outside_volume_root() {
+        let error = purge_volumes(VolumeBatchTarget {
+            volumes: vec![VolumeTarget {
+                volume_id: foundry_shared::ServerVolumeId::new(),
+                path: "/tmp/not-a-foundry-volume".into(),
+            }],
+        })
+        .await
+        .expect_err("outside path must be rejected");
+        assert!(error.contains("outside /storage/containers/"));
     }
 }

@@ -16,19 +16,24 @@ pub struct DeploymentRow {
     pub slot_id: SlotId,
     pub gpu_group_id: Option<GpuGroupId>,
     pub instance_id: Option<foundry_shared::GitlabInstanceId>,
+    pub project_id: Option<foundry_shared::GitlabProjectId>,
     pub created_by: UserId,
     pub adopted_container_id: Option<String>,
 }
 
 pub async fn get(pool: &MySqlPool, id: DeploymentId) -> Result<DeploymentRow, AppError> {
     let r = sqlx::query!(
-        r#"SELECT id AS "id: Uuid", state, server_id AS "server_id: Uuid",
+        r#"SELECT d.id AS "id: Uuid", d.state, d.server_id AS "server_id: Uuid",
                   gpu_slot_id AS "slot_id: Uuid",
                   gpu_group_id AS "gpu_group_id: Uuid",
                   gitlab_instance_id AS "instance_id: Uuid",
                   adopted_container_id,
-                  created_by AS "created_by: Uuid"
-           FROM deployments WHERE id = ?"#,
+                  d.created_by AS "created_by: Uuid",
+                  r.gitlab_project_id AS "project_id: Uuid"
+           FROM deployments d
+           LEFT JOIN registry_tags t ON t.id = d.registry_tag_id
+           LEFT JOIN registry_repositories r ON r.id = t.registry_repository_id
+           WHERE d.id = ?"#,
         id.0
     )
     .fetch_optional(pool)
@@ -41,6 +46,7 @@ pub async fn get(pool: &MySqlPool, id: DeploymentId) -> Result<DeploymentRow, Ap
         slot_id: r.slot_id.into(),
         gpu_group_id: r.gpu_group_id.map(Into::into),
         instance_id: r.instance_id.map(Into::into),
+        project_id: r.project_id.map(Into::into),
         created_by: r.created_by.into(),
         adopted_container_id: r.adopted_container_id,
     })
@@ -199,8 +205,11 @@ pub async fn detail(
         .next()
         .ok_or(AppError::NotFound("deployment not found"))?;
     let mounts = sqlx::query!(
-        r#"SELECT sv.name AS "volume_name?", dv.host_path, dv.container_path,
-                  dv.read_only AS "read_only: bool"
+        r#"SELECT sv.id AS "volume_id: Uuid", sv.name AS "volume_name?",
+                  sv.visibility AS "visibility?", sv.placement AS "placement?",
+                  dv.host_path, dv.container_path,
+                  dv.read_only AS "read_only: bool",
+                  dv.purge_on_redeploy AS "purge_on_redeploy: bool"
            FROM deployment_volumes dv
            LEFT JOIN server_volumes sv ON sv.id = dv.server_volume_id
            WHERE dv.deployment_id = ?
@@ -210,13 +219,25 @@ pub async fn detail(
     .fetch_all(pool)
     .await?
     .into_iter()
-    .map(|r| foundry_shared::dto::DeploymentMount {
-        volume_name: r.volume_name,
-        host_path: r.host_path,
-        container_path: r.container_path,
-        read_only: r.read_only,
+    .map(|r| {
+        Ok(foundry_shared::dto::DeploymentMount {
+            volume_id: r.volume_id.map(Into::into),
+            volume_name: r.volume_name,
+            host_path: r.host_path,
+            container_path: r.container_path,
+            read_only: r.read_only,
+            visibility: r
+                .visibility
+                .map(|value| value.parse().map_err(AppError::internal))
+                .transpose()?,
+            placement: r
+                .placement
+                .map(|value| value.parse().map_err(AppError::internal))
+                .transpose()?,
+            purge_on_redeploy: r.purge_on_redeploy,
+        })
     })
-    .collect();
+    .collect::<Result<Vec<_>, AppError>>()?;
     let env = sqlx::query!(
         r#"SELECT env_key, is_secret AS "is_secret: bool"
            FROM deployment_env WHERE deployment_id = ? ORDER BY env_key"#,

@@ -160,13 +160,17 @@ relaxation, not a removal of that rule:
   values marked secret are encrypted at rest and masked in the UI and logs.
 - Containers run with only the devices/ports/volumes the deployment declares;
   no `--privileged` in v1.
-- **Deployment visibility vs control** (decision 2026-06-12): the
+- **Deployment visibility vs control** (decision 2026-06-12; project
+  collaboration amendment 0.54.0): the
   deployments list and the dashboard slot grid are **org-visible** to
   every authenticated user — Foundry is an ops dashboard and fleet
-  transparency is the point. *Control* (stop/restart/remove/replace)
-  is owner-or-admin only, as are volume deletion and volume listing
-  (own volumes; admins see all). Image access remains governed by
-  GitLab permissions at deploy time.
+  transparency is the point. Stop/restart/remove remain owner-or-admin.
+  Replacement is owner/admin, or another current GitLab member when both
+  deployments belong to the same project. Volume reuse follows the stored
+  PRIVATE (creator) or PROJECT (current member) visibility; destructive
+  clean/delete remains creator-or-admin and is refused while mounted.
+  Project listing, deployment, replacement, and project-volume listing are
+  resolved live against GitLab; mirror tables are never an ACL.
 
 ## Network Posture (this host)
 

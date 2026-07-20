@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO server_volumes\n           (id, server_id, gitlab_project_id, name, visibility, placement,\n            scope_id, placement_id, gpu_slot_id, owner_slug, path,\n            created_by, created_at, updated_at)\n           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\n           ON DUPLICATE KEY UPDATE updated_at = updated_at",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 14
+    },
+    "nullable": []
+  },
+  "hash": "6e298862d788d4b628431c815fc100a7527f480884a6637df45d2cffb1fa7ddb"
+}

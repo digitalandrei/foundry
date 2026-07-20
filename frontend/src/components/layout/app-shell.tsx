@@ -7,6 +7,7 @@ import {
   RocketIcon,
   ScrollTextIcon,
   ServerIcon,
+  DatabaseIcon,
   SettingsIcon,
 } from "lucide-react"
 
@@ -27,6 +28,7 @@ const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboardIcon },
   { to: "/deployments", label: "Deployments", icon: RocketIcon },
   { to: "/servers", label: "Servers", icon: ServerIcon },
+  { to: "/storage", label: "Storage", icon: DatabaseIcon },
   { to: "/telemetry", label: "Telemetry", icon: ActivityIcon },
   { to: "/audit", label: "Audit Logs", icon: ScrollTextIcon },
   { to: "/settings", label: "Settings", icon: SettingsIcon },

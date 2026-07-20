@@ -216,6 +216,8 @@ pub async fn insert_new_tag_names(
 pub struct TagRef {
     pub tag_name: String,
     pub repo_path: String,
+    pub project_id: GitlabProjectId,
+    pub gitlab_project_id: i64,
     pub instance_id: GitlabInstanceId,
     pub registry_url: String,
 }
@@ -226,6 +228,7 @@ pub async fn tag_ref(
 ) -> Result<TagRef, AppError> {
     let row = sqlx::query!(
         r#"SELECT t.name AS tag_name, r.path AS repo_path,
+                  p.id AS "project_id: Uuid", p.gitlab_project_id,
                   p.gitlab_instance_id AS "instance_id: Uuid", i.registry_url
            FROM registry_tags t
            JOIN registry_repositories r ON r.id = t.registry_repository_id
@@ -240,6 +243,8 @@ pub async fn tag_ref(
     Ok(TagRef {
         tag_name: row.tag_name,
         repo_path: row.repo_path,
+        project_id: row.project_id.into(),
+        gitlab_project_id: row.gitlab_project_id,
         instance_id: row.instance_id.into(),
         registry_url: row.registry_url,
     })

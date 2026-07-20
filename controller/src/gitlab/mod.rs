@@ -3,6 +3,7 @@
 //! All URLs derive from the per-instance `base_url` — nothing is
 //! hardcoded.
 
+pub mod access;
 pub mod client;
 pub mod oauth;
 pub mod registry;

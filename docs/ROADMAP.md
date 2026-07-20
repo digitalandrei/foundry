@@ -14,7 +14,7 @@ in `docs/plans/`.
 | 5 | Inventory (GPU/MIG discovery & reconciliation) | [plans/phase-05.md](plans/phase-05.md) | ✅ Done (2026-06-12) — inventory verified on real L40S servers (0.3/0.4); host+GPU telemetry (0.5.0), per-MIG-slice memory + fleet Telemetry tab (0.46.0) |
 | 6 | Deployments (lifecycle, replacement) | [plans/phase-06.md](plans/phase-06.md) | ✅ Done — full lifecycle + replacement live on real GPU servers; persistent volumes, per-server HTTP/S publishing + EXPOSE discovery, live progress, interactive container shell (0.22.0), GPU groups + multi-use slots (0.35.0), adopt & control of external containers (0.42.0) |
 | 7 | Logs | [plans/phase-07.md](plans/phase-07.md) | ✅ Done — agent push-loop capture (incremental stdout+stderr, managed only) + bounded 7-day store + UI viewer; capturing on enrolled servers |
-| 8 | UI (full dashboard, dark+light themes) | [plans/phase-08.md](plans/phase-08.md) | 🔶 In progress — functional UI shipped incrementally (10 pages); route-level code splitting + keyboard interaction/DOM coverage landed in 0.51.0; remaining per phase-08: light-mode-complete visual sweep and empty/loading/error pass |
+| 8 | UI (full dashboard, dark+light themes) | [plans/phase-08.md](plans/phase-08.md) | 🔶 In progress — functional UI shipped incrementally (11 pages); route-level code splitting + keyboard interaction/DOM coverage landed in 0.51.0; Storage management landed in 0.54.0; remaining per phase-08: light-mode-complete visual sweep and empty/loading/error pass |
 | 9 | Security hardening | [plans/phase-09.md](plans/phase-09.md) | ⬜ Not started — carries agent-credential rotation (deferred from Phase 4) |
 | 10 | Production readiness | [plans/phase-10.md](plans/phase-10.md) | 🔶 In progress — service live; CI, audit, telemetry, structured logs, local backup automation + restore CI, dependency gates, and MariaDB integration tests in place; production timer observation, Prometheus, and load acceptance pending |
 | 11 | GPU groups + multi-use slots | (retired — see Amendments 2026-06-16) | ✅ Done (0.35.0) — one container across N whole GPUs; multi-use slots soft-share a GPU among ≤4; MIG/group mutual exclusion self-heals (0.47.0) |
@@ -473,3 +473,13 @@ reflected in the affected docs in the same commit set:
   models/output/settings/workflows volume defaults without anonymous Docker
   volumes. Affects API, ARCHITECTURE, GITLAB-INTEGRATION, DATABASE,
   UI-DESIGN, TESTING, and codebase-map.
+- **2026-07-20** (0.54.0) — **Project-aware local persistent storage.**
+  Volumes now combine PRIVATE/PROJECT visibility with SLOT/SERVER placement,
+  use opaque host paths, support explicit ID reuse, and retain exact mounts
+  across replacements. A current GitLab project member may replace a
+  same-project workload in its slot; live GitLab checks remain authoritative.
+  The Storage page exposes attachment state plus guarded clean/delete actions,
+  and per-mount purge-on-redeploy inserts an atomic agent purge before restart
+  or replacement. ComfyUI is only the first image declaring these general
+  policy defaults. Affects API, ARCHITECTURE, SECURITY, DATABASE, UI-DESIGN,
+  TESTING, and codebase-map.

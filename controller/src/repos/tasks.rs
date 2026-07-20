@@ -362,7 +362,10 @@ async fn advance_deployment(
                     .await?;
                     lifecycle::transition_member_slots(tx, deployment_id, SlotState::Reserved)
                         .await?;
-                    enqueue_deploy(tx, new_id.into()).await?;
+                    let new_id: DeploymentId = new_id.into();
+                    if !enqueue_purge_volumes(tx, new_id).await? {
+                        enqueue_deploy(tx, new_id).await?;
+                    }
                 }
                 None => {
                     lifecycle::transition_deployment(
@@ -402,6 +405,14 @@ async fn advance_deployment(
                 )
                 .await?;
             }
+        }
+        (TaskType::PurgeVolumes, true) => {
+            enqueue_deploy(tx, deployment_id).await?;
+        }
+        (TaskType::PurgeVolumes, false) => {
+            // Purge happens before container creation, so no workload can
+            // be left behind and the slot is safe to release.
+            fail_deployment(tx, deployment_id, report, &actor, true).await?;
         }
         (TaskType::RemoveVolume | TaskType::RefreshInventory | TaskType::UploadLogs, _) => {}
     }
@@ -555,6 +566,51 @@ pub async fn enqueue_deploy(
     .await
 }
 
+/// Queue one atomic purge task for every mount marked purge-on-redeploy.
+/// A single task preserves the ordering guarantee: all selected directories
+/// are clean before the following DEPLOY_CONTAINER can be claimed.
+async fn enqueue_purge_volumes(
+    tx: &mut MySqlConnection,
+    deployment_id: DeploymentId,
+) -> Result<bool, AppError> {
+    let row = sqlx::query!(
+        r#"SELECT server_id AS "server_id: Uuid"
+           FROM deployments WHERE id = ?"#,
+        deployment_id.0,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound("deployment not found"))?;
+    let volumes = sqlx::query!(
+        r#"SELECT server_volume_id AS "volume_id!: Uuid", host_path
+           FROM deployment_volumes
+           WHERE deployment_id = ? AND purge_on_redeploy = 1
+             AND server_volume_id IS NOT NULL
+           ORDER BY container_path"#,
+        deployment_id.0,
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .map(|volume| foundry_shared::dto::VolumeTarget {
+        volume_id: volume.volume_id.into(),
+        path: volume.host_path,
+    })
+    .collect::<Vec<_>>();
+    if volumes.is_empty() {
+        return Ok(false);
+    }
+    enqueue(
+        tx,
+        row.server_id.into(),
+        Some(deployment_id),
+        TaskType::PurgeVolumes,
+        &TaskPayload::VolumeBatch(foundry_shared::dto::VolumeBatchTarget { volumes }),
+    )
+    .await?;
+    Ok(true)
+}
+
 /// User-facing lifecycle actions → queued tasks (stop/restart/remove).
 pub async fn enqueue_lifecycle(
     pool: &MySqlPool,
@@ -634,7 +690,9 @@ pub async fn enqueue_restart(
         None,
     )
     .await?;
-    enqueue_deploy(&mut tx, deployment.id).await?;
+    if !enqueue_purge_volumes(&mut tx, deployment.id).await? {
+        enqueue_deploy(&mut tx, deployment.id).await?;
+    }
     crate::audit::record(
         &mut *tx,
         crate::audit::AuditEntry {

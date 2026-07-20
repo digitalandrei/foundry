@@ -1,0 +1,74 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT t.name AS tag_name, r.path AS repo_path,\n                  p.id AS \"project_id: Uuid\", p.gitlab_project_id,\n                  p.gitlab_instance_id AS \"instance_id: Uuid\", i.registry_url\n           FROM registry_tags t\n           JOIN registry_repositories r ON r.id = t.registry_repository_id\n           JOIN gitlab_projects p ON p.id = r.gitlab_project_id\n           JOIN gitlab_instances i ON i.id = p.gitlab_instance_id\n           WHERE t.id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tag_name",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 1020
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "repo_path",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 2048
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "project_id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | PRIMARY_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "gitlab_project_id",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 20
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "instance_id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | MULTIPLE_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "registry_url",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 1020
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e9cffe44554e5ebf7b8967f36883372390cb6bf74d3fa830731fbcd4368dffce"
+}

@@ -40,13 +40,13 @@ pub async fn create(
     req: &CreateDeploymentRequest,
     image_ref: &str,
     instance_id: foundry_shared::GitlabInstanceId,
+    project_id: foundry_shared::GitlabProjectId,
     created_by: UserId,
     replaces: Option<DeploymentId>,
     apps_domain: Option<&str>,
     ip_address: Option<&str>,
 ) -> Result<NewDeployment, AppError> {
     validate_ports(&req.ports, apps_domain)?;
-    let owner_slug_in_create = &super::volumes::owner_slug(pool, created_by).await?;
     let now = chrono::Utc::now().naive_utc();
     let mut tx = pool.begin().await?;
 
@@ -165,10 +165,9 @@ pub async fn create(
         .execute(&mut *tx)
         .await?;
     }
-    // Persistent volumes: create-or-reuse the requester's named volumes
-    // (per-user namespace) and bind them.
+    // Persistent volumes: resolve explicit IDs or canonical
+    // project/scope/placement names and bind them.
     if !req.volumes.is_empty() {
-        let slug = owner_slug_in_create;
         let mut seen_paths = std::collections::HashSet::new();
         for v in &req.volumes {
             let container_path = v.container_path.trim();
@@ -178,19 +177,27 @@ pub async fn create(
                     "duplicate mount path {container_path}"
                 )));
             }
-            let (volume_id, host_path) =
-                super::volumes::ensure(&mut tx, server_id, &v.volume_name, created_by, slug)
-                    .await?;
+            let (volume_id, host_path) = super::volumes::ensure(
+                &mut tx,
+                server_id,
+                project_id,
+                target.primary_slot_id,
+                v,
+                created_by,
+            )
+            .await?;
             sqlx::query!(
                 r#"INSERT INTO deployment_volumes
-                   (id, deployment_id, server_volume_id, host_path, container_path, read_only, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)"#,
+                   (id, deployment_id, server_volume_id, host_path, container_path,
+                    read_only, purge_on_redeploy, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
                 Uuid::now_v7(),
                 id.0,
                 volume_id.0,
                 host_path,
                 container_path,
                 v.read_only,
+                v.purge_on_redeploy,
                 now,
             )
             .execute(&mut *tx)

@@ -22,7 +22,8 @@ add or tighten one. Don't claim completion without running the relevant set.
   event/audit success; authoritative external-GPU zero-write rejection;
   repository + database adoption uniqueness; enrollment token/credential/audit
   consistency; concurrent GitLab project/repository/tag mirror upserts;
-  batched fleet output shape; and allowed/blocked guarded server removal.
+  project-shared reuse vs creator-private volume isolation; batched fleet
+  output shape; and allowed/blocked guarded server removal.
 - HTTP-level tests with `axum`'s `tower::ServiceExt::oneshot` — auth
   required on every `/api` and `/agent` route is itself a test.
 - sqlx note: `query!` macros compile against the live dev DB
@@ -40,6 +41,9 @@ add or tighten one. Don't claim completion without running the relevant set.
   (A100 MIG layouts, non-MIG GPUs, geometry changes).
 - Idempotency tests: every task type executed twice yields the same end
   state.
+- Persistent-directory executors hard-reject every remove/purge target
+  outside `/storage/containers/`; purge batches run before deploy as one
+  sequential task.
 
 ## Frontend (`frontend/`)
 
@@ -47,7 +51,8 @@ add or tighten one. Don't claim completion without running the relevant set.
   change; `npm run typecheck` (`tsc --noEmit`) is the fast iteration check.
 - **Vitest harness** (`npm run test:run`, jsdom env). Covered today: the pure
   `lib/` logic — the state→color map (`states.test.ts`) and slot
-  occupancy/deploy-eligibility (`slots.test.ts`). Add tests beside the module,
+  occupancy/deploy-eligibility (`slots.test.ts`), plus persistent-mount policy
+  validation (`deployment-form.test.ts`). Add tests beside the module,
   importing `{ describe, it, expect }` from `vitest`.
 - **Testing Library component/DOM coverage** now includes named/focusable
   GPU interaction surfaces and Enter/Space activation under both theme

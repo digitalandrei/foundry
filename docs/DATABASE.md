@@ -214,18 +214,23 @@ reserved word.) Unique: (`deployment_id`, `env_key`).
 ### `deployment_volumes`
 Volume mounts. Columns: `id`, `deployment_id` FK, `server_volume_id`
 FK null (the persistent volume backing it; NULLed if the volume is
-deleted later), `host_path`, `container_path`, `read_only`.
+deleted later), `host_path`, `container_path`, `read_only`,
+`purge_on_redeploy` (agent purges the directory before restart/replacement).
 
 ### `server_volumes`
 > Added in Phase 6 (operator requirement): persistent storage.
 
-Named per-server, per-user volumes at
-`/storage/containers/<owner_slug>/<name>`. Created on first use at
-deploy; survive container removal; remountable into later containers;
-deleted explicitly (REMOVE_VOLUME agent task wipes the directory).
-Columns: `id`, `server_id` FK, `name`, `owner_slug`, `path`,
-`created_by` FK users, timestamps. Unique: (`server_id`, `created_by`,
-`name`) and (`server_id`, `path`).
+Project-scoped local volumes. New paths are opaque
+`/storage/containers/volumes/<uuid>` directories (legacy owner/name paths
+remain valid). Columns: `id`, `server_id` FK, `gitlab_project_id` FK nullable
+only for unattached legacy rows, logical `name`, `visibility`
+(PRIVATE/PROJECT), `placement` (SLOT/SERVER), `scope_id` (creator or project
+UUID), `placement_id` (slot or server UUID), `gpu_slot_id` FK nullable,
+legacy `owner_slug`, `path`, `created_by` FK users, timestamps. Canonical
+uniqueness:
+(`server_id`, `gitlab_project_id`, `visibility`, `scope_id`, `placement`,
+`placement_id`, `name`); path is also unique per server. Clean retains the
+row and queues PURGE_VOLUMES; delete removes the row and queues REMOVE_VOLUME.
 
 ### `deployment_logs`
 > Added in Phase 7 (Logs): captured container stdout+stderr.

@@ -11,7 +11,7 @@ doc-drift hook nudges when watched code paths change without a docs change).
 | `controller/` | `foundry-controller` binary — axum API, OAuth, scheduler, task queue, GitLab clients | live: config, /health, pool, embedded migrations |
 | `agent/` | `foundry-agent` binary — task loop, Docker (bollard), NVML inventory | live: config, HTTPS client, connectivity loop |
 | `shared/` | Wire contract: DTOs, state enums, ID newtypes | live |
-| `frontend/` | React + TS + Vite + shadcn SPA | live: shell, theming, 10 pages |
+| `frontend/` | React + TS + Vite + shadcn SPA | live: shell, theming, 11 pages |
 | `migrations/` | sqlx MySQL migrations (embedded into controller, run at startup) | live: 28-table schema |
 | `deployment/` | production systemd, nginx, and MariaDB backup artifacts | controller/nginx live; backup installed by next canonical deploy |
 | `scripts/` | verification, deploy, and atomic local-backup automation | live |
@@ -71,7 +71,7 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   `frontend/src/components/server-telemetry.tsx` (+ `metric-sparkline.tsx`),
   shown on the server page `pages/server-detail.tsx` and the fleet-wide
   Telemetry tab `pages/telemetry.tsx`
-- Frontend pages → `frontend/src/pages/{dashboard,deployments,servers,audit,settings,login,help-gitlab-oauth}.tsx`;
+- Frontend pages → `frontend/src/pages/{dashboard,deployments,servers,storage,audit,settings,login,help-gitlab-oauth}.tsx`;
   lazy route boundaries and Suspense fallback → `frontend/src/router.tsx`
 - Layout shell / nav / session guard → `frontend/src/components/layout/app-shell.tsx`
 - API client + query keys → `frontend/src/lib/api.ts`; hooks →
@@ -106,7 +106,9 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   `controller/src/repos/deployments.rs`; task queue (claim/complete/
   chains, deploy-payload build) → `controller/src/repos/tasks.rs`;
   persistent volumes → `controller/src/repos/volumes.rs`; deployment +
-  volume routes → `controller/src/routes/deployments.rs`; dispatch
+  volume routes → `controller/src/routes/volumes.rs`; live project
+  authorization → `controller/src/gitlab/access.rs`; policy-aware
+  storage management UI → `frontend/src/pages/storage.tsx`; dispatch
   enrichment (env decrypt + pull-token mint) →
   `controller/src/routes/agent.rs`
 - GPU groups & multi-use slots (group a GPU set, soft-share a slot among

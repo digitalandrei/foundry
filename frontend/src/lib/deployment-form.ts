@@ -30,12 +30,16 @@ const envRow = z.object({
 })
 
 const volumeRow = z.object({
+  volume_id: z.string().nullable().optional(),
   volume_name: z
     .string()
     .regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/, "alphanumeric/dash/underscore")
     .max(63),
   container_path: z.string().startsWith("/", "must be absolute").max(255),
   read_only: z.boolean(),
+  visibility: z.enum(["PRIVATE", "PROJECT"]),
+  placement: z.enum(["SLOT", "SERVER"]),
+  purge_on_redeploy: z.boolean(),
 })
 
 export const deploymentFormSchema = z.object({

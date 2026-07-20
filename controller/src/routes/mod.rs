@@ -11,6 +11,7 @@ mod me;
 mod projects;
 mod registry;
 mod servers;
+mod volumes;
 
 use axum::routing::{get, post};
 use axum::Router;
@@ -70,14 +71,12 @@ pub fn router(state: AppState) -> Router {
             "/api/slots/{slot_id}",
             axum::routing::patch(gpu_groups::set_slot_use_mode),
         )
-        .route(
-            "/api/servers/{server_id}/volumes",
-            get(deployments::list_volumes),
-        )
+        .route("/api/servers/{server_id}/volumes", get(volumes::list))
         .route(
             "/api/volumes/{volume_id}",
-            axum::routing::delete(deployments::delete_volume),
+            axum::routing::delete(volumes::delete),
         )
+        .route("/api/volumes/{volume_id}/clean", post(volumes::clean))
         .route("/api/deployments", get(deployments::list))
         .route("/api/deployments", post(deployments::create))
         .route("/api/deployments/{id}", get(deployments::detail))

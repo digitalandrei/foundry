@@ -105,6 +105,7 @@ pub async fn image_metadata(
     );
 
     Ok(ImageMetadataResponse {
+        project_id: None,
         ports,
         volumes,
         size_bytes,
@@ -206,9 +207,13 @@ fn declared_volumes(
             && paths.insert(path.clone())
         {
             out.push(VolumeSpec {
+                volume_id: None,
                 volume_name: suggested_volume_name(repo_path, &path),
                 container_path: path,
                 read_only: false,
+                visibility: foundry_shared::VolumeVisibility::default(),
+                placement: foundry_shared::VolumePlacement::default(),
+                purge_on_redeploy: false,
             });
         }
     }

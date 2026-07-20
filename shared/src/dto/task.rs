@@ -23,6 +23,8 @@ pub enum TaskPayload {
     /// REMOVE_VOLUME: delete a persistent volume directory. The agent
     /// hard-validates the prefix (`/storage/containers/`).
     Volume(VolumeTarget),
+    /// PURGE_VOLUMES: delete and recreate one or more volume directories.
+    VolumeBatch(VolumeBatchTarget),
     /// REFRESH_INVENTORY / UPLOAD_LOGS need no payload yet.
     None,
 }
@@ -31,6 +33,11 @@ pub enum TaskPayload {
 pub struct VolumeTarget {
     pub volume_id: crate::ServerVolumeId,
     pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VolumeBatchTarget {
+    pub volumes: Vec<VolumeTarget>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

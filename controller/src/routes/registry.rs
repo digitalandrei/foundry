@@ -119,7 +119,7 @@ pub async fn image_metadata(
         None => return Err(AppError::Forbidden),
     };
 
-    let metadata = registry::image_metadata(
+    let mut metadata = registry::image_metadata(
         &state.http,
         &tag.registry_url,
         pull_token.as_deref(),
@@ -132,6 +132,7 @@ pub async fn image_metadata(
             "image metadata discovery failed (non-fatal)");
         ImageMetadataResponse::default()
     });
+    metadata.project_id = Some(tag.project_id);
     Ok(Json(metadata))
 }
 
