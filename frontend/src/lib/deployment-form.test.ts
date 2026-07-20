@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 
-import { deploymentFormSchema, MEM_UNLIMITED_GB } from "@/lib/deployment-form"
+import {
+  defaultPortKind,
+  deploymentFormSchema,
+  MEM_UNLIMITED_GB,
+} from "@/lib/deployment-form"
 
 describe("deployment volume policy", () => {
   it("accepts a project/server mount with purge-on-redeploy", () => {
@@ -42,5 +46,10 @@ describe("deployment volume policy", () => {
       ],
     })
     expect(parsed.success).toBe(false)
+  })
+
+  it("recognizes ComfyUI's exposed 8188 as an HTTP app", () => {
+    expect(defaultPortKind({ container_port: 8188, protocol: "tcp" }, true)).toBe("HTTP")
+    expect(defaultPortKind({ container_port: 8188, protocol: "tcp" }, false)).toBe("TCP")
   })
 })

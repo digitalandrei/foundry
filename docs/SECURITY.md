@@ -122,6 +122,30 @@ capability and keep its controls tight:
   mitigations are the owner/admin gate + audit trail; tighten by limiting
   who can deploy (deploy rights already come from GitLab membership).
 
+## Persistent-volume file sessions
+
+The Storage browser is host-filesystem access, so its scope is explicit at
+every boundary:
+
+- The browser session is authorized live against the selected GitLab project
+  before WebSocket upgrade. Its roots contain shared PROJECT volumes plus only
+  PRIVATE volumes created by the requester.
+- The browser sends a `volume_id` and relative UTF-8 path, never a host path.
+  The agent receives a controller-approved root map for its own `server_id`;
+  absolute paths, `..`, root deletion, and symlink following are rejected.
+- Session open and every mutation request are audited. Audit detail contains
+  operation, volume IDs, paths and upload size—but never file content or
+  transfer chunks.
+- Container files may be owned by arbitrary numeric UIDs. The agent unit
+  receives `CAP_DAC_OVERRIDE`; its intended writable storage root remains
+  `/storage/containers` and approved-root checks are the authority
+  (`ProtectSystem=full` keeps system trees read-only in the unit mount
+  namespace). No listener is added: the agent long-polls and dials outbound
+  WSS.
+- Text reads/writes are UTF-8-only and capped at 2 MiB; arbitrary files use
+  chunked transfer. Shared-volume application locking remains the users'
+  responsibility.
+
 ## Adopted containers
 
 Foundry's core invariant is that it only mutates containers it created

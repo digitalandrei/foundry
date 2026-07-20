@@ -48,7 +48,7 @@ user's GitLab account on the instance that owns the resource.
 | `GET /api/deployments` | Deployments with ports/state/uptime (REMOVED filtered out; latest 200); HTTP/S ports carry their published `hostname`; `status_detail` carries live deploy progress (in-memory overlay), `container_id` joins telemetry | ✅ live |
 | `GET /api/deployments/{id}` | Detail for the slot dialog: summary (flattened) + `mounts` (volume id/name, host/container path, ro, visibility, placement, purge-on-redeploy) + `env` **names** (`is_secret` flagged — values never returned) | ✅ live |
 | `GET /api/metrics/latest` | Newest telemetry sample per server — live GPU/container labels on the dashboard grid | ✅ live |
-| `POST /api/deployments` | Create from drag-drop: `target` (`{type:"slot",slot_id}` or `{type:"group",gpu_group_id}` — exactly one, locked) + tag + ports (per-port kind, pool-allocated; HTTP/S get a unique `<name>.<server>.apps-domain` hostname) + env (secrets encrypted) + persistent volumes (`volume_id?`, name/path, PRIVATE/PROJECT visibility, SLOT/SERVER placement, ro, purge-on-redeploy) + optional `mem_limit_mb` (Docker memory cap; clamped 32–256 GB, omitted → unlimited default); returns it VALIDATING. Image-project access is checked live against GitLab. A slot target needs `occupants < max_occupants`; a group target needs every member at zero occupants (else rejected, naming the busy GPUs). The controller also rejects any target device occupied by a running unmanaged container (stopped external containers are non-blocking). Deployment row, reservation, initial task, event, and audit are one transaction. **Rejected fast** when the target server's Docker daemon is down (`docker_ok = false`), or — for HTTP/S deploys — when it isn't publish-ready (with the nginx reason) | ✅ live (volume policy 0.54.0) |
+| `POST /api/deployments` | Create from drag-drop: `target` (`{type:"slot",slot_id}` or `{type:"group",gpu_group_id}` — exactly one, locked) + tag + ports (per-port kind, pool-allocated; HTTP/S get a unique `<name>.<server>.apps-domain` hostname) + env (secrets encrypted) + persistent volumes (`volume_id?`, name/path, PRIVATE/PROJECT visibility, SLOT/SERVER placement, ro, purge-on-redeploy) + optional `mem_limit_mb` (Docker memory cap; clamped 32–256 GB, omitted → unlimited default); returns it VALIDATING. Deployment names are unique among active workloads on one server (a replacement may keep its predecessor's name/URL; terminal history releases it). Image-project access is checked live against GitLab. A slot target needs `occupants < max_occupants`; a group target needs every member at zero occupants (else rejected, naming the busy GPUs). The controller also rejects any target device occupied by a running unmanaged container (stopped external containers are non-blocking). Deployment row, reservation, initial task, event, and audit are one transaction. **Rejected fast** when the target server's Docker daemon is down (`docker_ok = false`), or — for HTTP/S deploys — when it isn't publish-ready (with the nginx reason) | ✅ live (name scope 0.56.0) |
 | `POST /api/deployments/{id}/replace` | Replacement chain: stop old → remove old → optional marked-volume purge → REPLACED → deploy successor on the same slot(s). Creator/admin may replace with any accessible image; another current GitLab member may replace only within the same project. Exact mount IDs are preserved by the UI | ✅ live (project collaboration 0.54.0) |
 | `POST /api/deployments/{id}/stop` · `/restart` | Lifecycle actions (legality enforced by the transition table). Restart is a redeploy and purges mounts whose deployment binding has `purge_on_redeploy=true` before container creation. A purge policy is rejected until the target reports foundry-agent ≥0.54.0 | ✅ live |
 | `POST /api/deployments/{id}/dismiss` | Clear a FAILED deployment (→ REMOVED) and free its stuck slot — controller-side, no agent; owner/admin | ✅ live |
@@ -56,6 +56,7 @@ user's GitLab account on the instance that owns the resource.
 | `GET /api/servers/{id}/volumes?project_id=…&slot_id=…` | Project storage visible to the requester with policy, placement, creator, management rights, and attachments. Live GitLab project access required. `gpu_group_id` may replace `slot_id`; omitting both lists every placement for Storage management | ✅ live (0.54.0) |
 | `POST /api/volumes/{id}/clean` | Queue an irreversible contents purge while retaining the volume identity — creator/admin; refused while mounted or while the server reports foundry-agent <0.54.0 | ✅ live (rolling-upgrade gate 0.55.0) |
 | `DELETE /api/volumes/{id}` | Delete volume identity + data — creator/admin; refused while mounted | ✅ live |
+| `GET /api/servers/{id}/volume-files?project_id=…` | **WebSocket** — dual-pane file session over every requester-visible volume in this project/server scope. Live GitLab project authorization plus PRIVATE-creator filtering happen before upgrade. JSON operations: list, bounded UTF-8 read/write (2 MiB), mkdir, rename, cross-volume copy/move, recursive delete, and chunked upload/download. Every mutation request is audited without file content. Requires agent ≥0.56.0 | ✅ live (0.56.0) |
 | `GET /api/servers/{id}/gpu-groups` | GPU groups on the server → `{id, name, gpu_ids[], combined_vram_mb, max_occupants, occupants, deployable, busy_reason}[]` (deployable = below the group's cap, every member online, MIG-disabled, free of non-group holders) | ✅ live |
 | `POST /api/servers/{id}/gpu-groups` | Create a group: `{name, gpu_ids[]}` (2…all FULL, MIG-disabled GPUs on the server; may overlap other groups) — single-use by default — **admin** | ✅ live |
 | `DELETE /api/gpu-groups/{id}` | Delete a group — **admin**; refused while a deploy is live on it | ✅ live |
@@ -106,6 +107,8 @@ single-use enrollment token.
 | `POST /agent/tasks/progress` | ✅ live — best-effort live DEPLOY progress: PULLING_IMAGE/CREATING_CONTAINER/STARTING transitions + a human detail line (`pulling: 3/7 layers · 410 / 1208 MB`, agent-throttled ~2s). Detail text is held in controller memory (transient by design); stale/out-of-order reports are dropped, never errors |
 | `GET /agent/shell/next` | ✅ live — long-poll (≤20s); returns a pending `{session_id, deployment_id, container_id?}` shell for this server, else 204 (`container_id` set → exec an adopted container by docker id). The browser-side WS created it |
 | `GET /agent/shell/attach/{session_id}` | ✅ live — **WebSocket** the agent dials back; the controller bridges it to the waiting browser. The agent `docker exec`s bash→sh (TTY) on the managed container and pipes it through. Verified `server_id` owns the session |
+| `GET /agent/volume-files/next` | ✅ live (0.56.0) — long-poll for a controller-authorized project-volume session; returns only approved `{volume_id,name,path}` roots for this server |
+| `GET /agent/volume-files/attach/{session_id}` | ✅ live (0.56.0) — **WebSocket** the agent dials back; file operations are relative to approved roots, reject traversal/symlink following, and stream base64 chunks. The controller verifies the session belongs to the agent's server |
 
 **Logs design (Phase 7 decision):** poll-tail, not live streaming. The
 agent *pushes* incremental log chunks on a 10s loop (same shape as
@@ -131,6 +134,17 @@ then bridges the two sockets verbatim and the agent runs `docker exec`
 agent, no SSH, no remote Docker socket — the invariant holds. Sessions
 are in-memory (a live socket pair); 30s keepalive pings defeat nginx/
 Cloudflare idle close; a session with no agent in 25s closes 1011.
+
+**Volume-files design (reverse-WS tunnel):** the Storage browser uses the
+same pull-only shape as shell but a typed JSON protocol. The controller
+resolves the selected GitLab project live, filters roots to PROJECT plus the
+requester's own PRIVATE volumes, audits the session/mutations, then registers
+an in-memory session. The server agent long-polls and dials back over WSS.
+Browser paths are always relative to a session-approved `volume_id`; host paths
+never cross the browser boundary. Transfer chunks are 128 KiB before base64;
+the text editor is UTF-8-only and capped at 2 MiB. Agent 0.56.0 adds the
+protocol and must be installed with `--setup-apps` before the controller
+allows an upgrade.
 
 Agent protocol invariants:
 

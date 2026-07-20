@@ -23,7 +23,8 @@ add or tighten one. Don't claim completion without running the relevant set.
   repository + database adoption uniqueness; enrollment token/credential/audit
   consistency; concurrent GitLab project/repository/tag mirror upserts;
   project-shared reuse vs creator-private volume isolation; batched fleet
-  output shape; and allowed/blocked guarded server removal.
+  output shape; active deployment-name uniqueness per server; and
+  allowed/blocked guarded server removal.
 - HTTP-level tests with `axum`'s `tower::ServiceExt::oneshot` — auth
   required on every `/api` and `/agent` route is itself a test.
 - sqlx note: `query!` macros compile against the live dev DB
@@ -45,6 +46,9 @@ add or tighten one. Don't claim completion without running the relevant set.
   outside `/storage/containers/`; purge batches run before deploy as one
   sequential task. Controller version parsing prevents PURGE_VOLUMES dispatch
   to pre-0.54 agents.
+- Volume-file path tests reject absolute/traversal paths, the storage root
+  itself, and symlink components. Mutation-audit coverage verifies editor and
+  transfer content is never copied into the audit detail.
 
 ## Frontend (`frontend/`)
 
@@ -53,11 +57,13 @@ add or tighten one. Don't claim completion without running the relevant set.
 - **Vitest harness** (`npm run test:run`, jsdom env). Covered today: the pure
   `lib/` logic — the state→color map (`states.test.ts`) and slot
   occupancy/deploy-eligibility (`slots.test.ts`), plus persistent-mount policy
-  validation (`deployment-form.test.ts`). Add tests beside the module,
+  validation/ComfyUI 8188 classification (`deployment-form.test.ts`) and
+  volume path/version helpers (`volume-files.test.ts`). Add tests beside the module,
   importing `{ describe, it, expect }` from `vitest`.
 - **Testing Library component/DOM coverage** now includes named/focusable
   GPU interaction surfaces and Enter/Space activation under both theme
-  classes. Open items remain for load-bearing pieces — deploy-dialog zod
+  classes, plus keyboard opening and accessible naming for both themes of the
+  volume file pane. Open items remain for load-bearing pieces — deploy-dialog zod
   validation, the type-to-confirm gate on destructive ops for adopted
   containers, slot-chip rendering — and visual/both-theme regression. Both
   themes are spot-checked manually until then.

@@ -24,6 +24,8 @@ RestartSec=5
 # Sized to the container stop grace period: a deploy/stop task in
 # flight finishes or is safely re-dispatched (tasks are idempotent).
 TimeoutStopSec=45
+CapabilityBoundingSet=CAP_DAC_OVERRIDE
+AmbientCapabilities=CAP_DAC_OVERRIDE
 
 # Hardening baseline; relaxations are required by function
 # (docs/SECURITY.md § App Publishing):
@@ -36,6 +38,8 @@ TimeoutStopSec=45
 #     under /var inside this unit's mount namespace
 #   - /var/run/docker.sock via SupplementaryGroups
 #   - /dev/nvidia*: NVML inventory
+#   - CAP_DAC_OVERRIDE: browse project-approved bind mounts even when
+#     their container process owns them under an unrelated numeric UID
 ProtectSystem=full
 ProtectHome=yes
 PrivateTmp=yes

@@ -389,6 +389,8 @@ fn write_unit() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Hardening notes (docs/SECURITY.md § App Publishing):
+    // - CAP_DAC_OVERRIDE is narrowly required for project-authorized file
+    //   sessions: container UIDs commonly own bind-mounted contents;
     // - no NoNewPrivileges — it blocks the setuid transition the
     //   sudoers-scoped `sudo nginx -s reload` needs;
     // - ProtectSystem=full (not strict) — `nginx -t` runs inside this
@@ -411,6 +413,8 @@ fn write_unit() -> Result<(), Box<dyn std::error::Error>> {
          Restart=on-failure\n\
          RestartSec=5\n\
          TimeoutStopSec=45\n\
+         CapabilityBoundingSet=CAP_DAC_OVERRIDE\n\
+         AmbientCapabilities=CAP_DAC_OVERRIDE\n\
          ProtectSystem=full\n\
          ProtectHome=yes\n\
          PrivateTmp=yes\n\

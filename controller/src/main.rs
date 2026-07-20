@@ -7,6 +7,7 @@ mod cli;
 mod config;
 mod crypto;
 mod error;
+mod files;
 mod gitlab;
 mod lifecycle;
 mod repos;
@@ -71,6 +72,7 @@ async fn serve() -> Result<(), Box<dyn Error>> {
         apps_domain: config.apps_domain.as_deref().map(Arc::from),
         progress: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         shells: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        files: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
     };
 
     let app = routes::router(state);

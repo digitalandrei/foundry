@@ -55,7 +55,7 @@ export const deploymentFormSchema = z.object({
 
 export type DeploymentFormValues = z.infer<typeof deploymentFormSchema>
 
-const WEB_PORTS = new Set([80, 3000, 5000, 7860, 8000, 8080, 8081, 8501, 8888])
+const WEB_PORTS = new Set([80, 3000, 5000, 7860, 8000, 8080, 8081, 8188, 8501, 8888])
 
 export function defaultPortKind(port: ExposedPort, appsEnabled: boolean): PortKind {
   if (port.protocol === "udp") return "UDP"

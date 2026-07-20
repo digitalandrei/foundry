@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT COUNT(*) FROM deployments\n           WHERE server_id = ? AND container_name = ? AND id <> ?\n             AND (state IN ('PENDING','VALIDATING','PULLING_IMAGE','CREATING_CONTAINER',\n                            'STARTING','RUNNING','STOPPING','STOPPED','RESTARTING','REMOVING')\n                  OR (state = 'FAILED' AND container_id IS NOT NULL))\n           FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "COUNT(*)",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "NOT_NULL | BINARY",
+          "max_size": 21
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "58fd2384319733eb2bd9d517f1e6a7ae05aecd0a6f2c99369ff489d98fafcf38"
+}

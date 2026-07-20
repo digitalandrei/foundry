@@ -30,6 +30,7 @@ fn state(pool: MySqlPool) -> AppState {
         apps_domain: None,
         progress: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         shells: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        files: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
     }
 }
 
@@ -397,6 +398,79 @@ async fn deployment_command_commits_reservation_task_event_and_audit(pool: MySql
     let servers = crate::repos::servers::list(&pool).await.unwrap();
     assert_eq!(deployments[0].slot_ids, vec![fixture.slot_id]);
     assert_eq!(servers[0].gpus[0].slots[0].id, fixture.slot_id);
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+#[ignore = "requires privileged disposable MariaDB; CI runs ignored tests"]
+async fn active_deployment_names_are_unique_per_server(pool: MySqlPool) {
+    let fixture = insert_runtime_fixture(&pool).await;
+    crate::repos::deployments::create(
+        &pool,
+        &state(pool.clone()).secrets,
+        &deployment_request(&fixture),
+        "registry.test/team/model:v1",
+        fixture.instance_id,
+        fixture.project_id,
+        fixture.admin,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let now = chrono::Utc::now().naive_utc();
+    let gpu_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO gpus \
+         (id, server_id, gpu_uuid, display_index, model, memory_mb, mig_enabled, \
+          last_seen_at, created_at, updated_at) \
+         VALUES (?, ?, 'GPU-integration-1', 1, 'Test GPU', 49152, 0, ?, ?, ?)",
+    )
+    .bind(gpu_id)
+    .bind(fixture.server_id.0)
+    .bind(now)
+    .bind(now)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let second_slot = SlotId::new();
+    sqlx::query(
+        "INSERT INTO gpu_slots \
+         (id, gpu_id, slot_type, name, capacity_mb, state, last_seen_at, created_at, updated_at) \
+         VALUES (?, ?, 'FULL_GPU', '1', 49152, 'FREE', ?, ?, ?)",
+    )
+    .bind(second_slot.0)
+    .bind(gpu_id)
+    .bind(now)
+    .bind(now)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let mut duplicate = deployment_request(&fixture);
+    duplicate.target = DeployTarget::Slot {
+        slot_id: second_slot,
+    };
+    let error = crate::repos::deployments::create(
+        &pool,
+        &state(pool.clone()).secrets,
+        &duplicate,
+        "registry.test/team/model:v1",
+        fixture.instance_id,
+        fixture.project_id,
+        fixture.admin,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        matches!(error, AppError::BadRequest(message) if message.contains("already in use on this server"))
+    );
 }
 
 #[sqlx::test(migrator = "crate::MIGRATOR")]

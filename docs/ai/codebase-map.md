@@ -86,7 +86,8 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
 - Server hooks → `frontend/src/hooks/use-servers.ts` (10s refetch;
   detail 15s)
 - Dashboard slot grid → `frontend/src/components/server-grid.tsx`
-  (ServerRow/GpuStrip/SlotChip); docker-ps detail dialog →
+  (ServerRow/GpuStrip/SlotChip, with the primary mapped HTTPS URL directly
+  clickable on occupied slots); docker-ps detail dialog →
   `components/server-detail-dialog.tsx`; host/service status presentation →
   `components/server-grid-status.tsx`; alert thresholds →
   `frontend/src/lib/server-alerts.ts`
@@ -112,6 +113,13 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   rolling-upgrade gate → `repos/volumes.rs::require_purge_support`; dispatch
   enrichment (env decrypt + pull-token mint) →
   `controller/src/routes/agent.rs`
+- Persistent-volume files (0.56.0): reverse-WS session registry,
+  project/root authorization and mutation audit → `controller/src/files.rs`;
+  reverse-WS transfer loop → `agent/src/files.rs`; relative-path confinement
+  + filesystem operations → `agent/src/file_system.rs`; wire protocol →
+  `shared/src/dto/files.rs`; dual-pane
+  UI/editor → `frontend/src/components/{volume-browser,volume-file-pane}.tsx`
+  + `hooks/use-volume-files.ts`
 - GPU groups & multi-use slots (group a GPU set, soft-share a slot among
   N containers): group CRUD + occupancy/cap + `member_slots_for_deploy`
   (FOR-UPDATE-locked member slots, counted then capped) →

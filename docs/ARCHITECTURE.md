@@ -352,6 +352,18 @@ replacement insert one atomic `PURGE_VOLUMES` agent task before
 `DEPLOY_CONTAINER`. Application-level shared-file coordination is the
 workload's responsibility.
 
+The Storage page also provides an MC-style dual-pane file browser (0.56.0).
+A current project member can read/write PROJECT roots and their own PRIVATE
+roots: list, folder creation, rename, same/cross-volume copy or move, recursive
+delete, chunked desktop upload/download, and a bounded UTF-8 editor. The
+controller performs live project authorization, registers an in-memory
+session, and supplies the agent only approved `{volume_id,path}` roots. The
+agent — still pull-only — discovers the session at
+`/agent/volume-files/next`, dials `/agent/volume-files/attach/{id}` back, and
+confines every relative path below its approved root (no absolute/traversal
+paths and no symlink following). Session open plus every mutation request is
+audited without file contents. Agent ≥0.56.0 is required.
+
 `PURGE_VOLUMES` entered the agent wire contract in 0.54.0. The controller
 checks the target's heartbeat-reported agent version before accepting a purge
 policy, manual clean, or enqueueing the task; older agents receive an
@@ -428,6 +440,11 @@ Division of labor (operator decision — no Cloudflare/DNS integration):
   lets the operator issue one wildcard cert per server
   (`*.<server>.<domain>`). Enabled by `FOUNDRY_APPS_DOMAIN`; unset rejects
   HTTP/S kinds. A replacement keeps its predecessor's hostname.
+  Deployment/container names are likewise unique among active workloads on
+  one server, so Docker identity and the primary app label cannot be
+  ambiguous; terminal history releases the name. The dashboard renders the
+  primary address directly and clickably inside every occupied slot, while
+  the deployment detail page renders every mapped HTTPS address.
 - **Agent**: owns `/etc/nginx/foundry-apps/<deployment_id>.conf` on its
   server — written after the container starts (80→443 redirect + TLS
   proxy_pass to `127.0.0.1:<host_port>`, websocket upgrade, streaming-
@@ -441,7 +458,10 @@ Host prerequisites (`foundry-agent --setup-apps`, also run by
 point, the sudoers rule, the persistent-volume root
 (`/storage/containers`, owned by the service user — first real deploy
 failed without it), and the updated systemd unit (ReadWritePaths
-covers it). The same command is the agent **upgrade path** (reinstalls
+covers it). Since 0.56.0 the unit also grants only `CAP_DAC_OVERRIDE` so
+authorized file sessions can work across arbitrary container UID ownership;
+the code still confines paths to controller-approved storage roots. The same
+command is the agent **upgrade path** (reinstalls
 the binary, refreshes the unit, restarts the service).
 
 The deploy dialog pre-fills ports and persistent mounts from image metadata

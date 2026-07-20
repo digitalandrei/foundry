@@ -231,11 +231,17 @@ mockup — final token mapping fixed when the palette lands in Phase 8).
   EXPOSE ports and persistent mounts declared by Docker `VOLUME` or the
   Foundry volume-default label are prefilled once, remain editable, and do
   not overwrite input the operator has already changed.
-- **Storage** (live since 0.54.0): select a GitLab project and local server,
-  then inspect every accessible volume's visibility, placement, creator and
-  active attachments. Creator/admin actions are type-to-confirm: **Clean**
-  irreversibly wipes contents but retains identity; **Delete** wipes both.
-  Mounted volumes disable both actions.
+- **Storage** (live since 0.54.0; files 0.56.0): select a GitLab project and
+  local server, then use a responsive dual-pane, MC-inspired browser over
+  every accessible PROJECT or own PRIVATE volume. Each pane selects a root
+  and navigates independently. Double-click/Enter opens directories or
+  bounded UTF-8 text in a monospaced editor; toolbar actions create, rename,
+  copy to the other pane, move, download, upload and type-to-confirm delete.
+  Native desktop files drop into either pane/directory; dragging entries
+  between panes copies server-side. Below it, the policy table still exposes
+  visibility, placement, creator and active attachments. Creator/admin
+  **Clean** irreversibly wipes contents but retains identity; **Delete** wipes
+  both. Mounted volumes disable those whole-volume actions.
 - **Servers** (live since 0.2.0): table with status dot (same color
   tokens), hostname/OS/agent version/last heartbeat; admin "Add
   server" dialog → names the server, shows the one-time registration

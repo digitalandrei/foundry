@@ -3,6 +3,7 @@ import { useDroppable } from "@dnd-kit/core"
 import { BoxesIcon, ServerOffIcon } from "lucide-react"
 
 import { EmptyState } from "@/components/empty-state"
+import { DeploymentPrimaryUrl } from "@/components/deployment-ports"
 import { InteractiveSurface } from "@/components/interactive-surface"
 import {
   DockerStatus,
@@ -395,6 +396,9 @@ function GroupSlotChip({
         )}
       </span>
       {occupant ? <OccupantUsageLine deployment={occupant} sample={sample} /> : null}
+      {occupant ? (
+        <DeploymentPrimaryUrl ports={occupant.ports} className="max-w-full pl-3" />
+      ) : null}
     </InteractiveSurface>
   )
 }
@@ -573,7 +577,10 @@ function SlotChip({
         )}
       </span>
       {occupant ? (
-        <OccupantUsageLine deployment={occupant} sample={sample} />
+        <>
+          <OccupantUsageLine deployment={occupant} sample={sample} />
+          <DeploymentPrimaryUrl ports={occupant.ports} className="max-w-full pl-3" />
+        </>
       ) : external ? (
         <span className="truncate pl-3 font-mono text-[10px] text-muted-foreground" title={external.image}>
           {external.image}

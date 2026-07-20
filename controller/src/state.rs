@@ -28,10 +28,14 @@ pub struct AppState {
     /// pair, meaningless across a restart. Same lock discipline as
     /// `progress`: short sync sections only.
     pub shells: crate::shell::ShellRegistry,
+    /// Pending/active project-volume file sessions (crate::files). The
+    /// approved roots and live socket channels are transient and become
+    /// meaningless across a controller restart.
+    pub files: crate::files::FileRegistry,
 }
 
 /// Lock an in-memory cache mutex, recovering the guard if a previous holder
-/// panicked. `progress` and `shells` are ephemeral caches (transient by
+/// panicked. `progress`, `shells`, and `files` are ephemeral caches (transient by
 /// definition — see their field docs); a poisoned lock must never cascade
 /// into failing every progress poll or shell session for the life of the
 /// process. The protected data is a plain map, so recovering it is safe.

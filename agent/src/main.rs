@@ -10,6 +10,8 @@
 
 mod config;
 mod docker;
+mod file_system;
+mod files;
 mod inventory;
 mod logs;
 mod metrics;
@@ -116,7 +118,8 @@ async fn run_agent() -> Result<(), Box<dyn Error>> {
     tokio::join!(
         heartbeat_loop(&client, &config, docker.clone()),
         tasks::run_loop(&client, &config, docker.clone()),
-        shell::run_loop(&client, &config, docker.clone())
+        shell::run_loop(&client, &config, docker.clone()),
+        files::run_loop(&client, &config)
     );
     tracing::info!("shut down cleanly");
     Ok(())

@@ -202,8 +202,10 @@ Installs the binary, ensures `/etc/nginx/foundry-apps/` (+ the conf.d
 include with the websocket map), `/etc/foundry-agent/tls/`, the
 sudoers rule scoped to `nginx -t`/`-s reload` (SECURITY.md § App
 Publishing), prepares `/storage/containers` for persistent volumes
-(service-user-owned; listed in the unit's ReadWritePaths), rewrites
-the systemd unit, and restarts the service.
+(service-user-owned; listed in the unit's ReadWritePaths), installs the
+0.56.0+ file-browser capability (`CAP_DAC_OVERRIDE`, needed when a container
+UID owns bind-mounted files), rewrites the systemd unit, and restarts the
+service.
 
 **HTTP/S app publishing prerequisites per GPU server** (operator,
 once, **per server**): install nginx **≥ 1.25.1** (the vhost template

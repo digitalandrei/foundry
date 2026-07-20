@@ -13,6 +13,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Separator } from "@/components/ui/separator"
+import { VolumeBrowser } from "@/components/volume-browser"
 import {
   Table,
   TableBody,
@@ -38,6 +40,7 @@ export function StoragePage() {
   const selectedProjectId = projectId ?? projects.data?.[0]?.id ?? null
   const selectedServerId = serverId ?? servers.data?.[0]?.id ?? null
   const volumes = useServerVolumes(selectedServerId, selectedProjectId)
+  const selectedServer = servers.data?.find((server) => server.id === selectedServerId)
 
   return (
     <Card>
@@ -95,7 +98,20 @@ export function StoragePage() {
             description="Deploy an image with a persistent mount to create the first one."
           />
         ) : (
-          <VolumeTable volumes={volumes.data} />
+          <div className="space-y-6">
+            {selectedServer && selectedProjectId ? (
+              <VolumeBrowser
+                server={selectedServer}
+                projectId={selectedProjectId}
+                volumes={volumes.data}
+              />
+            ) : null}
+            <Separator />
+            <div>
+              <h2 className="mb-3 text-sm font-medium">Volume Policies</h2>
+              <VolumeTable volumes={volumes.data} />
+            </div>
+          </div>
         )}
       </CardContent>
     </Card>

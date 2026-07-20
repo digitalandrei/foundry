@@ -18,6 +18,7 @@ use crate::error::AppError;
 
 pub const VOLUME_ROOT: &str = "/storage/containers";
 const PURGE_MIN_AGENT_VERSION: (u32, u32, u32) = (0, 54, 0);
+const FILES_MIN_AGENT_VERSION: (u32, u32, u32) = (0, 56, 0);
 
 fn parse_version(version: &str) -> Option<(u32, u32, u32)> {
     let version = version.trim().trim_start_matches('v');
@@ -29,6 +30,29 @@ fn parse_version(version: &str) -> Option<(u32, u32, u32)> {
         parts.next()?.parse().ok()?,
     );
     parts.next().is_none().then_some(parsed)
+}
+
+/// A file session carries a new long-poll/WS protocol, so fail before the
+/// browser upgrade when the selected server has not installed it yet.
+pub async fn require_file_support(pool: &MySqlPool, server_id: ServerId) -> Result<(), AppError> {
+    let version = sqlx::query_scalar!(
+        "SELECT agent_version FROM server_agents WHERE server_id = ?",
+        server_id.0
+    )
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+    if version
+        .as_deref()
+        .and_then(parse_version)
+        .is_some_and(|version| version >= FILES_MIN_AGENT_VERSION)
+    {
+        return Ok(());
+    }
+    Err(AppError::BadRequest(format!(
+        "volume files require foundry-agent 0.56.0 or newer on this server (reported {})",
+        version.as_deref().unwrap_or("unknown")
+    )))
 }
 
 /// PURGE_VOLUMES is a new wire enum. Never enqueue it to an older agent:

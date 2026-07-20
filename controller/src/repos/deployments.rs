@@ -99,6 +99,7 @@ pub async fn create(
     };
 
     let mut allocated = allocate_ports(&mut tx, server_id, &req.ports).await?;
+    require_unique_active_name(&mut tx, server_id, &container_name, replaces).await?;
     assign_hostnames(
         &mut tx,
         &mut allocated,
@@ -344,6 +345,41 @@ pub async fn create(
 
     tx.commit().await?;
     Ok(NewDeployment { id })
+}
+
+/// Docker names and the first app hostname both derive from the deployment
+/// name. Creation is already serialized by `allocate_ports`' server-row
+/// lock, so this active-name probe cannot race another deployment on the
+/// same server. Removed/replaced history releases the name; a replacement
+/// may intentionally keep its predecessor's stable URL.
+async fn require_unique_active_name(
+    tx: &mut MySqlConnection,
+    server_id: ServerId,
+    container_name: &str,
+    replaces: Option<DeploymentId>,
+) -> Result<(), AppError> {
+    let exempt = replaces
+        .map(|deployment| deployment.0)
+        .unwrap_or_else(Uuid::nil);
+    let taken = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) FROM deployments
+           WHERE server_id = ? AND container_name = ? AND id <> ?
+             AND (state IN ('PENDING','VALIDATING','PULLING_IMAGE','CREATING_CONTAINER',
+                            'STARTING','RUNNING','STOPPING','STOPPED','RESTARTING','REMOVING')
+                  OR (state = 'FAILED' AND container_id IS NOT NULL))
+           FOR UPDATE"#,
+        server_id.0,
+        container_name,
+        exempt,
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if taken > 0 {
+        return Err(AppError::BadRequest(format!(
+            "deployment name {container_name:?} is already in use on this server"
+        )));
+    }
+    Ok(())
 }
 
 fn validate_ports(specs: &[PortSpec], apps_domain: Option<&str>) -> Result<(), AppError> {

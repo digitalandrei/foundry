@@ -77,6 +77,10 @@ pub fn router(state: AppState) -> Router {
             axum::routing::delete(volumes::delete),
         )
         .route("/api/volumes/{volume_id}/clean", post(volumes::clean))
+        .route(
+            "/api/servers/{server_id}/volume-files",
+            get(crate::files::browser),
+        )
         .route("/api/deployments", get(deployments::list))
         .route("/api/deployments", post(deployments::create))
         .route("/api/deployments/{id}", get(deployments::detail))
@@ -122,6 +126,11 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/agent/shell/attach/{session_id}",
             get(crate::shell::agent_attach),
+        )
+        .route("/agent/volume-files/next", get(crate::files::agent_next))
+        .route(
+            "/agent/volume-files/attach/{session_id}",
+            get(crate::files::agent_attach),
         )
         .with_state(state)
 }

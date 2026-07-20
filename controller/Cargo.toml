@@ -26,7 +26,7 @@ oauth2 = { version = "5", default-features = false, features = ["reqwest", "rust
 aes-gcm = "0.10"
 sha2 = "0.10"
 rand = "0.9"
-base64 = "0.22"
+base64 = { workspace = true }
 # Local operator account password hashing (docs/SECURITY.md).
 argon2 = { version = "0.5", features = ["std"] }
 # Constant-time agent-credential comparison.

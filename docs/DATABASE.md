@@ -187,6 +187,11 @@ later deleted), `replaced_by_deployment_id` FK null, `error_message`
 null, timestamps, `started_at`, `stopped_at`. `gpu_slot_id` is the
 denormalised primary member; `deployment_slots` is authoritative for the
 full set of GPUs held.
+`container_name` is transactionally unique among active deployments on one
+server (serialized by the server allocation lock); a replacement is exempt so
+it can preserve the URL, and REMOVED/REPLACED or containerless FAILED history
+releases the name. This lifecycle-dependent rule is enforced in code rather
+than a permanent SQL UNIQUE key.
 
 ### `deployment_events`
 Append-only state-transition log. Columns: `id`, `deployment_id` FK,
