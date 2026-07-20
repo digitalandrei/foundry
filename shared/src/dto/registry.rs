@@ -4,6 +4,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use super::deployment::VolumeSpec;
 use crate::{GitlabProjectId, RegistryRepositoryId, RegistryTagId};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,13 +30,19 @@ pub struct RegistryTag {
     pub pushed_at: Option<DateTime<Utc>>,
 }
 
-/// `GET /api/registry/tags/{tag_id}/exposed-ports` — the image's
-/// EXPOSE'd ports read from its config blob (deploy-dialog prefill).
-/// Best-effort: discovery failures return an empty list, never an
-/// error — EXPOSE is metadata, not a contract.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExposedPortsResponse {
+/// `GET /api/registry/tags/{tag_id}/metadata` — deploy defaults read
+/// from the selected linux/amd64 image manifest and config blob.
+/// Best-effort: discovery failures return empty defaults, never an
+/// error — image metadata is advisory and remains editable in the UI.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ImageMetadataResponse {
     pub ports: Vec<ExposedPort>,
+    /// Persistent mounts declared by Docker `VOLUME` and/or Foundry's
+    /// richer `ai.protv.foundry.volumes` image label.
+    pub volumes: Vec<VolumeSpec>,
+    /// Compressed sum of manifest layer descriptors. Used when GitLab
+    /// reports an invalid zero tag size.
+    pub size_bytes: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

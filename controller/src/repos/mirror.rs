@@ -117,20 +117,24 @@ pub async fn upsert_tag(
 ) -> Result<foundry_shared::RegistryTagId, AppError> {
     let now = chrono::Utc::now().naive_utc();
     let candidate_id = Uuid::now_v7();
+    // GitLab can explicitly report zero for a valid image when its
+    // registry metadata is unavailable. Zero is not a useful image size;
+    // preserve a positive registry-manifest fallback if one was cached.
+    let size_bytes = t.total_size.filter(|size| *size > 0);
     sqlx::query!(
         r#"INSERT INTO registry_tags
            (id, registry_repository_id, name, digest, size_bytes, pushed_at,
             last_synced_at, created_at, updated_at)
            VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)
            ON DUPLICATE KEY UPDATE
-             size_bytes = VALUES(size_bytes),
-             pushed_at = VALUES(pushed_at),
+             size_bytes = COALESCE(VALUES(size_bytes), NULLIF(size_bytes, 0)),
+             pushed_at = COALESCE(VALUES(pushed_at), pushed_at),
              last_synced_at = VALUES(last_synced_at),
              updated_at = VALUES(updated_at)"#,
         candidate_id,
         repository_id.0,
         t.name,
-        t.total_size,
+        size_bytes,
         t.created_at.map(|d| d.naive_utc()),
         now,
         now,

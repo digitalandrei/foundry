@@ -52,7 +52,9 @@ Container registry repositories per project. Columns: `id`,
 
 ### `registry_tags`
 Tags per repository. Columns: `id`, `registry_repository_id` FK, `name`,
-`digest`, `size_bytes`, `pushed_at`, `last_synced_at`.
+`digest`, `size_bytes`, `pushed_at`, `last_synced_at`. A non-positive size
+reported by GitLab is stored as unknown; a positive compressed-layer total
+read from the registry manifest may fill the cache instead.
 
 Per-user authorization is enforced at request time against GitLab (with
 short-lived caching) — these mirror tables exist for browsing speed, not for

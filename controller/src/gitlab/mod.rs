@@ -12,13 +12,13 @@ pub mod types;
 use foundry_shared::GitlabInstanceId;
 
 /// A decrypted, ready-to-use instance row (client secret in memory
-/// only for the duration of the request). The registry URL joins this
-/// struct when pull-token issuance lands (Phase 6).
+/// only for the duration of the request).
 #[derive(Clone)]
 pub struct InstanceConfig {
     pub id: GitlabInstanceId,
     pub name: String,
     pub base_url: String,
+    pub registry_url: String,
     pub oauth_client_id: String,
     pub oauth_client_secret: String,
 }

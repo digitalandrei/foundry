@@ -277,6 +277,25 @@ async fn concurrent_gitlab_mirror_upserts_converge(pool: MySqlPool) {
     ];
     assert!(tag_ids.iter().all(|id| *id == tag_ids[0]));
 
+    // A later self-managed GitLab response may explicitly say zero even
+    // though the registry-manifest fallback already supplied a real size.
+    // The invalid zero must not erase that cached positive value.
+    let zero_size_tag = GitlabRegistryTagDetail {
+        name: "latest".into(),
+        total_size: Some(0),
+        created_at: None,
+    };
+    crate::repos::mirror::upsert_tag(&pool, repository_ids[0], &zero_size_tag)
+        .await
+        .unwrap();
+    let stored_size: Option<i64> =
+        sqlx::query_scalar("SELECT size_bytes FROM registry_tags WHERE id = ?")
+            .bind(tag_ids[0].0)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(stored_size, Some(1024));
+
     let counts: (i64, i64, i64) = sqlx::query_as(
         "SELECT \
            (SELECT COUNT(*) FROM gitlab_projects) AS projects, \

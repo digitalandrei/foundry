@@ -5,7 +5,7 @@
 use axum::extract::{Path, State};
 use axum::Json;
 use foundry_shared::dto::{
-    ExposedPortsResponse, RegistryBrowseResponse, RegistryNewTag, RegistryRepository, RegistryTag,
+    ImageMetadataResponse, RegistryBrowseResponse, RegistryNewTag, RegistryRepository, RegistryTag,
     RegistryUpdates,
 };
 use foundry_shared::{GitlabProjectId, RegistryTagId};
@@ -41,16 +41,39 @@ pub async fn browse(
     let mut repositories = Vec::new();
     for repo in api.registry_repositories(project.gitlab_project_id).await? {
         let repo_id = mirror::upsert_repository(&state.pool, project.id, &repo).await?;
-        let mut tags = Vec::new();
-        for tag in api
+        let mut upstream_tags = api
             .registry_tags(project.gitlab_project_id, repo.id)
-            .await?
-        {
-            let tag_id = mirror::upsert_tag(&state.pool, repo_id, &tag).await?;
+            .await?;
+        // Self-managed GitLab may explicitly report a valid image as
+        // zero bytes when registry size metadata is unavailable. Only
+        // those explicit zeros get the registry-manifest fallback;
+        // missing detail remains unknown and avoids unbounded fan-out.
+        let pull_token = if upstream_tags.iter().any(|tag| tag.total_size == Some(0)) {
+            tokens::registry_pull_token(&state.http, &instance.base_url, &token, &repo.path)
+                .await
+                .ok()
+        } else {
+            None
+        };
+        let mut tags = Vec::new();
+        for tag in &mut upstream_tags {
+            if tag.total_size == Some(0) {
+                tag.total_size = registry::compressed_size(
+                    &state.http,
+                    &instance.registry_url,
+                    pull_token.as_deref(),
+                    &repo.path,
+                    &tag.name,
+                )
+                .await
+                .ok()
+                .flatten();
+            }
+            let tag_id = mirror::upsert_tag(&state.pool, repo_id, tag).await?;
             tags.push(RegistryTag {
                 id: tag_id,
-                name: tag.name,
-                size_bytes: tag.total_size,
+                name: tag.name.clone(),
+                size_bytes: tag.total_size.filter(|size| *size > 0),
                 pushed_at: tag.created_at,
             });
         }
@@ -66,16 +89,14 @@ pub async fn browse(
     Ok(Json(RegistryBrowseResponse { repositories }))
 }
 
-/// `GET /api/registry/tags/{tag_id}/exposed-ports` — read the image
-/// config's EXPOSE list for deploy-dialog prefill. Best-effort by
-/// contract: any upstream hiccup (missing manifest, anonymous pull
-/// denied, exotic media type) degrades to an empty list — the dialog
-/// just starts blank, exactly as before discovery existed.
-pub async fn exposed_ports(
+/// `GET /api/registry/tags/{tag_id}/metadata` — read deploy defaults
+/// from the image manifest/config. Best-effort by contract: any
+/// upstream hiccup degrades to empty editable defaults.
+pub async fn image_metadata(
     State(state): State<AppState>,
     user: CurrentUser,
     Path(tag_id): Path<RegistryTagId>,
-) -> Result<Json<ExposedPortsResponse>, AppError> {
+) -> Result<Json<ImageMetadataResponse>, AppError> {
     let tag = mirror::tag_ref(&state.pool, tag_id).await?;
 
     // Same authorization shape as deployment create: an account on the
@@ -98,7 +119,7 @@ pub async fn exposed_ports(
         None => return Err(AppError::Forbidden),
     };
 
-    let ports = registry::exposed_ports(
+    let metadata = registry::image_metadata(
         &state.http,
         &tag.registry_url,
         pull_token.as_deref(),
@@ -108,10 +129,10 @@ pub async fn exposed_ports(
     .await
     .unwrap_or_else(|err| {
         tracing::debug!(?err, repo = %tag.repo_path, tag = %tag.tag_name,
-            "exposed-port discovery failed (non-fatal)");
-        Vec::new()
+            "image metadata discovery failed (non-fatal)");
+        ImageMetadataResponse::default()
     });
-    Ok(Json(ExposedPortsResponse { ports }))
+    Ok(Json(metadata))
 }
 
 /// Hard cap on repos scanned per account per poll — bounds GitLab load

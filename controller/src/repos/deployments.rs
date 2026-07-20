@@ -172,11 +172,7 @@ pub async fn create(
         let mut seen_paths = std::collections::HashSet::new();
         for v in &req.volumes {
             let container_path = v.container_path.trim();
-            if !container_path.starts_with('/') || container_path.len() > 255 {
-                return Err(AppError::BadRequest(format!(
-                    "mount path {container_path:?} must be absolute"
-                )));
-            }
+            super::volumes::validate_container_path(container_path)?;
             if !seen_paths.insert(container_path.to_string()) {
                 return Err(AppError::BadRequest(format!(
                     "duplicate mount path {container_path}"

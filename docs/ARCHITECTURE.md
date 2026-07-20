@@ -416,9 +416,13 @@ failed without it), and the updated systemd unit (ReadWritePaths
 covers it). The same command is the agent **upgrade path** (reinstalls
 the binary, refreshes the unit, restarts the service).
 
-The deploy dialog pre-fills ports from the image's EXPOSE list
-(controller reads the registry config blob — API.md
-§ `exposed-ports`); discovery is best-effort metadata, never a gate.
+The deploy dialog pre-fills ports and persistent mounts from image metadata
+(controller reads the selected linux/amd64 manifest + config blob — API.md
+§ `metadata`). Standard Docker `VOLUME` paths get deterministic suggested
+names; the optional `ai.protv.foundry.volumes` JSON label supplies explicit
+`VolumeSpec` defaults for templates that must avoid anonymous Docker
+volumes. Rows remain editable. Discovery is best-effort metadata, never a
+deployment gate.
 
 Readiness is reported, not assumed (0.13.0; granular in 0.16.0;
 version + cert checks in 0.17.0): each inventory snapshot carries

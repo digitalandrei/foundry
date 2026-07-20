@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO registry_tags\n           (id, registry_repository_id, name, digest, size_bytes, pushed_at,\n            last_synced_at, created_at, updated_at)\n           VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)\n           ON DUPLICATE KEY UPDATE\n             size_bytes = COALESCE(VALUES(size_bytes), NULLIF(size_bytes, 0)),\n             pushed_at = COALESCE(VALUES(pushed_at), pushed_at),\n             last_synced_at = VALUES(last_synced_at),\n             updated_at = VALUES(updated_at)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "11409756140d75b131fa33fe8d962fe8fdd9cb9329c87de487d1d0e3738be1a8"
+}

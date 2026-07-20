@@ -7,7 +7,7 @@ import type {
   DeploymentDetail,
   DeploymentLogsView,
   DeploymentSummary,
-  ExposedPortsResponse,
+  ImageMetadataResponse,
   LatestMetricsResponse,
   ServerVolume,
 } from "@/lib/types"
@@ -51,12 +51,12 @@ export function useLatestMetrics() {
   })
 }
 
-/** EXPOSE'd ports discovered from the image config — deploy-dialog
- * prefill. The server degrades discovery failures to an empty list. */
-export function useExposedPorts(tagId: string | null) {
+/** Ports, persistent mounts, and size discovered from image metadata.
+ * The server degrades discovery failures to empty editable defaults. */
+export function useImageMetadata(tagId: string | null) {
   return useQuery({
-    queryKey: queryKeys.exposedPorts(tagId ?? ""),
-    queryFn: () => api<ExposedPortsResponse>(`/api/registry/tags/${tagId}/exposed-ports`),
+    queryKey: queryKeys.imageMetadata(tagId ?? ""),
+    queryFn: () => api<ImageMetadataResponse>(`/api/registry/tags/${tagId}/metadata`),
     enabled: tagId !== null,
     staleTime: 5 * 60_000, // image config is immutable per tag push
   })

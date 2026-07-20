@@ -17,7 +17,7 @@ import {
 import { useMe } from "@/hooks/use-auth"
 import {
   useCreateDeployment,
-  useExposedPorts,
+  useImageMetadata,
   useReplaceDeployment,
   useServerVolumes,
 } from "@/hooks/use-deployments"
@@ -70,7 +70,7 @@ export function DeployDialog({
   const volumes = useServerVolumes(serverId)
   const me = useMe()
   const appsDomain = me.data?.apps_domain ?? null
-  const discovered = useExposedPorts(target?.tag.registryTagId ?? null)
+  const discovered = useImageMetadata(target?.tag.registryTagId ?? null)
 
   const form = useForm<DeploymentFormValues>({
     resolver: zodResolver(deploymentFormSchema),
@@ -114,6 +114,8 @@ export function DeployDialog({
       prefilled.current = prefillKey
       return
     }
+    if (discovered.isPending) return
+    const discoveredVolumes = discovered.data?.volumes ?? []
     if (target?.replaces) {
       form.reset({
         name: target.replaces.name,
@@ -123,13 +125,12 @@ export function DeployDialog({
           host_port: "",
         })),
         env: [],
-        volumes: [],
+        volumes: discoveredVolumes,
         mem_limit_gb: MEM_UNLIMITED_GB,
       })
       prefilled.current = prefillKey
       return
     }
-    if (discovered.isPending) return
     const rows = (discovered.data?.ports ?? []).map((port) => ({
       container_port: String(port.container_port),
       kind: defaultPortKind(port, appsDomain !== null),
@@ -139,7 +140,7 @@ export function DeployDialog({
       name: "",
       ports: rows,
       env: [],
-      volumes: [],
+      volumes: discoveredVolumes,
       mem_limit_gb: MEM_UNLIMITED_GB,
     })
     prefilled.current = prefillKey
@@ -147,6 +148,7 @@ export function DeployDialog({
 
   if (!target) return null
   const pending = create.isPending || replace.isPending
+  const imageSize = target.tag.sizeBytes ?? discovered.data?.size_bytes
   const serverSlug =
     serverName
       .toLowerCase()
@@ -201,7 +203,7 @@ export function DeployDialog({
             {target.group
               ? `→ ${target.group.serverName} · group ${target.group.name} · ${target.group.memberCount} GPUs · ${Math.round(target.group.vramMb / 1024)} GB combined`
               : `→ ${target.slot!.serverName} · slot ${target.slot!.slotName}`}
-            {target.tag.sizeBytes != null ? ` · ${formatSize(target.tag.sizeBytes)}` : ""}
+            {imageSize != null && imageSize > 0 ? ` · ${formatSize(imageSize)}` : ""}
           </DialogDescription>
         </DialogHeader>
 
@@ -213,10 +215,10 @@ export function DeployDialog({
           </div>
         ) : null}
 
-        {!target.replaces && discovered.isPending ? (
+        {discovered.isPending ? (
           <div className="flex flex-col items-center gap-2 py-10 text-sm text-muted-foreground">
             <Loader2Icon className="size-5 animate-spin" aria-hidden />
-            Inspecting image for exposed ports…
+            Inspecting image metadata…
           </div>
         ) : (
           <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
@@ -230,6 +232,7 @@ export function DeployDialog({
               appsDomain={appsDomain}
               serverSlug={serverSlug}
               discoveredPorts={discovered.data?.ports}
+              discoveredVolumeCount={discovered.data?.volumes.length ?? 0}
               discoverySucceeded={discovered.isSuccess}
               volumeNames={(volumes.data ?? []).map((volume) => volume.name)}
             />

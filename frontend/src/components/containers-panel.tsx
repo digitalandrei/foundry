@@ -247,7 +247,7 @@ function DraggableTag({ tag, imageName }: { tag: RegistryTag; imageName: string 
       <Badge variant="secondary" className="ml-auto shrink-0 font-mono text-[10px]">
         {tag.name}
       </Badge>
-      {tag.size_bytes != null ? (
+      {tag.size_bytes != null && tag.size_bytes > 0 ? (
         <span className="shrink-0 text-xs text-muted-foreground">
           {formatSize(tag.size_bytes)}
         </span>

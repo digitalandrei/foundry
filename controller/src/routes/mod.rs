@@ -39,8 +39,14 @@ pub fn router(state: AppState) -> Router {
         .route("/api/projects", get(projects::list))
         .route("/api/registry/{project_id}", get(registry::browse))
         .route(
+            "/api/registry/tags/{tag_id}/metadata",
+            get(registry::image_metadata),
+        )
+        // Backward-compatible alias for pre-0.53 frontends. The expanded
+        // JSON keeps the original `ports` field.
+        .route(
             "/api/registry/tags/{tag_id}/exposed-ports",
-            get(registry::exposed_ports),
+            get(registry::image_metadata),
         )
         .route("/api/registry/updates", get(registry::updates))
         .route("/api/servers", get(servers::list))

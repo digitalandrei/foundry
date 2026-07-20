@@ -51,7 +51,7 @@ export const queryKeys = {
   instancesFull: ["instances", "full"] as const,
   projects: ["projects"] as const,
   registry: (projectId: string) => ["registry", projectId] as const,
-  exposedPorts: (tagId: string) => ["registry", "tags", tagId, "exposed-ports"] as const,
+  imageMetadata: (tagId: string) => ["registry", "tags", tagId, "metadata"] as const,
   servers: ["servers"] as const,
   fleetTokens: ["fleet-tokens"] as const,
   serverDetail: (id: string) => ["servers", id] as const,

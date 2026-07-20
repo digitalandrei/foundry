@@ -8,6 +8,9 @@ add or tighten one. Don't claim completion without running the relevant set.
 - **Unit tests** for pure logic: state-machine transition legality (every
   slot/deployment transition table case), validation in `shared/`, GitLab
   response parsing (recorded JSON fixtures, no live GitLab in tests).
+  Registry-config coverage includes compressed manifest-size parsing,
+  Foundry-label precedence over standard Docker volume declarations, and
+  rejection of unsafe declared mount defaults.
 - **Integration tests** against a real MySQL (`sqlx::test` with a dedicated
   test database; migrations applied automatically). Cover: enrollment flow,
   task queue dispatch/result handling, deployment transaction atomicity

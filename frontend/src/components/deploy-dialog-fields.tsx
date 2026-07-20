@@ -34,6 +34,7 @@ type FieldsProps = {
   appsDomain: string | null
   serverSlug: string
   discoveredPorts: ExposedPort[] | undefined
+  discoveredVolumeCount: number
   discoverySucceeded: boolean
   volumeNames: string[]
 }
@@ -48,6 +49,7 @@ export function DeployDialogFields({
   appsDomain,
   serverSlug,
   discoveredPorts,
+  discoveredVolumeCount,
   discoverySucceeded,
   volumeNames,
 }: FieldsProps) {
@@ -245,7 +247,7 @@ export function DeployDialogFields({
       <Separator />
       <SectionHeader
         title="Persistent storage"
-        hint={`Volumes live at /storage/containers/<you>/<name>, survive container removal, and can be remounted later.${
+        hint={`${discoveredVolumeCount ? `${discoveredVolumeCount} mount${discoveredVolumeCount === 1 ? "" : "s"} prefilled from the image. ` : ""}Volumes live at /storage/containers/<you>/<name>, survive container removal, and can be remounted later.${
           volumeNames.length ? ` Yours on this server: ${volumeNames.join(", ")}.` : ""
         }`}
         onAdd={() =>

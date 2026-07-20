@@ -174,7 +174,7 @@ export function DashboardPage() {
           <Badge variant="secondary" className="font-mono text-[10px]">
             {dragging.tagName}
           </Badge>
-          {dragging.sizeBytes != null ? (
+          {dragging.sizeBytes != null && dragging.sizeBytes > 0 ? (
             <span className="text-xs text-muted-foreground">{formatSize(dragging.sizeBytes)}</span>
           ) : null}
         </div>

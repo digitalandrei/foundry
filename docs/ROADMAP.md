@@ -462,3 +462,14 @@ reflected in the affected docs in the same commit set:
   by each natural unique key. A disposable-MariaDB concurrency regression test
   covers all three levels. Affects GITLAB-INTEGRATION, DATABASE, TESTING, and
   codebase-map.
+- **2026-07-20** (0.53.0) — **Image-declared persistent mount defaults +
+  honest registry sizes.** Dragging or tapping an image now inspects its
+  selected linux/amd64 OCI config and pre-fills editable persistent mounts
+  from standard Docker `VOLUME` paths or the richer
+  `ai.protv.foundry.volumes` JSON label. EXPOSE ports share the same metadata
+  request. Explicit zero-byte values from self-managed GitLab fall back to
+  the manifest's compressed layer total; unavailable sizes are omitted
+  instead of shown as `0 B`. The ComfyUI blank template declares stable
+  models/output/settings/workflows volume defaults without anonymous Docker
+  volumes. Affects API, ARCHITECTURE, GITLAB-INTEGRATION, DATABASE,
+  UI-DESIGN, TESTING, and codebase-map.

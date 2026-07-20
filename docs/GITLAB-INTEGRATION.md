@@ -99,6 +99,9 @@ cache, not an ACL.
 - Registry browsing:
   `GET /api/v4/projects/{id}/registry/repositories` and
   `.../repositories/{repo_id}/tags` (+ tag detail for digest/size/pushed_at).
+  Self-managed GitLab can return an explicit `total_size: 0` when registry
+  size metadata is unavailable; Foundry treats that as unknown and reads the
+  selected registry manifest's compressed layer total as a narrow fallback.
 - New-image poller (`GET /api/registry/updates`): lists registry repos +
   **tag names only** (no per-tag detail) across the user's available
   projects to detect newly-pushed tags cheaply. Per-tag detail (the
@@ -138,11 +141,13 @@ daemon); the GitLab **API** is only ever called by the controller.
      the registry auth endpoint.
 - The agent holds the credential in memory for the one pull and
   discards it; never written to disk, never logged.
-- The same scoped pull token also backs **EXPOSE-port discovery**
-  (0.8.0): the controller fetches manifest + config blob from the
-  registry (`gitlab/registry.rs`) to pre-fill the deploy dialog's
-  ports. Read-only, best-effort — any failure degrades to an empty
-  list.
+- The same scoped pull token also backs **image metadata discovery**:
+  the controller fetches the selected linux/amd64 manifest + config
+  (`gitlab/registry.rs`) to pre-fill EXPOSE ports and persistent mounts,
+  and to calculate compressed layer size. Mounts come from standard Docker
+  `VOLUME` paths or the richer `ai.protv.foundry.volumes` label (a JSON
+  `VolumeSpec[]`, allowing stable names and read-only defaults). Read-only,
+  best-effort — any failure degrades to empty editable defaults.
 
 ## Failure Modes to Handle
 

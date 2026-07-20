@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT id AS \"id: Uuid\", name, base_url,\n                  oauth_client_id, oauth_client_secret\n           FROM gitlab_instances WHERE id = ? AND enabled = 1",
+  "query": "SELECT id AS \"id: Uuid\", name, base_url, registry_url,\n                  oauth_client_id, oauth_client_secret\n           FROM gitlab_instances WHERE id = ? AND enabled = 1",
   "describe": {
     "columns": [
       {
@@ -32,7 +32,7 @@
       },
       {
         "ordinal": 3,
-        "name": "oauth_client_id",
+        "name": "registry_url",
         "type_info": {
           "type": "VarString",
           "flags": "NOT_NULL | NO_DEFAULT_VALUE",
@@ -41,6 +41,15 @@
       },
       {
         "ordinal": 4,
+        "name": "oauth_client_id",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 1020
+        }
+      },
+      {
+        "ordinal": 5,
         "name": "oauth_client_secret",
         "type_info": {
           "type": "VarString",
@@ -57,8 +66,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "5afc190bb35e2f060c890c801f00d0531221658dd0f174afd18a80d12175f346"
+  "hash": "a87af84bab657b87b42bd8d3a971d24d898e4524c7d894ffc6543a5ffe529afe"
 }

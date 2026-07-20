@@ -124,9 +124,10 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   publishing: render/apply/remove, sudo-scoped reload, rollback) →
   `agent/src/vhost.rs`; host setup for it (`--setup-apps`: include +
   sudoers + TLS dir + unit) → `agent/src/register.rs`
-- Registry image-config read (EXPOSE discovery, manifest→config blob)
+- Registry image-config read (EXPOSE + persistent-mount defaults,
+  compressed layer size, multi-arch manifest→config blob)
   → `controller/src/gitlab/registry.rs`; route →
-  `controller/src/routes/registry.rs` (`exposed_ports`)
+  `controller/src/routes/registry.rs` (`image_metadata`)
 - Frontend deployments: hooks → `hooks/use-deployments.ts` (incl.
   useLatestMetrics + useDeploymentDetail); deploy/replace dialog →
   `components/deploy-dialog.tsx`, with typed field sections in

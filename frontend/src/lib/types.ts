@@ -80,14 +80,17 @@ export interface RegistryBrowseResponse {
   repositories: RegistryRepository[]
 }
 
-/** EXPOSE'd ports read from the image config (deploy-dialog prefill). */
+/** Deploy defaults read from the image manifest/config. */
 export interface ExposedPort {
   container_port: number
   protocol: string
 }
 
-export interface ExposedPortsResponse {
+export interface ImageMetadataResponse {
   ports: ExposedPort[]
+  volumes: VolumeSpec[]
+  /** Compressed layer size from the selected manifest. */
+  size_bytes: number | null
 }
 
 export type ServerStatus = "ONLINE" | "OFFLINE" | "DEGRADED"

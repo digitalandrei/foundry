@@ -54,7 +54,7 @@ pub async fn fetch_config(
     id: GitlabInstanceId,
 ) -> Result<InstanceConfig, AppError> {
     let row = sqlx::query!(
-        r#"SELECT id AS "id: Uuid", name, base_url,
+        r#"SELECT id AS "id: Uuid", name, base_url, registry_url,
                   oauth_client_id, oauth_client_secret
            FROM gitlab_instances WHERE id = ? AND enabled = 1"#,
         id.0
@@ -70,6 +70,7 @@ pub async fn fetch_config(
         id: row.id.into(),
         name: row.name,
         base_url: row.base_url,
+        registry_url: row.registry_url,
         oauth_client_id: row.oauth_client_id,
         oauth_client_secret: secret,
     })

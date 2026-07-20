@@ -57,7 +57,7 @@ export function SlotPickerDialog({
           </DialogTitle>
           <DialogDescription>
             Pick a GPU slot — a free slot deploys here, a running slot replaces what&apos;s on it.
-            {tag.sizeBytes != null ? ` · ${formatSize(tag.sizeBytes)}` : ""}
+            {tag.sizeBytes != null && tag.sizeBytes > 0 ? ` · ${formatSize(tag.sizeBytes)}` : ""}
           </DialogDescription>
         </DialogHeader>
 

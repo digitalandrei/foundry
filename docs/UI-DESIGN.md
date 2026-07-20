@@ -225,7 +225,10 @@ mockup — final token mapping fixed when the palette lands in Phase 8).
   lifecycle timeline (`deployment_events`) and logs comes with
   Phase 7/8. The deploy dialog (drag-drop) collects name, multi-port
   rows (TCP/UDP now), env rows with secret toggle, and persistent
-  volume mounts with reuse suggestions.
+  volume mounts with reuse suggestions. Opening it inspects the image:
+  EXPOSE ports and persistent mounts declared by Docker `VOLUME` or the
+  Foundry volume-default label are prefilled once, remain editable, and do
+  not overwrite input the operator has already changed.
 - **Servers** (live since 0.2.0): table with status dot (same color
   tokens), hostname/OS/agent version/last heartbeat; admin "Add
   server" dialog → names the server, shows the one-time registration

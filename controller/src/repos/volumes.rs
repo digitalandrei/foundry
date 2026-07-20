@@ -59,6 +59,16 @@ pub fn validate_volume_name(name: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+pub fn validate_container_path(path: &str) -> Result<(), AppError> {
+    let path = path.trim();
+    if !path.starts_with('/') || path.len() > 255 {
+        return Err(AppError::BadRequest(format!(
+            "mount path {path:?} must be absolute"
+        )));
+    }
+    Ok(())
+}
+
 /// Create-or-reuse the requester's named volume on a server (inside
 /// the caller's deploy transaction). Returns (id, host path).
 pub async fn ensure(
