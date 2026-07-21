@@ -24,7 +24,7 @@ add or tighten one. Don't claim completion without running the relevant set.
   event/audit success; authoritative external-GPU zero-write rejection;
   repository + database adoption uniqueness; enrollment token/credential/audit
   consistency; concurrent GitLab project/repository/tag mirror upserts;
-  project-shared reuse vs creator-private volume isolation; batched fleet
+  slot/server placement reuse across users and projects; batched fleet
   output shape; active deployment-name uniqueness per server; and
   allowed/blocked guarded server removal.
 - HTTP-level tests with `axum`'s `tower::ServiceExt::oneshot` — auth

@@ -38,7 +38,6 @@ pub async fn create(
     req: &CreateDeploymentRequest,
     image_ref: &str,
     instance_id: foundry_shared::GitlabInstanceId,
-    project_id: foundry_shared::GitlabProjectId,
     created_by: UserId,
     replaces: Option<DeploymentId>,
     apps_domain: Option<&str>,
@@ -151,7 +150,7 @@ pub async fn create(
         .await?;
     }
     // Persistent volumes: resolve explicit IDs or canonical
-    // project/scope/placement names and bind them.
+    // slot/server placement names and bind them.
     if !req.volumes.is_empty() {
         let mut seen_paths = std::collections::HashSet::new();
         for v in &req.volumes {
@@ -165,8 +164,8 @@ pub async fn create(
             let (volume_id, host_path) = super::volumes::ensure(
                 &mut tx,
                 server_id,
-                project_id,
                 target.primary_slot_id,
+                target.group_id,
                 v,
                 created_by,
             )
@@ -322,10 +321,10 @@ pub(super) async fn require_server_ready(
     }
     if !crate::agent_version::supports(
         server.agent_version.as_deref(),
-        crate::agent_version::OPERATIONAL_MIN_AGENT_VERSION,
+        crate::agent_version::DEPLOYMENT_MIN_AGENT_VERSION,
     ) {
         return Err(AppError::BadRequest(format!(
-            "{} reports foundry-agent {}; install 0.59.0 or newer with `sudo foundry-agent --setup-apps` before deploying",
+            "{} reports foundry-agent {}; install 0.63.0 or newer with `sudo foundry-agent --setup-apps` before deploying",
             server.name,
             server.agent_version.as_deref().unwrap_or("unknown"),
         )));
@@ -349,13 +348,14 @@ pub(super) async fn require_server_ready(
     let required_checks: &[&str] = if wants_web {
         &[
             "docker",
+            "docker_gpu",
             "storage_write",
             "capabilities",
             "nginx_config",
             "tls_certificate",
         ]
     } else {
-        &["docker", "storage_write", "capabilities"]
+        &["docker", "docker_gpu", "storage_write", "capabilities"]
     };
     if !readiness.checks_ready(required_checks) {
         let detail = readiness

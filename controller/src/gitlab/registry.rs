@@ -306,7 +306,6 @@ fn declared_volumes(
                 volume_name: suggested_volume_name(repo_path, &path),
                 container_path: path,
                 read_only: false,
-                visibility: foundry_shared::VolumeVisibility::default(),
                 placement: foundry_shared::VolumePlacement::default(),
                 purge_on_redeploy: false,
             });

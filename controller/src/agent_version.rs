@@ -2,6 +2,10 @@
 //! variants that an older agent cannot deserialize.
 
 pub const OPERATIONAL_MIN_AGENT_VERSION: (u32, u32, u32) = (0, 59, 0);
+/// Deployment requires the NVIDIA-container readiness probe introduced in
+/// 0.63. Operational commands intentionally keep the lower gate so an older
+/// or Docker-broken host can still be repaired and upgraded remotely.
+pub const DEPLOYMENT_MIN_AGENT_VERSION: (u32, u32, u32) = (0, 63, 0);
 
 pub fn parse(version: &str) -> Option<(u32, u32, u32)> {
     let version = version.trim().trim_start_matches('v');

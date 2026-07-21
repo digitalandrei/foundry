@@ -167,6 +167,20 @@ host and verified via `/health`, not when it compiles.
 Prerequisites: NVIDIA driver, Docker Engine, NVIDIA Container Toolkit, MIG
 geometry pre-created if desired (`GPU-MIG.md`).
 
+Configure the toolkit in the Docker daemon and restart Docker before
+enrollment or diagnostics:
+
+```bash
+sudo apt install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+docker info --format '{{json .Runtimes}}'
+```
+
+The last command must include `nvidia`. Agent 0.63.0 reports a separate
+`docker_gpu` readiness check and blocks deploys before image pull when neither
+the NVIDIA runtime nor an NVIDIA CDI device is visible to Docker.
+
 Enrollment (GitLab-agent style):
 
 1. Admin: **Servers → Add server** in the UI — names the server and
@@ -225,7 +239,8 @@ Setup revision r4 (0.60.0) adds `CAP_NET_BIND_SERVICE` to the bounding set:
 some nginx configurations bind ports 80/443 during `nginx -t`, even though the
 command only validates configuration. The capability is not ambient in the
 long-running agent. New deploys/restarts are held until the host reports agent
-≥0.59.0, setup r4, and a fresh positive readiness snapshot.
+≥0.63.0, setup r4, and a fresh positive readiness snapshot including
+`docker_gpu`.
 
 The hash-bucket setting is required because
 `<app>.<server>.ai.protv.ro` can exceed nginx's common 64-byte server-name
@@ -278,9 +293,11 @@ database, which correctly remains on the previous schema until the new
 controller starts and applies its embedded migrations.
 
 Persistent-volume clean and purge-on-redeploy still require foundry-agent
-0.54.0 or newer. Operationally safe deploy/restart/replacement requires
-0.59.0 because its protocol adds preparation, health, publication rollback,
-diagnostics and immutable image fields. Controller-first deployment is safe:
+0.54.0 or newer. Placement-scoped file sessions and operationally safe
+deploy/restart/replacement require 0.63.0 because deployment readiness now
+includes Docker's NVIDIA runtime/CDI capability. Remote upgrade deliberately
+keeps its 0.59.0 floor so a Docker-broken host can repair itself.
+Controller-first deployment is safe:
 older agents keep heartbeating and existing workloads keep running, while new
 work is rejected with the manual bootstrap instruction rather than poisoning
 an old agent's task queue. Volume deletion remains available.

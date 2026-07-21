@@ -5,8 +5,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    DeploymentState, GitlabProjectId, GpuGroupId, PortKind, RegistryTagId, ServerId,
-    ServerVolumeId, SlotId, VolumePlacement, VolumeVisibility,
+    DeploymentState, GpuGroupId, PortKind, RegistryTagId, ServerId, ServerVolumeId, SlotId,
+    VolumePlacement,
 };
 
 /// Docker memory-cap slider bounds (MB). Operator request (2026-06-16):
@@ -45,9 +45,9 @@ pub struct EnvSpec {
     pub is_secret: bool,
 }
 
-/// Persistent storage mount. `volume_id` explicitly reuses an accessible
-/// existing volume; otherwise Foundry creates or reuses the canonical
-/// project/scope/placement/name volume. Volumes outlive deployments.
+/// Persistent storage mount. `volume_id` explicitly reuses an existing
+/// placement volume; otherwise Foundry creates or reuses the canonical
+/// slot-or-server/name volume. Volumes outlive deployments and projects.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VolumeSpec {
     #[serde(default)]
@@ -56,8 +56,6 @@ pub struct VolumeSpec {
     pub container_path: String,
     #[serde(default)]
     pub read_only: bool,
-    #[serde(default)]
-    pub visibility: VolumeVisibility,
     #[serde(default)]
     pub placement: VolumePlacement,
     /// Remove all contents immediately before this deployment is
@@ -105,16 +103,14 @@ pub struct ServerVolume {
     pub used_bytes: Option<u64>,
     pub quota_bytes: Option<u64>,
     pub usage_measured_at: Option<DateTime<Utc>>,
-    /// None only for an unattached pre-scope migration volume.
-    pub project_id: Option<GitlabProjectId>,
-    pub project_name: Option<String>,
-    pub visibility: VolumeVisibility,
     pub placement: VolumePlacement,
     pub slot_id: Option<SlotId>,
     pub slot_name: Option<String>,
+    pub gpu_group_id: Option<GpuGroupId>,
+    pub group_name: Option<String>,
     pub created_by_name: String,
-    /// Creator/admin may clean or delete. Project membership grants reuse,
-    /// not destructive management.
+    /// The creator or an administrator may clean, delete, or change quota.
+    /// All signed-in operators may browse and mount placement volumes.
     pub can_manage: bool,
     /// Names of active deployments currently mounting it (empty →
     /// deletable).
@@ -203,7 +199,6 @@ pub struct DeploymentMount {
     pub host_path: String,
     pub container_path: String,
     pub read_only: bool,
-    pub visibility: Option<VolumeVisibility>,
     pub placement: Option<VolumePlacement>,
     pub purge_on_redeploy: bool,
 }

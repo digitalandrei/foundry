@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT gg.id AS \"id: Uuid\" FROM gpu_groups gg\n           WHERE gg.server_id = ?\n             AND NOT EXISTS (SELECT 1 FROM gpu_group_members m WHERE m.group_id = gg.id)\n             AND NOT EXISTS (\n                 SELECT 1 FROM deployments d\n                 WHERE d.gpu_group_id = gg.id\n                   AND d.state NOT IN ('REMOVED','REPLACED','FAILED')\n             )\n             AND NOT EXISTS (\n                 SELECT 1 FROM server_volumes v WHERE v.gpu_group_id = gg.id\n             )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | PRIMARY_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6332f7be123814baa97cb8ee7c76729a9a30dc83a79d6f9b8b4293129d108c5a"
+}

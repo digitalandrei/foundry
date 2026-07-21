@@ -34,11 +34,7 @@ pub async fn run_loop(client: &reqwest::Client, config: &AgentConfig) {
             _ = crate::shutdown_signal() => break,
             request = poll_next(client, config, &next_url) => {
                 let Some(request) = request else { continue };
-                tracing::info!(
-                    project = %request.project_id,
-                    volumes = request.volumes.len(),
-                    "opening volume file session"
-                );
+                tracing::info!(volumes = request.volumes.len(), "opening volume file session");
                 let config = config.clone();
                 tokio::spawn(async move {
                     if let Err(error) = handle(&config, request).await {

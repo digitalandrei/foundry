@@ -17,8 +17,8 @@ describe("volume file helpers", () => {
   })
 
   it("gates the UI on the agent protocol version", () => {
-    expect(agentSupportsVolumeFiles("0.55.9")).toBe(false)
-    expect(agentSupportsVolumeFiles("0.56.0")).toBe(true)
+    expect(agentSupportsVolumeFiles("0.62.9")).toBe(false)
+    expect(agentSupportsVolumeFiles("0.63.0")).toBe(true)
     expect(agentSupportsVolumeFiles("v1.0.0-dev")).toBe(true)
     expect(agentSupportsVolumeFiles(null)).toBe(false)
   })

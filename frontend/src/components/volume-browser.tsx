@@ -43,19 +43,19 @@ function pane(volumeId = ""): VolumePaneModel {
   return { volumeId, path: "", entries: [], selectedPath: null, loading: false }
 }
 
-/** Dual-pane project storage browser. The two panes share one authorized
+/** Dual-pane placement storage browser. The two panes share one authorized
  * reverse-WS session, so cross-volume copy/move stays on the GPU server. */
 export function VolumeBrowser({
   server,
-  projectId,
   volumes,
+  deploymentId,
 }: {
   server: ServerSummary
-  projectId: string
   volumes: ServerVolume[]
+  deploymentId?: string
 }) {
   const supported = agentSupportsVolumeFiles(server.agent_version)
-  const files = useVolumeFiles(server.id, projectId, supported && volumes.length > 0)
+  const files = useVolumeFiles(server.id, supported && volumes.length > 0, deploymentId)
   const connected = files.status === "open"
   const [left, setLeft] = useState<VolumePaneModel>(() => pane(volumes[0]?.id))
   const [right, setRight] = useState<VolumePaneModel>(() => pane(volumes[1]?.id ?? volumes[0]?.id))
@@ -273,7 +273,7 @@ export function VolumeBrowser({
 
   const statusText = useMemo(() => {
     if (!supported) {
-      return `Upgrade ${server.name} from agent ${server.agent_version ?? "unknown"} to 0.56.0`
+      return `Upgrade ${server.name} from agent ${server.agent_version ?? "unknown"} to 0.63.0`
     }
     if (files.status === "connecting") return "Connecting to server agent…"
     if (files.status === "open") return "Connected · changes are live"

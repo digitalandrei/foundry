@@ -72,7 +72,7 @@ export function DeployDialog({
   const appsDomain = me.data?.apps_domain ?? null
   const discovered = useImageMetadata(target?.tag.registryTagId ?? null)
   const replacingDetail = useDeploymentDetail(target?.replaces?.id ?? null)
-  const volumes = useServerVolumes(serverId, discovered.data?.project_id ?? null, {
+  const volumes = useServerVolumes(serverId, {
     slotId: target?.slot?.slotId,
     groupId: target?.group?.id,
   })
@@ -129,7 +129,6 @@ export function DeployDialog({
           volume_name: mount.volume_name!,
           container_path: mount.container_path,
           read_only: mount.read_only,
-          visibility: mount.visibility ?? "PRIVATE" as const,
           placement: mount.placement ?? "SLOT" as const,
           purge_on_redeploy: mount.purge_on_redeploy,
         }))

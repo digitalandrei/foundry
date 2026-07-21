@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT sv.id AS \"id: Uuid\"\n               FROM deployment_volumes dv\n               JOIN deployments d ON d.id = dv.deployment_id\n               JOIN server_volumes sv ON sv.id = dv.server_volume_id\n               WHERE d.id = ? AND d.server_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | PRIMARY_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "dc90124d439841c2d7577223adeb1a3cd359e0f8a01f436411463f8d9bffe606"
+}

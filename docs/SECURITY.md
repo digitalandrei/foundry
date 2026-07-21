@@ -151,9 +151,9 @@ capability and keep its controls tight:
 The Storage browser is host-filesystem access, so its scope is explicit at
 every boundary:
 
-- The browser session is authorized live against the selected GitLab project
-  before WebSocket upgrade. Its roots contain shared PROJECT volumes plus only
-  PRIVATE volumes created by the requester.
+- The browser session requires an authenticated Foundry user. Its roots are
+  placement-scoped on the selected server; a deployment-detail session is
+  additionally narrowed to the volume IDs attached to that deployment.
 - The browser sends a `volume_id` and relative UTF-8 path, never a host path.
   The agent receives a controller-approved root map for its own `server_id`;
   absolute paths, `..`, root deletion, and symlink following are rejected.
@@ -211,17 +211,17 @@ relaxation, not a removal of that rule:
   values marked secret are encrypted at rest and masked in the UI and logs.
 - Containers run with only the devices/ports/volumes the deployment declares;
   no `--privileged` in v1.
-- **Deployment visibility vs control** (decision 2026-06-12; project
-  collaboration amendment 0.54.0): the
+- **Deployment visibility vs control** (decision 2026-06-12; placement
+  storage amendment 0.63.0): the
   deployments list and the dashboard slot grid are **org-visible** to
   every authenticated user — Foundry is an ops dashboard and fleet
   transparency is the point. Stop/restart/remove remain owner-or-admin.
   Replacement is owner/admin, or another current GitLab member when both
-  deployments belong to the same project. Volume reuse follows the stored
-  PRIVATE (creator) or PROJECT (current member) visibility; destructive
-  clean/delete remains creator-or-admin and is refused while mounted.
-  Project listing, deployment, replacement, and project-volume listing are
-  resolved live against GitLab; mirror tables are never an ACL.
+  deployments belong to the same project. Persistent volume reuse and file
+  access follow the physical SLOT/SERVER placement and are available to
+  signed-in operators; destructive clean/delete/quota remains creator-or-admin
+  and is refused while mounted. Project listing, deployment, and replacement
+  are resolved live against GitLab; mirror tables are never a storage ACL.
 
 ## Network Posture (this host)
 

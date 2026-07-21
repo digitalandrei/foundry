@@ -223,7 +223,7 @@ pub async fn detail(
         .ok_or(AppError::NotFound("deployment not found"))?;
     let mounts = sqlx::query!(
         r#"SELECT sv.id AS "volume_id: Uuid", sv.name AS "volume_name?",
-                  sv.visibility AS "visibility?", sv.placement AS "placement?",
+                  sv.placement AS "placement?",
                   dv.host_path, dv.container_path,
                   dv.read_only AS "read_only: bool",
                   dv.purge_on_redeploy AS "purge_on_redeploy: bool"
@@ -243,10 +243,6 @@ pub async fn detail(
             host_path: r.host_path,
             container_path: r.container_path,
             read_only: r.read_only,
-            visibility: r
-                .visibility
-                .map(|value| value.parse().map_err(AppError::internal))
-                .transpose()?,
             placement: r
                 .placement
                 .map(|value| value.parse().map_err(AppError::internal))

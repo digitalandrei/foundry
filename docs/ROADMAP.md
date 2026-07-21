@@ -548,3 +548,14 @@ reflected in the affected docs in the same commit set:
   explicit result, and one shared lazy Docker client automatically initializes
   when the socket appears later. Affects ARCHITECTURE, API, DEPLOYMENT,
   TESTING, codebase-map, and ROADMAP.
+- **2026-07-21** (0.63.0) — **GPU-runtime readiness and placement-owned
+  storage.** Inventory and live deploy preflight now verify that Docker exposes
+  the NVIDIA runtime or NVIDIA CDI devices; reservations are blocked on failed
+  evidence, and Docker 29 hosts with the registered runtime receive an explicit
+  `nvidia` device-request driver. Persistent storage no longer belongs to a
+  GitLab project or PRIVATE/PROJECT visibility scope: identity is logical name
+  within one physical/GPU-group slot or the whole server. Existing volume paths
+  and data migrate in place. The Storage page is server-scoped, and deployment
+  detail embeds the dual-pane browser narrowed to that deployment's exact
+  mounts. Affects API, ARCHITECTURE, DATABASE, DEPLOYMENT, GPU-MIG, SECURITY,
+  UI-DESIGN, TESTING, codebase-map, and ROADMAP.

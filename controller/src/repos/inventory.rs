@@ -147,6 +147,9 @@ pub async fn apply_snapshot(
                  SELECT 1 FROM deployments d
                  WHERE d.gpu_group_id = gg.id
                    AND d.state NOT IN ('REMOVED','REPLACED','FAILED')
+             )
+             AND NOT EXISTS (
+                 SELECT 1 FROM server_volumes v WHERE v.gpu_group_id = gg.id
              )"#,
         server_id.0,
     )

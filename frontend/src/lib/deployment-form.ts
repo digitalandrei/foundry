@@ -37,7 +37,6 @@ const volumeRow = z.object({
     .max(63),
   container_path: z.string().startsWith("/", "must be absolute").max(255),
   read_only: z.boolean(),
-  visibility: z.enum(["PRIVATE", "PROJECT"]),
   placement: z.enum(["SLOT", "SERVER"]),
   purge_on_redeploy: z.boolean(),
 })

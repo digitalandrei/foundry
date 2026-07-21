@@ -163,6 +163,13 @@ export function slotDeployability(
   if (server.status !== "ONLINE") return { deployable: false, replace: false, reason: "server offline" }
   if (server.docker_ok === false)
     return { deployable: false, replace: false, reason: "Docker stopped — deploys blocked" }
+  const dockerGpu = server.readiness?.checks.find((check) => check.code === "docker_gpu")
+  if (server.readiness && dockerGpu?.status !== "READY")
+    return {
+      deployable: false,
+      replace: false,
+      reason: dockerGpu?.detail ?? "NVIDIA container support has not been verified",
+    }
   if (external?.running)
     return { deployable: false, replace: false, reason: "GPU held by a non-Foundry container" }
 

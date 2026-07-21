@@ -419,8 +419,8 @@ pub async fn create(
     Ok(id)
 }
 
-/// Delete a group — refused while a deploy is live on it (mirrors the
-/// volume "refused while mounted" choke point).
+/// Delete a group — refused while a deploy or placement volume still belongs
+/// to it (mirrors the volume "refused while mounted" choke point).
 pub async fn delete(
     pool: &MySqlPool,
     group_id: GpuGroupId,
@@ -444,6 +444,17 @@ pub async fn delete(
     if live > 0 {
         return Err(AppError::BadRequest(
             "a deployment is live on this group — stop it first".into(),
+        ));
+    }
+    let volumes = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM server_volumes WHERE gpu_group_id = ?",
+        group_id.0,
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if volumes > 0 {
+        return Err(AppError::BadRequest(
+            "persistent volumes belong to this group — delete them from Storage first".into(),
         ));
     }
     // Clear the FK on historical (terminal) deployments so the row can

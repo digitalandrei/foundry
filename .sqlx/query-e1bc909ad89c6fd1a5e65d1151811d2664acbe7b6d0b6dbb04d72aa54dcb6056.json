@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT sv.id AS \"volume_id: Uuid\", sv.name AS \"volume_name?\",\n                  sv.visibility AS \"visibility?\", sv.placement AS \"placement?\",\n                  dv.host_path, dv.container_path,\n                  dv.read_only AS \"read_only: bool\",\n                  dv.purge_on_redeploy AS \"purge_on_redeploy: bool\"\n           FROM deployment_volumes dv\n           LEFT JOIN server_volumes sv ON sv.id = dv.server_volume_id\n           WHERE dv.deployment_id = ?\n           ORDER BY dv.container_path",
+  "query": "SELECT sv.id AS \"volume_id: Uuid\", sv.name AS \"volume_name?\",\n                  sv.placement AS \"placement?\",\n                  dv.host_path, dv.container_path,\n                  dv.read_only AS \"read_only: bool\",\n                  dv.purge_on_redeploy AS \"purge_on_redeploy: bool\"\n           FROM deployment_volumes dv\n           LEFT JOIN server_volumes sv ON sv.id = dv.server_volume_id\n           WHERE dv.deployment_id = ?\n           ORDER BY dv.container_path",
   "describe": {
     "columns": [
       {
@@ -23,15 +23,6 @@
       },
       {
         "ordinal": 2,
-        "name": "visibility?",
-        "type_info": {
-          "type": "VarString",
-          "flags": "",
-          "max_size": 64
-        }
-      },
-      {
-        "ordinal": 3,
         "name": "placement?",
         "type_info": {
           "type": "VarString",
@@ -40,7 +31,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 3,
         "name": "host_path",
         "type_info": {
           "type": "VarString",
@@ -49,7 +40,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 4,
         "name": "container_path",
         "type_info": {
           "type": "VarString",
@@ -58,7 +49,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 5,
         "name": "read_only: bool",
         "type_info": {
           "type": "Tiny",
@@ -67,7 +58,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 6,
         "name": "purge_on_redeploy: bool",
         "type_info": {
           "type": "Tiny",
@@ -83,12 +74,11 @@
       true,
       true,
       true,
-      true,
       false,
       false,
       false,
       false
     ]
   },
-  "hash": "0bf98e1bac4319a45865b76e29644634a35a56b46080edc2184a40092f7fa333"
+  "hash": "e1bc909ad89c6fd1a5e65d1151811d2664acbe7b6d0b6dbb04d72aa54dcb6056"
 }

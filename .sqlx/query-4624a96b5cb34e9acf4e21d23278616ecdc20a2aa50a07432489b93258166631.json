@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT server_id AS \"server_id: Uuid\",\n                      gitlab_project_id AS \"project_id: Uuid\",\n                      name, path, visibility, placement,\n                      gpu_slot_id AS \"slot_id: Uuid\",\n                      created_by AS \"created_by: Uuid\"\n               FROM server_volumes WHERE id = ? FOR UPDATE",
+  "query": "SELECT server_id AS \"server_id: Uuid\",\n                      name, path, placement, placement_id AS \"placement_id: Uuid\",\n                      gpu_slot_id AS \"slot_id: Uuid\"\n               FROM server_volumes WHERE id = ? FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -14,15 +14,6 @@
       },
       {
         "ordinal": 1,
-        "name": "project_id: Uuid",
-        "type_info": {
-          "type": "String",
-          "flags": "MULTIPLE_KEY | BINARY",
-          "max_size": 16
-        }
-      },
-      {
-        "ordinal": 2,
         "name": "name",
         "type_info": {
           "type": "VarString",
@@ -31,7 +22,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 2,
         "name": "path",
         "type_info": {
           "type": "VarString",
@@ -40,16 +31,7 @@
         }
       },
       {
-        "ordinal": 4,
-        "name": "visibility",
-        "type_info": {
-          "type": "VarString",
-          "flags": "NOT_NULL",
-          "max_size": 64
-        }
-      },
-      {
-        "ordinal": 5,
+        "ordinal": 3,
         "name": "placement",
         "type_info": {
           "type": "VarString",
@@ -58,20 +40,20 @@
         }
       },
       {
-        "ordinal": 6,
-        "name": "slot_id: Uuid",
+        "ordinal": 4,
+        "name": "placement_id: Uuid",
         "type_info": {
           "type": "String",
-          "flags": "MULTIPLE_KEY | BINARY",
+          "flags": "NOT_NULL | BINARY | NO_DEFAULT_VALUE",
           "max_size": 16
         }
       },
       {
-        "ordinal": 7,
-        "name": "created_by: Uuid",
+        "ordinal": 5,
+        "name": "slot_id: Uuid",
         "type_info": {
           "type": "String",
-          "flags": "NOT_NULL | MULTIPLE_KEY | BINARY | NO_DEFAULT_VALUE",
+          "flags": "MULTIPLE_KEY | BINARY",
           "max_size": 16
         }
       }
@@ -81,14 +63,12 @@
     },
     "nullable": [
       false,
-      true,
       false,
       false,
       false,
       false,
-      true,
-      false
+      true
     ]
   },
-  "hash": "b4f40ba11962f9d5e05d17abc6687ec1bc74f3d26ecdb5c6dd0e9cc6f3a7504f"
+  "hash": "4624a96b5cb34e9acf4e21d23278616ecdc20a2aa50a07432489b93258166631"
 }

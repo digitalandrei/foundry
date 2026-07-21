@@ -57,8 +57,8 @@ export const queryKeys = {
   fleetTokens: ["fleet-tokens"] as const,
   serverDetail: (id: string) => ["servers", id] as const,
   serverMetrics: (id: string, minutes: number) => ["servers", id, "metrics", minutes] as const,
-  serverVolumes: (id: string, projectId: string, target: string) =>
-    ["servers", id, "volumes", projectId, target] as const,
+  serverVolumes: (id: string, target: string) =>
+    ["servers", id, "volumes", target] as const,
   serverGroups: (id: string) => ["servers", id, "gpu-groups"] as const,
   deployments: ["deployments"] as const,
   deploymentDetail: (id: string) => ["deployments", id] as const,

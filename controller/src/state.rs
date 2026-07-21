@@ -28,7 +28,7 @@ pub struct AppState {
     /// pair, meaningless across a restart. Same lock discipline as
     /// `progress`: short sync sections only.
     pub shells: crate::shell::ShellRegistry,
-    /// Pending/active project-volume file sessions (crate::files). The
+    /// Pending/active placement-volume file sessions (crate::files). The
     /// approved roots and live socket channels are transient and become
     /// meaningless across a controller restart.
     pub files: crate::files::FileRegistry,

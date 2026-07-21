@@ -73,6 +73,12 @@ Engine API (`DeviceRequests`):
 - Full GPU: device request with the GPU UUID.
 - MIG slot: device request with the MIG device UUID
   (equivalent to `docker run --gpus '"device=MIG-..."'`).
+- Foundry sets the request driver to `nvidia` when Docker reports that
+  configured runtime; CDI-only daemons retain Docker's auto-selection.
+- Inventory and agent-side deployment preflight require a registered NVIDIA
+  runtime or a Docker-discovered `nvidia.com/gpu` CDI device. This prevents a
+  reservation/pull from reaching Docker 29's start-time "no known GPU vendor"
+  failure.
 - Exactly one deployment per slot — capacity is the slot itself; there is no
   oversubscription in v1.
 

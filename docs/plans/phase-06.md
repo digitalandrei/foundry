@@ -2,7 +2,7 @@
 
 **Status:** ✅ Done — full lifecycle (deploy/stop/restart/remove),
 replacement chain, TCP/UDP port publishing per the design below, persistent
-volumes (originally per-user paths; superseded by 0.54.0 project visibility +
+volumes (originally per-user, then project-scoped; superseded by 0.63.0
 slot/server placement with opaque `/storage/containers/volumes/<uuid>` paths,
 REMOVE_VOLUME
 task), pull-token mint at dispatch (variant 1 with variant-2 fallback),

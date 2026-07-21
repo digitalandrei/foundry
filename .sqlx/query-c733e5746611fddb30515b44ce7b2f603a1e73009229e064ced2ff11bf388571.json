@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT id AS \"id: Uuid\", path\n           FROM server_volumes\n           WHERE server_id = ? AND gitlab_project_id = ?\n             AND visibility = ? AND scope_id = ?\n             AND placement = ? AND placement_id = ? AND name = ?\n           FOR UPDATE",
+  "query": "SELECT id AS \"id: Uuid\", path\n           FROM server_volumes\n           WHERE server_id = ? AND placement = ? AND placement_id = ? AND name = ?\n           FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -23,12 +23,12 @@
       }
     ],
     "parameters": {
-      "Right": 7
+      "Right": 4
     },
     "nullable": [
       false,
       false
     ]
   },
-  "hash": "e21b3d8527d132ba14987a9464aafafdc6f07011ebdd7f589ac04378f0154b1a"
+  "hash": "c733e5746611fddb30515b44ce7b2f603a1e73009229e064ced2ff11bf388571"
 }

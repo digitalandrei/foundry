@@ -7,7 +7,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{GitlabProjectId, ServerVolumeId};
+use crate::ServerVolumeId;
 
 /// One controller-approved root exposed to a file-browser session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,7 +22,6 @@ pub struct FileVolumeRoot {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileSessionRequest {
     pub session_id: uuid::Uuid,
-    pub project_id: GitlabProjectId,
     pub volumes: Vec<FileVolumeRoot>,
 }
 

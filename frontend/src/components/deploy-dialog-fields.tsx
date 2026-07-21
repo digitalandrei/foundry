@@ -22,7 +22,7 @@ import {
   MEM_UNLIMITED_GB,
   type DeploymentFormValues,
 } from "@/lib/deployment-form"
-import type { ExposedPort, PortKind, ServerVolume, VolumePlacement, VolumeVisibility } from "@/lib/types"
+import type { ExposedPort, PortKind, ServerVolume, VolumePlacement } from "@/lib/types"
 
 type FieldsProps = {
   form: UseFormReturn<DeploymentFormValues>
@@ -247,14 +247,13 @@ export function DeployDialogFields({
       <Separator />
       <SectionHeader
         title="Persistent storage"
-        hint={`${discoveredVolumeCount ? `${discoveredVolumeCount} mount${discoveredVolumeCount === 1 ? "" : "s"} prefilled from the image. ` : ""}Private/project visibility and slot/server placement determine reuse. Purge removes contents immediately before a restart or replacement.`}
+        hint={`${discoveredVolumeCount ? `${discoveredVolumeCount} mount${discoveredVolumeCount === 1 ? "" : "s"} prefilled from the image. ` : ""}Slot volumes follow this physical slot; server volumes are shared across its slots. Purge removes contents immediately before a restart or replacement.`}
         onAdd={() =>
           mounts.append({
             volume_id: null,
             volume_name: "",
             container_path: "/data",
             read_only: false,
-            visibility: "PRIVATE",
             placement: "SLOT",
             purge_on_redeploy: false,
           })
@@ -279,9 +278,6 @@ export function DeployDialogFields({
                     if (!volume) return
                     form.setValue(`volumes.${index}.volume_id`, volume.id, { shouldDirty: true })
                     form.setValue(`volumes.${index}.volume_name`, volume.name, { shouldDirty: true })
-                    form.setValue(`volumes.${index}.visibility`, volume.visibility, {
-                      shouldDirty: true,
-                    })
                     form.setValue(`volumes.${index}.placement`, volume.placement, {
                       shouldDirty: true,
                     })
@@ -294,10 +290,11 @@ export function DeployDialogFields({
                     <SelectItem value="automatic">Create/reuse by policy</SelectItem>
                     {availableVolumes.map((volume) => (
                       <SelectItem key={volume.id} value={volume.id}>
-                        {volume.name} · {volume.visibility.toLowerCase()} ·{" "}
-                        {volume.placement === "SERVER"
+                        {volume.name} · {volume.placement === "SERVER"
                           ? "server"
-                          : `slot ${volume.slot_name ?? "?"}`}
+                          : volume.gpu_group_id
+                            ? `group ${volume.group_name ?? "?"}`
+                            : `slot ${volume.slot_name ?? "?"}`}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -333,26 +330,6 @@ export function DeployDialogFields({
                 {form.formState.errors.volumes?.[index]?.container_path ? (
                   <FieldError>absolute path</FieldError>
                 ) : null}
-              </Field>
-              <Field>
-                <FieldLabel>Visibility</FieldLabel>
-                <Select
-                  value={watched.volumes?.[index]?.visibility ?? "PRIVATE"}
-                  onValueChange={(value) => {
-                    form.setValue(
-                      `volumes.${index}.visibility`,
-                      value as VolumeVisibility,
-                      { shouldDirty: true },
-                    )
-                    form.setValue(`volumes.${index}.volume_id`, null)
-                  }}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PRIVATE">Private to me</SelectItem>
-                    <SelectItem value="PROJECT">Shared with project</SelectItem>
-                  </SelectContent>
-                </Select>
               </Field>
               <Field>
                 <FieldLabel>Placement</FieldLabel>

@@ -233,16 +233,41 @@ async fn execute(
             }
             (TaskType::UpgradeAgent, TaskPayload::None, _) => Ok(empty_success()),
             (TaskType::RefreshInventory, TaskPayload::None, engine) => {
-                let docker_ok = match engine {
-                    Some(engine) => engine.list().await.is_ok(),
-                    None => false,
+                let (docker_ok, docker_gpu) = match engine {
+                    Some(engine) => {
+                        let docker_ok = engine.list().await.is_ok();
+                        let docker_gpu = if docker_ok {
+                            engine
+                                .gpu_support()
+                                .await
+                                .map_err(|error| error.to_string())
+                        } else {
+                            Err(
+                                "Docker is unavailable; NVIDIA container support cannot be probed"
+                                    .into(),
+                            )
+                        };
+                        (docker_ok, docker_gpu)
+                    }
+                    None => (
+                        false,
+                        Err(
+                            "Docker is unavailable; NVIDIA container support cannot be probed"
+                                .into(),
+                        ),
+                    ),
                 };
                 Ok(ExecutionSuccess {
                     container_id: None,
                     health_status: None,
                     health_detail: None,
                     readiness: Some(
-                        crate::host::readiness(config.server_name.as_deref(), docker_ok).await,
+                        crate::host::readiness(
+                            config.server_name.as_deref(),
+                            docker_ok,
+                            docker_gpu,
+                        )
+                        .await,
                     ),
                     storage: crate::host::storage_usage().await,
                 })
@@ -642,6 +667,10 @@ async fn preflight(engine: &dyn DockerEngine, p: &DeployPayload) -> Result<(), E
     }
     engine
         .list()
+        .await
+        .map_err(|error| ExecutionFailure::new("PREFLIGHT", error.to_string()))?;
+    engine
+        .gpu_support()
         .await
         .map_err(|error| ExecutionFailure::new("PREFLIGHT", error.to_string()))?;
     let web = crate::vhost::web_ports(&p.ports);
@@ -1098,6 +1127,17 @@ mod tests {
             .expect_err("tag-only reference must fail");
         assert_eq!(error.stage, "PREFLIGHT");
         assert!(error.message.contains("not pinned by digest"));
+    }
+
+    #[tokio::test]
+    async fn preflight_rejects_missing_nvidia_container_support() {
+        let engine = FakeEngine::new().fail_gpu_support("no NVIDIA runtime or CDI device");
+        let error = preflight(&engine, &payload())
+            .await
+            .expect_err("GPU-incapable Docker must fail before pull/create");
+        assert_eq!(error.stage, "PREFLIGHT");
+        assert!(error.message.contains("NVIDIA runtime"));
+        assert!(engine.created.lock().unwrap().is_empty());
     }
 
     #[tokio::test]

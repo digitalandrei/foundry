@@ -83,18 +83,16 @@ export function useImageMetadata(tagId: string | null) {
 /** Volumes the requester may mount on a server (deploy dialog reuse). */
 export function useServerVolumes(
   serverId: string | null,
-  projectId: string | null,
   target?: { slotId?: string; groupId?: string },
 ) {
   const targetKey = target?.slotId ? `slot:${target.slotId}` : target?.groupId ? `group:${target.groupId}` : "all"
   const query = new URLSearchParams()
-  if (projectId) query.set("project_id", projectId)
   if (target?.slotId) query.set("slot_id", target.slotId)
   if (target?.groupId) query.set("gpu_group_id", target.groupId)
   return useQuery({
-    queryKey: queryKeys.serverVolumes(serverId ?? "", projectId ?? "", targetKey),
+    queryKey: queryKeys.serverVolumes(serverId ?? "", targetKey),
     queryFn: () => api<ServerVolume[]>(`/api/servers/${serverId}/volumes?${query}`),
-    enabled: serverId !== null && projectId !== null,
+    enabled: serverId !== null,
   })
 }
 

@@ -125,8 +125,12 @@ export function VolumeFilePane({
           <SelectContent>
             {volumes.map((volume) => (
               <SelectItem key={volume.id} value={volume.id}>
-                {volume.name} · {volume.visibility === "PROJECT" ? "shared" : "private"} ·{" "}
-                {volume.placement === "SERVER" ? "server" : `slot ${volume.slot_name ?? "?"}`}
+                {volume.name} ·{" "}
+                {volume.placement === "SERVER"
+                  ? "server shared"
+                  : volume.gpu_group_id
+                    ? `group ${volume.group_name ?? "?"}`
+                    : `slot ${volume.slot_name ?? "?"}`}
               </SelectItem>
             ))}
           </SelectContent>

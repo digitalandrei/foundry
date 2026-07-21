@@ -7,7 +7,9 @@ import { AppTrafficPanel } from "@/components/app-traffic-panel"
 import { DeploymentActions } from "@/components/deployment-actions"
 import { DeploymentPorts } from "@/components/deployment-ports"
 import { ShellPanel } from "@/components/shell-panel"
-import { useDeploymentDetail, useLatestMetrics } from "@/hooks/use-deployments"
+import { VolumeBrowser } from "@/components/volume-browser"
+import { useDeploymentDetail, useLatestMetrics, useServerVolumes } from "@/hooks/use-deployments"
+import { useServers } from "@/hooks/use-servers"
 import { formatLoad, formatMemGb, formatRelative } from "@/lib/format"
 import { DEPLOYMENT_STATE_META } from "@/lib/states"
 import type { DeploymentDetail } from "@/lib/types"
@@ -156,6 +158,8 @@ export function DeploymentDetailPage() {
             </CardContent>
           </Card>
 
+          <DeploymentStorage d={d} />
+
           {d.ports.some((port) => port.kind === "HTTP" || port.kind === "HTTPS") ? <AppTrafficPanel deploymentId={d.id} /> : null}
 
           {/* Bottom: console + shell, side by side on lg (each expandable),
@@ -181,6 +185,43 @@ export function DeploymentDetailPage() {
   )
 }
 
+function DeploymentStorage({ d }: { d: DeploymentDetail }) {
+  const servers = useServers()
+  const volumes = useServerVolumes(
+    d.server_id,
+    d.gpu_group_id ? { groupId: d.gpu_group_id } : { slotId: d.slot_id },
+  )
+  const attachedIds = new Set(
+    d.mounts.flatMap((mount) => (mount.volume_id ? [mount.volume_id] : [])),
+  )
+  if (attachedIds.size === 0) return null
+
+  const server = servers.data?.find((candidate) => candidate.id === d.server_id)
+  const attached = (volumes.data ?? []).filter((volume) => attachedIds.has(volume.id))
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Persistent storage</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          These are the slot/server volumes mounted by this deployment. Changes are live and
+          survive container replacement or removal.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {servers.isPending || volumes.isPending ? (
+          <Skeleton className="h-64 w-full" />
+        ) : server && attached.length > 0 ? (
+          <VolumeBrowser server={server} volumes={attached} deploymentId={d.id} />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Attached storage metadata is unavailable.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 function Mounts({ d }: { d: DeploymentDetail }) {
   if (d.mounts.length === 0) {
     return <p className="text-xs text-muted-foreground">No persistent storage attached.</p>
@@ -196,6 +237,15 @@ function Mounts({ d }: { d: DeploymentDetail }) {
             {m.read_only ? (
               <Badge variant="secondary" className="text-[10px]">
                 ro
+              </Badge>
+            ) : null}
+            {m.placement ? (
+              <Badge variant="outline" className="text-[10px]">
+                {m.placement === "SERVER"
+                  ? "server shared"
+                  : d.gpu_group_id
+                    ? `group ${d.group_name ?? d.gpu_label}`
+                    : `slot ${d.slot_name}`}
               </Badge>
             ) : null}
           </span>

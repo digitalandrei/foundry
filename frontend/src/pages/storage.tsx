@@ -29,39 +29,23 @@ import {
   useSetVolumeQuota,
   useServerVolumes,
 } from "@/hooks/use-deployments"
-import { useProjects } from "@/hooks/use-projects"
 import { useServers } from "@/hooks/use-servers"
 import type { ServerVolume } from "@/lib/types"
 import { formatFileSize } from "@/lib/volume-files"
 import { Input } from "@/components/ui/input"
 
 export function StoragePage() {
-  const projects = useProjects()
   const servers = useServers()
-  const [projectId, setProjectId] = useState<string | null>(null)
   const [serverId, setServerId] = useState<string | null>(null)
-  const selectedProjectId = projectId ?? projects.data?.[0]?.id ?? null
   const selectedServerId = serverId ?? servers.data?.[0]?.id ?? null
-  const volumes = useServerVolumes(selectedServerId, selectedProjectId)
+  const volumes = useServerVolumes(selectedServerId)
   const selectedServer = servers.data?.find((server) => server.id === selectedServerId)
 
   return (
     <Card>
       <CardHeader className="gap-3">
         <CardTitle className="text-base">Persistent Storage</CardTitle>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <Select value={selectedProjectId ?? ""} onValueChange={setProjectId}>
-            <SelectTrigger aria-label="GitLab project">
-              <SelectValue placeholder="Choose a project" />
-            </SelectTrigger>
-            <SelectContent>
-              {(projects.data ?? []).map((project) => (
-                <SelectItem key={project.id} value={project.id}>
-                  {project.path_with_namespace}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="max-w-md">
           <Select value={selectedServerId ?? ""} onValueChange={setServerId}>
             <SelectTrigger aria-label="Server">
               <SelectValue placeholder="Choose a server" />
@@ -76,23 +60,24 @@ export function StoragePage() {
           </Select>
         </div>
         <p className="text-xs text-muted-foreground">
-          Project-shared volumes are reusable by current GitLab project members. Private volumes
-          are reusable only by their creator. Clean keeps the volume identity; delete removes it.
+          Slot volumes follow one deployable slot (a physical GPU or GPU group). Server volumes
+          are shared across every slot on that server. Clean keeps the volume identity; delete
+          removes it.
         </p>
       </CardHeader>
       <CardContent>
-        {projects.isPending || servers.isPending || volumes.isPending ? (
+        {servers.isPending || volumes.isPending ? (
           <div className="space-y-2">
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
           </div>
-        ) : projects.isError || servers.isError || volumes.isError ? (
+        ) : servers.isError || volumes.isError ? (
           <EmptyState icon={DatabaseIcon} title="Could not load persistent storage" />
-        ) : !selectedProjectId || !selectedServerId ? (
+        ) : !selectedServerId ? (
           <EmptyState
             icon={DatabaseIcon}
-            title="Choose a project and server"
-            description="Storage is local to one server and always belongs to one GitLab project."
+            title="Choose a server"
+            description="Persistent storage is local to its physical slot or server."
           />
         ) : volumes.data.length === 0 ? (
           <EmptyState
@@ -102,12 +87,8 @@ export function StoragePage() {
           />
         ) : (
           <div className="space-y-6">
-            {selectedServer && selectedProjectId ? (
-              <VolumeBrowser
-                server={selectedServer}
-                projectId={selectedProjectId}
-                volumes={volumes.data}
-              />
+            {selectedServer ? (
+              <VolumeBrowser server={selectedServer} volumes={volumes.data} />
             ) : null}
             <Separator />
             <div>
@@ -131,7 +112,6 @@ function VolumeTable({ volumes }: { volumes: ServerVolume[] }) {
       <TableHeader>
         <TableRow>
           <TableHead>Name</TableHead>
-          <TableHead>Visibility</TableHead>
           <TableHead>Placement</TableHead>
           <TableHead>Creator</TableHead>
           <TableHead>Usage / quota</TableHead>
@@ -145,11 +125,12 @@ function VolumeTable({ volumes }: { volumes: ServerVolume[] }) {
           return (
             <TableRow key={volume.id}>
               <TableCell className="font-medium">{volume.name}</TableCell>
-              <TableCell>{volume.visibility === "PROJECT" ? "Project" : "Private"}</TableCell>
               <TableCell>
                 {volume.placement === "SERVER"
                   ? "Server"
-                  : `Slot ${volume.slot_name ?? "unknown"}`}
+                  : volume.gpu_group_id
+                    ? `Group ${volume.group_name ?? "unknown"}`
+                    : `Slot ${volume.slot_name ?? "unknown"}`}
               </TableCell>
               <TableCell>{volume.created_by_name}</TableCell>
               <TableCell><QuotaCell volume={volume} /></TableCell>

@@ -1,8 +1,8 @@
-//! Project-scoped persistent-volume file sessions. This is a second
+//! Placement-scoped persistent-volume file sessions. This is a second
 //! reverse-WebSocket tunnel beside the container shell: the browser opens
 //! here, the pull-only agent discovers the pending session and dials back.
-//! The controller authorizes GitLab project access and sends only approved
-//! volume roots; it never accepts a host path from the browser.
+//! The controller sends only server-approved volume roots; it never accepts
+//! a host path from the browser. Sessions may be narrowed to one deployment.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -15,7 +15,7 @@ use axum::response::Response;
 use foundry_shared::dto::{
     FileClientMessage, FileServerMessage, FileSessionRequest, FileVolumeRoot,
 };
-use foundry_shared::{ActorType, GitlabProjectId, ServerId, ServerVolumeId, UserId};
+use foundry_shared::{ActorType, DeploymentId, ServerId, ServerVolumeId, UserId};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use tokio::sync::{mpsc, Notify};
@@ -26,9 +26,8 @@ use crate::auth::agent::AuthenticatedAgent;
 use crate::auth::client_ip;
 use crate::auth::session::CurrentUser;
 use crate::error::AppError;
-use crate::gitlab::access::authorize_project;
 use crate::repos::servers::AgentContext;
-use crate::repos::{mirror, volumes};
+use crate::repos::volumes;
 use crate::state::AppState;
 
 pub type FileRegistry = Arc<Mutex<HashMap<Uuid, PendingFileSession>>>;
@@ -46,7 +45,6 @@ type ClaimedBridge = (
 
 pub struct PendingFileSession {
     server_id: ServerId,
-    project_id: GitlabProjectId,
     volumes: Vec<FileVolumeRoot>,
     dispatched: bool,
     created_at: Instant,
@@ -62,12 +60,11 @@ const SESSION_TTL: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Deserialize)]
 pub struct BrowserQuery {
-    project_id: GitlabProjectId,
+    deployment_id: Option<DeploymentId>,
 }
 
-/// Open one dual-pane session scoped to the accessible volumes for a
-/// project on one server. Project membership is resolved live before the
-/// WebSocket upgrade; private roots remain creator-only.
+/// Open one dual-pane session scoped to all placement volumes on a server,
+/// or only the persistent roots attached to one deployment.
 pub async fn browser(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
@@ -76,27 +73,33 @@ pub async fn browser(
     Path(server_id): Path<ServerId>,
     Query(query): Query<BrowserQuery>,
 ) -> Result<Response, AppError> {
-    let project = mirror::project_by_id(&state.pool, query.project_id).await?;
-    authorize_project(
-        &state,
-        user.id,
-        project.instance_id,
-        project.gitlab_project_id,
-    )
-    .await?;
     volumes::require_file_support(&state.pool, server_id).await?;
-    let visible = volumes::list(
-        &state.pool,
-        server_id,
-        query.project_id,
-        None,
-        user.id,
-        user.is_admin,
-    )
-    .await?;
+    let mut visible = volumes::list(&state.pool, server_id, None, user.id, user.is_admin).await?;
+    if let Some(deployment_id) = query.deployment_id {
+        let attached: std::collections::HashSet<ServerVolumeId> = sqlx::query_scalar!(
+            r#"SELECT sv.id AS "id: Uuid"
+               FROM deployment_volumes dv
+               JOIN deployments d ON d.id = dv.deployment_id
+               JOIN server_volumes sv ON sv.id = dv.server_volume_id
+               WHERE d.id = ? AND d.server_id = ?"#,
+            deployment_id.0,
+            server_id.0,
+        )
+        .fetch_all(&state.pool)
+        .await?
+        .into_iter()
+        .map(Into::into)
+        .collect();
+        visible.retain(|volume| attached.contains(&volume.id));
+    }
     if visible.is_empty() {
         return Err(AppError::BadRequest(
-            "this project has no accessible volumes on the selected server".into(),
+            if query.deployment_id.is_some() {
+                "this deployment has no persistent volumes attached"
+            } else {
+                "this server has no persistent volumes"
+            }
+            .into(),
         ));
     }
     let roots: Vec<FileVolumeRoot> = visible
@@ -119,8 +122,16 @@ pub async fn browser(
             actor_type: ActorType::User,
             actor_id: Some(user.id),
             action: "VOLUME_FILES_OPENED",
-            subject_type: Some("gitlab_project"),
-            subject_id: Some(query.project_id.0),
+            subject_type: Some(if query.deployment_id.is_some() {
+                "deployment"
+            } else {
+                "server"
+            }),
+            subject_id: Some(
+                query
+                    .deployment_id
+                    .map_or(server_id.0, |deployment_id| deployment_id.0),
+            ),
             detail: Some(serde_json::json!({
                 "server_id": server_id.to_string(),
                 "volume_ids": root_ids,
@@ -132,16 +143,7 @@ pub async fn browser(
 
     let session_id = Uuid::now_v7();
     Ok(ws.on_upgrade(move |socket| {
-        browser_session(
-            state,
-            socket,
-            session_id,
-            server_id,
-            query.project_id,
-            roots,
-            user.id,
-            ip,
-        )
+        browser_session(state, socket, session_id, server_id, roots, user.id, ip)
     }))
 }
 
@@ -151,7 +153,6 @@ async fn browser_session(
     socket: WebSocket,
     session_id: Uuid,
     server_id: ServerId,
-    project_id: GitlabProjectId,
     volumes: Vec<FileVolumeRoot>,
     user_id: UserId,
     ip_address: Option<String>,
@@ -163,7 +164,6 @@ async fn browser_session(
         session_id,
         PendingFileSession {
             server_id,
-            project_id,
             volumes,
             dispatched: false,
             created_at: Instant::now(),
@@ -354,7 +354,6 @@ fn take_pending(registry: &FileRegistry, server_id: ServerId) -> Option<FileSess
     pending.dispatched = true;
     Some(FileSessionRequest {
         session_id: *session_id,
-        project_id: pending.project_id,
         volumes: pending.volumes.clone(),
     })
 }

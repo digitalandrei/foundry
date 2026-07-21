@@ -322,12 +322,10 @@ export interface VolumeSpec {
   volume_name: string
   container_path: string
   read_only: boolean
-  visibility: VolumeVisibility
   placement: VolumePlacement
   purge_on_redeploy: boolean
 }
 
-export type VolumeVisibility = "PRIVATE" | "PROJECT"
 export type VolumePlacement = "SLOT" | "SERVER"
 
 /** Where a deployment lands — exactly one of a slot or a group. */
@@ -400,7 +398,6 @@ export interface DeploymentMount {
   host_path: string
   container_path: string
   read_only: boolean
-  visibility: VolumeVisibility | null
   placement: VolumePlacement | null
   purge_on_redeploy: boolean
 }
@@ -443,12 +440,11 @@ export interface ServerVolume {
   used_bytes: number | null
   quota_bytes: number | null
   usage_measured_at: string | null
-  project_id: string | null
-  project_name: string | null
-  visibility: VolumeVisibility
   placement: VolumePlacement
   slot_id: string | null
   slot_name: string | null
+  gpu_group_id: string | null
+  group_name: string | null
   created_by_name: string
   can_manage: boolean
   attached_to: string[]

@@ -9,7 +9,6 @@ use axum::http::{Request, StatusCode};
 use foundry_shared::dto::{CreateDeploymentRequest, DeployTarget, TaskPayload, VolumeSpec};
 use foundry_shared::{
     GitlabInstanceId, RegistryTagId, ServerId, SlotId, TaskType, UserId, VolumePlacement,
-    VolumeVisibility,
 };
 use sqlx::MySqlPool;
 use tower::ServiceExt;
@@ -54,7 +53,6 @@ struct RuntimeFixture {
     admin: UserId,
     server_id: ServerId,
     instance_id: GitlabInstanceId,
-    project_id: foundry_shared::GitlabProjectId,
     tag_id: RegistryTagId,
     slot_id: SlotId,
     gpu_uuid: String,
@@ -77,6 +75,7 @@ async fn insert_runtime_fixture(pool: &MySqlPool) -> RuntimeFixture {
         "checked_at": chrono::Utc::now(),
         "checks": [
             {"code": "docker", "status": "READY", "detail": "test fixture"},
+            {"code": "docker_gpu", "status": "READY", "detail": "test fixture"},
             {"code": "storage_write", "status": "READY", "detail": "test fixture"},
             {"code": "capabilities", "status": "READY", "detail": "test fixture"}
         ]
@@ -199,7 +198,6 @@ async fn insert_runtime_fixture(pool: &MySqlPool) -> RuntimeFixture {
         admin,
         server_id,
         instance_id,
-        project_id: project_id.into(),
         tag_id,
         slot_id,
         gpu_uuid,
@@ -385,7 +383,6 @@ async fn deployment_command_commits_reservation_task_event_and_audit(pool: MySql
         &deployment_request(&fixture),
         "registry.test/team/model:v1",
         fixture.instance_id,
-        fixture.project_id,
         fixture.admin,
         None,
         None,
@@ -442,7 +439,6 @@ async fn active_deployment_names_are_unique_per_server(pool: MySqlPool) {
         &deployment_request(&fixture),
         "registry.test/team/model:v1",
         fixture.instance_id,
-        fixture.project_id,
         fixture.admin,
         None,
         None,
@@ -492,7 +488,6 @@ async fn active_deployment_names_are_unique_per_server(pool: MySqlPool) {
         &duplicate,
         "registry.test/team/model:v1",
         fixture.instance_id,
-        fixture.project_id,
         fixture.admin,
         None,
         None,
@@ -516,7 +511,6 @@ async fn running_external_gpu_is_an_authoritative_no_write_rejection(pool: MySql
         &deployment_request(&fixture),
         "registry.test/team/model:v1",
         fixture.instance_id,
-        fixture.project_id,
         fixture.admin,
         None,
         None,
@@ -539,7 +533,7 @@ async fn running_external_gpu_is_an_authoritative_no_write_rejection(pool: MySql
 
 #[sqlx::test(migrator = "crate::MIGRATOR")]
 #[ignore = "requires privileged disposable MariaDB; CI runs ignored tests"]
-async fn project_volumes_reuse_across_users_while_private_volumes_do_not(pool: MySqlPool) {
+async fn placement_volumes_reuse_across_users_and_projects(pool: MySqlPool) {
     let fixture = insert_runtime_fixture(&pool).await;
     let collaborator = UserId::new();
     let now = chrono::Utc::now().naive_utc();
@@ -560,7 +554,6 @@ async fn project_volumes_reuse_across_users_while_private_volumes_do_not(pool: M
         volume_name: "models".into(),
         container_path: "/models".into(),
         read_only: false,
-        visibility: VolumeVisibility::Project,
         placement: VolumePlacement::Server,
         purge_on_redeploy: false,
     };
@@ -568,8 +561,8 @@ async fn project_volumes_reuse_across_users_while_private_volumes_do_not(pool: M
     let creator_shared = crate::repos::volumes::ensure(
         &mut tx,
         fixture.server_id,
-        fixture.project_id,
         fixture.slot_id,
+        None,
         &spec,
         fixture.admin,
     )
@@ -580,8 +573,8 @@ async fn project_volumes_reuse_across_users_while_private_volumes_do_not(pool: M
     let collaborator_shared = crate::repos::volumes::ensure(
         &mut tx,
         fixture.server_id,
-        fixture.project_id,
         fixture.slot_id,
+        None,
         &spec,
         collaborator,
     )
@@ -591,45 +584,85 @@ async fn project_volumes_reuse_across_users_while_private_volumes_do_not(pool: M
     assert_eq!(creator_shared, collaborator_shared);
     assert!(creator_shared.1.starts_with("/storage/containers/volumes/"));
 
-    spec.visibility = VolumeVisibility::Private;
+    spec.placement = VolumePlacement::Slot;
     let mut tx = pool.begin().await.unwrap();
-    let creator_private = crate::repos::volumes::ensure(
+    let slot_volume = crate::repos::volumes::ensure(
         &mut tx,
         fixture.server_id,
-        fixture.project_id,
         fixture.slot_id,
+        None,
         &spec,
         fixture.admin,
     )
     .await
     .unwrap();
     tx.commit().await.unwrap();
+    assert_ne!(creator_shared.0, slot_volume.0);
+
+    let second_gpu = Uuid::now_v7();
+    let second_slot = SlotId::new();
+    sqlx::query(
+        "INSERT INTO gpus
+         (id, server_id, gpu_uuid, display_index, model, memory_mb, mig_enabled,
+          last_seen_at, created_at, updated_at)
+         VALUES (?, ?, 'GPU-storage-test-1', 1, 'Test GPU', 49152, 0, ?, ?, ?)",
+    )
+    .bind(second_gpu)
+    .bind(fixture.server_id.0)
+    .bind(now)
+    .bind(now)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO gpu_slots
+         (id, gpu_id, slot_type, name, capacity_mb, state, last_seen_at, created_at, updated_at)
+         VALUES (?, ?, 'FULL_GPU', '1', 49152, 'FREE', ?, ?, ?)",
+    )
+    .bind(second_slot.0)
+    .bind(second_gpu)
+    .bind(now)
+    .bind(now)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .unwrap();
+    spec.placement = VolumePlacement::Server;
     let mut tx = pool.begin().await.unwrap();
-    let collaborator_private = crate::repos::volumes::ensure(
+    let server_volume_from_second_slot = crate::repos::volumes::ensure(
         &mut tx,
         fixture.server_id,
-        fixture.project_id,
-        fixture.slot_id,
+        second_slot,
+        None,
         &spec,
         collaborator,
     )
     .await
     .unwrap();
     tx.commit().await.unwrap();
-    assert_ne!(creator_private.0, collaborator_private.0);
+    assert_eq!(creator_shared, server_volume_from_second_slot);
 
-    let visible = crate::repos::volumes::list(
-        &pool,
+    spec.placement = VolumePlacement::Slot;
+    let mut tx = pool.begin().await.unwrap();
+    let other_slot_volume = crate::repos::volumes::ensure(
+        &mut tx,
         fixture.server_id,
-        fixture.project_id,
+        second_slot,
         None,
+        &spec,
         collaborator,
-        false,
     )
     .await
     .unwrap();
+    tx.commit().await.unwrap();
+    assert_ne!(slot_volume.0, other_slot_volume.0);
+
+    let visible = crate::repos::volumes::list(&pool, fixture.server_id, None, collaborator, false)
+        .await
+        .unwrap();
     assert!(visible.iter().any(|volume| volume.id == creator_shared.0));
-    assert!(!visible.iter().any(|volume| volume.id == creator_private.0));
+    assert!(visible.iter().any(|volume| volume.id == slot_volume.0));
 }
 
 #[sqlx::test(migrator = "crate::MIGRATOR")]

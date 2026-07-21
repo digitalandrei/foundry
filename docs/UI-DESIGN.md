@@ -230,28 +230,30 @@ mockup — final token mapping fixed when the palette lands in Phase 8).
   lifecycle timeline (`deployment_events`) and logs comes with
   Phase 7/8. The deploy dialog (drag-drop) collects name, multi-port
   rows (TCP/UDP now), env rows with secret toggle, and persistent
-  volume mounts with an explicit existing-volume picker, PRIVATE/PROJECT
-  visibility, SLOT/SERVER placement, read-only and purge-on-redeploy
-  controls. Opening it inspects the image:
+  volume mounts with an explicit existing-volume picker, SLOT/SERVER
+  placement, read-only and purge-on-redeploy controls. SLOT follows the
+  physical or GPU-group slot; SERVER is shared across that server. Opening it inspects the image:
   EXPOSE ports and persistent mounts declared by Docker `VOLUME` or the
   Foundry volume-default label are prefilled once, remain editable, and do
   not overwrite input the operator has already changed. The optional Foundry
   apps label also supplies primary web port, health path, request ceiling and
   proxy timeout; the UI keeps one deterministic primary URL.
-- **Storage** (live since 0.54.0; files 0.56.0): select a GitLab project and
-  local server, then use a responsive dual-pane, MC-inspired browser over
-  every accessible PROJECT or own PRIVATE volume. Each pane selects a root
+- **Storage** (placement model 0.63.0): select a local server, then use a
+  responsive dual-pane, MC-inspired browser over its SLOT and SERVER roots.
+  GitLab projects are not a storage dimension. Each pane selects a root
   and navigates independently. Double-click/Enter opens directories or
   bounded UTF-8 text in a monospaced editor; toolbar actions create, rename,
   copy to the other pane, move, download, upload and type-to-confirm delete.
   Native desktop files drop into either pane/directory; dragging entries
   between panes copies server-side. Below it, the policy table still exposes
-  visibility, placement, creator and active attachments. Creator/admin
+  placement, creator and active attachments. Creator/admin
   **Clean** irreversibly wipes contents but retains identity; **Delete** wipes
   both. Mounted volumes disable those whole-volume actions. Used/quota bytes
   and over/near-quota warnings come from agent measurement. Creator/admin can
   set/remove an advisory quota. Desktop upload resumes after reconnect by
   reselecting the same local file (stable upload identity + server offset).
+  Opening an occupied slot/deployment shows the same browser narrowed to the
+  exact persistent roots mounted by that deployment.
 - **Servers** (live since 0.2.0): table with status dot (same color
   tokens), hostname/OS/agent version/last heartbeat; admin "Add
   server" dialog → names the server, shows the one-time registration

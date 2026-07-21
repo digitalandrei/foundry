@@ -14,6 +14,8 @@ use foundry_shared::dto::{
 };
 use nvml_wrapper::Nvml;
 
+use crate::docker::DockerEngine;
+
 pub async fn collect(
     nvml: Option<&Nvml>,
     docker: Option<&Docker>,
@@ -25,7 +27,14 @@ pub async fn collect(
     let gpu_index: HashMap<u32, String> = gpus.iter().map(|g| (g.index, g.uuid.clone())).collect();
     let (docker_version, docker_ok, containers) = collect_docker(&gpu_index, docker).await;
     let nginx = crate::vhost::app_publishing_status();
-    let readiness = crate::host::readiness(server_name, docker_ok).await;
+    let docker_gpu = match docker {
+        Some(docker) if docker_ok => crate::docker::BollardEngine::new(docker.clone())
+            .gpu_support()
+            .await
+            .map_err(|error| error.to_string()),
+        _ => Err("Docker is unavailable; NVIDIA container support cannot be probed".into()),
+    };
+    let readiness = crate::host::readiness(server_name, docker_ok, docker_gpu).await;
     let publishing_ready = readiness.setup_revision == Some(readiness.required_setup_revision)
         && readiness.checks_ready(&["nginx_config", "tls_certificate"]);
     InventorySnapshot {

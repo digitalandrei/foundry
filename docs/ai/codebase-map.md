@@ -114,15 +114,15 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   `controller/src/lifecycle.rs`; deployments + port allocator →
   `controller/src/repos/deployments.rs`; task queue (claim/complete/
   chains, deploy-payload build) → `controller/src/repos/tasks.rs`;
-  persistent volumes → `controller/src/repos/volumes.rs`; deployment +
-  volume routes → `controller/src/routes/volumes.rs`; live project
-  authorization → `controller/src/gitlab/access.rs`; policy-aware
+  placement-scoped persistent volumes → `controller/src/repos/volumes.rs`;
+  deployment + volume routes → `controller/src/routes/volumes.rs`; live
+  project authorization for images/deploy control → `controller/src/gitlab/access.rs`; policy-aware
   storage management UI → `frontend/src/pages/storage.tsx`; purge-task
   rolling-upgrade gate → `repos/volumes.rs::require_purge_support`; dispatch
   enrichment (env decrypt + pull-token mint) →
   `controller/src/routes/agent.rs`
-- Persistent-volume files (0.56.0): reverse-WS session registry,
-  project/root authorization and mutation audit → `controller/src/files.rs`;
+- Persistent-volume files (placement protocol 0.63.0): reverse-WS session
+  registry, server/deployment root selection and mutation audit → `controller/src/files.rs`;
   reverse-WS transfer loop → `agent/src/files.rs`; relative-path confinement
   + filesystem operations → `agent/src/file_system.rs`; wire protocol →
   `shared/src/dto/files.rs`; dual-pane

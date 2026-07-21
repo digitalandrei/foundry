@@ -7,7 +7,7 @@ import {
 } from "@/lib/deployment-form"
 
 describe("deployment volume policy", () => {
-  it("accepts a project/server mount with purge-on-redeploy", () => {
+  it("accepts a server mount with purge-on-redeploy", () => {
     const parsed = deploymentFormSchema.safeParse({
       name: "",
       ports: [],
@@ -19,7 +19,6 @@ describe("deployment volume policy", () => {
           volume_name: "models",
           container_path: "/models",
           read_only: false,
-          visibility: "PROJECT",
           placement: "SERVER",
           purge_on_redeploy: true,
         },
@@ -28,7 +27,7 @@ describe("deployment volume policy", () => {
     expect(parsed.success).toBe(true)
   })
 
-  it("rejects unknown visibility and placement strings", () => {
+  it("rejects an unknown placement string", () => {
     const parsed = deploymentFormSchema.safeParse({
       name: "",
       ports: [],
@@ -39,7 +38,6 @@ describe("deployment volume policy", () => {
           volume_name: "models",
           container_path: "/models",
           read_only: false,
-          visibility: "EVERYONE",
           placement: "CLUSTER",
           purge_on_redeploy: false,
         },

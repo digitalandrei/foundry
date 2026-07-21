@@ -16,8 +16,12 @@ pub const SETUP_REVISION: u32 = foundry_shared::dto::REQUIRED_SETUP_REVISION;
 pub const SETUP_MARKER: &str = "/etc/foundry-agent/setup-revision";
 const STORAGE_ROOT: &str = "/storage/containers";
 
-pub async fn readiness(server_name: Option<&str>, docker_ok: bool) -> HostReadiness {
-    let mut checks = Vec::with_capacity(6);
+pub async fn readiness(
+    server_name: Option<&str>,
+    docker_ok: bool,
+    docker_gpu: Result<String, String>,
+) -> HostReadiness {
+    let mut checks = Vec::with_capacity(7);
     checks.push(check(
         "docker",
         if docker_ok {
@@ -31,6 +35,10 @@ pub async fn readiness(server_name: Option<&str>, docker_ok: bool) -> HostReadin
             "Docker daemon/socket is not accessible to foundry-agent"
         },
     ));
+    checks.push(match docker_gpu {
+        Ok(detail) => check("docker_gpu", CheckStatus::Ready, &detail),
+        Err(detail) => check("docker_gpu", CheckStatus::Failed, &detail),
+    });
     checks.push(storage_write_probe().await);
     checks.push(capability_probe());
     checks.push(nginx_probe().await);
@@ -90,7 +98,7 @@ async fn storage_write_probe() -> ReadinessCheck {
 
 fn capability_probe() -> ReadinessCheck {
     // CAP_DAC_OVERRIDE is bit 1. It is required to manage files created by
-    // arbitrary container UIDs inside approved project volumes.
+    // arbitrary container UIDs inside approved placement volumes.
     let effective = std::fs::read_to_string("/proc/self/status")
         .ok()
         .and_then(|status| {

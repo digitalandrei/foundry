@@ -7,6 +7,7 @@ import { DeploymentPrimaryUrl } from "@/components/deployment-ports"
 import { InteractiveSurface } from "@/components/interactive-surface"
 import {
   DockerStatus,
+  GpuRuntimeStatus,
   HostAlerts,
   NginxStatus,
   StatusDot,
@@ -140,6 +141,7 @@ function ServerRow({
           <span className="text-xs text-muted-foreground">{server.os_version}</span>
         ) : null}
         <DockerStatus ok={server.docker_ok} />
+        <GpuRuntimeStatus readiness={server.readiness} />
         <NginxStatus status={server.nginx_status} ready={server.app_publishing_ready} />
         {alerts ? <HostAlerts alerts={alerts} /> : null}
         <span className="ml-auto flex items-center gap-x-3 text-xs text-muted-foreground tabular-nums">

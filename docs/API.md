@@ -48,23 +48,23 @@ user's GitLab account on the instance that owns the resource.
 | `DELETE /api/fleet-tokens/{id}` | Delete (revoke) a fleet key, even before it expires; enrolled hosts stay enrolled — admin | ✅ live (0.43.0) |
 | `POST /api/servers/{id}/containers/{container_id}/adopt` | Adopt a currently running external (unmanaged) container occupying a GPU slot into a RUNNING deployment → `DeploymentSummary` — admin; serialized against duplicate adoption | ✅ live (0.51.0) |
 | `GET /api/deployments` | Deployments with ports/state/uptime (REMOVED filtered out; latest 200); HTTP/S ports carry hostname + primary/app policy; summaries include immutable `image_digest`, Docker `health_status`/detail, live progress, and container id | ✅ live |
-| `GET /api/deployments/{id}` | Detail for the slot dialog: summary (flattened) + `mounts` (volume id/name, host/container path, ro, visibility, placement, purge-on-redeploy) + `env` **names** (`is_secret` flagged — values never returned) | ✅ live |
+| `GET /api/deployments/{id}` | Detail for the slot page: summary (flattened) + `mounts` (volume id/name, host/container path, ro, SLOT/SERVER placement, purge-on-redeploy) + `env` **names** (`is_secret` flagged — values never returned). The page embeds a file browser narrowed to these mounts | ✅ live |
 | `GET /api/metrics/latest` | Newest telemetry sample per server — live GPU/container labels on the dashboard grid | ✅ live |
-| `POST /api/deployments` | Create from drag-drop. The controller re-reads registry metadata, pins the selected linux/amd64 manifest as `repo@sha256:…`, applies image-declared app policy and editable volume policy, locks target/name/ports, and requires agent ≥0.59 + setup r4 + fresh positive host checks (Docker/storage/capabilities and nginx/TLS for web apps). The agent then repeats Docker, disk, port, volume and nginx-candidate preflight before mutation. Remaining target/env/memory semantics are unchanged | ✅ live (two-stage safety 0.59.0; setup r4 in 0.60.0) |
+| `POST /api/deployments` | Create from drag-drop. The controller re-reads registry metadata, pins the selected linux/amd64 manifest as `repo@sha256:…`, applies image-declared app policy and editable volume policy, locks target/name/ports, and requires agent ≥0.63 + setup r4 + fresh positive host checks (Docker, NVIDIA container runtime/CDI, storage/capabilities and nginx/TLS for web apps). The agent repeats the GPU, Docker, disk, port, volume and nginx-candidate preflight before mutation | ✅ live (GPU gate 0.63.0) |
 | `POST /api/deployments/{id}/replace` | Safe replacement: preflight + pull immutable successor while the running predecessor remains live; quiesce and retain the exact old container; purge selected mounts; create/start; wait for Docker HEALTHCHECK; publish; only then remove old. Startup/health/publication failure restores a predecessor quiesced by this replacement. A predecessor already stopped remains stopped | ✅ live (safe rollback 0.59.0) |
 | `POST /api/deployments/{id}/stop` · `/restart` | Lifecycle actions. Stop removes the public route, container and reclaimable image; volumes survive. Restart is a digest-pinned redeploy, runs stage-one readiness again, and purges marked mounts. A legacy tag-only deployment is pinned once before its first restart | ✅ live |
 | `POST /api/deployments/{id}/retry-publish` | Retry only nginx publication for a healthy container retained in `PUBLISH_FAILED`; no image pull or container recreation — owner/admin | ✅ live (0.59.0) |
 | `GET /api/deployments/{id}/access-logs` · `/request-metrics` | Last 500 structured app requests and 24h totals/errors/bytes/average/p95/status counts. Org-visible like deployment logs; seven-day retention | ✅ live (0.59.0) |
 | `POST /api/deployments/{id}/dismiss` | Clear a FAILED deployment (→ REMOVED) and free its stuck slot — controller-side, no agent; owner/admin | ✅ live |
 | `DELETE /api/deployments/{id}` | Remove a stopped/failed deployment (container removed; volumes survive) | ✅ live |
-| `GET /api/servers/{id}/volumes?project_id=…&slot_id=…` | Project storage visible to the requester with policy, placement, creator, management rights, and attachments. Live GitLab project access required. `gpu_group_id` may replace `slot_id`; omitting both lists every placement for Storage management | ✅ live (0.54.0) |
+| `GET /api/servers/{id}/volumes?slot_id=…` | Server-local placement storage with creator, management rights and attachments. `slot_id` returns that slot plus SERVER roots; `gpu_group_id` addresses a group slot; omitting both lists every placement. Storage is not GitLab-project-scoped | ✅ live (placement scope 0.63.0) |
 | `POST /api/volumes/{id}/clean` | Queue an irreversible contents purge while retaining the volume identity — creator/admin; refused while mounted or while the server reports foundry-agent <0.54.0 | ✅ live (rolling-upgrade gate 0.55.0) |
 | `PATCH /api/volumes/{id}/quota` | Set/remove an advisory local quota (`{quota_bytes:null|N}`; ≥1 MiB and not below measured usage) — creator/admin. Browser uploads enforce it; containers can still exceed it | ✅ live (0.59.0) |
 | `DELETE /api/volumes/{id}` | Delete volume identity + data — creator/admin; refused while mounted | ✅ live |
-| `GET /api/servers/{id}/volume-files?project_id=…` | **WebSocket** — dual-pane file session over requester-visible project volumes. Chunked uploads use stable request IDs, server-reported offsets and partial sibling files, so reconnecting with the same local file resumes. Browser uploads honor volume quotas. Other authorization/path/audit rules remain unchanged | ✅ live (resume/quota 0.59.0) |
+| `GET /api/servers/{id}/volume-files?deployment_id=…` | **WebSocket** — dual-pane file session over all server placement volumes, or only the roots attached to `deployment_id`. Chunked uploads resume from server offsets and honor volume quotas; paths remain confined to controller-approved roots | ✅ live (placement scope 0.63.0) |
 | `GET /api/servers/{id}/gpu-groups` | GPU groups on the server → `{id, name, gpu_ids[], combined_vram_mb, max_occupants, occupants, deployable, busy_reason}[]` (deployable = below the group's cap, every member online, MIG-disabled, free of non-group holders) | ✅ live |
 | `POST /api/servers/{id}/gpu-groups` | Create a group: `{name, gpu_ids[]}` (2…all FULL, MIG-disabled GPUs on the server; may overlap other groups) — single-use by default — **admin** | ✅ live |
-| `DELETE /api/gpu-groups/{id}` | Delete a group — **admin**; refused while a deploy is live on it | ✅ live |
+| `DELETE /api/gpu-groups/{id}` | Delete a group — **admin**; refused while a deploy is live or a group-local persistent volume still belongs to it | ✅ live |
 | `PATCH /api/gpu-groups/{id}` | Set a group's `max_occupants` (1–4; 1 = single-use exclusive, >1 = multi-use soft sharing of the grouped GPUs) — **admin** | ✅ live |
 | `PATCH /api/slots/{id}` | Set a slot's `max_occupants` (1–4; 1 = single-use, >1 = multi-use soft sharing, no VRAM isolation) — **admin** | ✅ live |
 | `GET /api/deployments/{id}/logs` | Captured container logs (merged stdout+stderr, bounded recent window) → `{content, collected_at, available}`; org-visible like the list; 404 on unknown id | ✅ live |
@@ -113,8 +113,8 @@ single-use enrollment token.
 | `POST /agent/tasks/progress` | ✅ live — best-effort deployment progress: PULLING_IMAGE / CREATING_CONTAINER / STARTING / WAITING_HEALTH / PUBLISHING plus a throttled human detail line. Detail is controller-memory transient; stale/out-of-order reports are dropped |
 | `GET /agent/shell/next` | ✅ live — long-poll (≤20s); returns a pending `{session_id, deployment_id, container_id?}` shell for this server, else 204 (`container_id` set → exec an adopted container by docker id). The browser-side WS created it |
 | `GET /agent/shell/attach/{session_id}` | ✅ live — **WebSocket** the agent dials back; the controller bridges it to the waiting browser. The agent `docker exec`s bash→sh (TTY) on the managed container and pipes it through. Verified `server_id` owns the session |
-| `GET /agent/volume-files/next` | ✅ live (0.56.0) — long-poll for a controller-authorized project-volume session; returns only approved `{volume_id,name,path}` roots for this server |
-| `GET /agent/volume-files/attach/{session_id}` | ✅ live (0.56.0) — **WebSocket** the agent dials back; file operations are relative to approved roots, reject traversal/symlink following, and stream base64 chunks. The controller verifies the session belongs to the agent's server |
+| `GET /agent/volume-files/next` | ✅ live (protocol 0.63.0) — long-poll for a controller-authorized placement-volume session; returns only approved `{volume_id,name,path}` roots for this server |
+| `GET /agent/volume-files/attach/{session_id}` | ✅ live (protocol 0.63.0) — **WebSocket** the agent dials back; file operations are relative to approved roots, reject traversal/symlink following, and stream base64 chunks. The controller verifies the session belongs to the agent's server |
 
 **Logs design (Phase 7 decision):** poll-tail, not live streaming. The
 agent *pushes* incremental log chunks on a 10s loop (same shape as
@@ -141,16 +141,15 @@ agent, no SSH, no remote Docker socket — the invariant holds. Sessions
 are in-memory (a live socket pair); 30s keepalive pings defeat nginx/
 Cloudflare idle close; a session with no agent in 25s closes 1011.
 
-**Volume-files design (reverse-WS tunnel):** the Storage browser uses the
-same pull-only shape as shell but a typed JSON protocol. The controller
-resolves the selected GitLab project live, filters roots to PROJECT plus the
-requester's own PRIVATE volumes, audits the session/mutations, then registers
-an in-memory session. The server agent long-polls and dials back over WSS.
+**Volume-files design (reverse-WS tunnel):** the Storage and deployment-detail
+browsers use the same pull-only shape as shell but a typed JSON protocol. The
+controller selects server placement roots (and narrows deployment sessions to
+their attached IDs), audits the session/mutations, then registers an in-memory
+session. The server agent long-polls and dials back over WSS.
 Browser paths are always relative to a session-approved `volume_id`; host paths
 never cross the browser boundary. Transfer chunks are 128 KiB before base64;
-the text editor is UTF-8-only and capped at 2 MiB. Agent 0.56.0 adds the
-protocol and must be installed with `--setup-apps` before the controller
-allows an upgrade.
+the text editor is UTF-8-only and capped at 2 MiB. The placement-scoped wire
+shape requires agent 0.63.0 before the controller opens a session.
 
 Agent protocol invariants:
 

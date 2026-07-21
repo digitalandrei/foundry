@@ -229,11 +229,12 @@ Every transition writes a `deployment_events` row (old state, new state,
 actor, timestamp, detail) and is auditable end to end.
 
 **Create-time server gates (fail fast, don't dispatch a doomed deploy):**
-the target server must be ONLINE, report agent ≥0.59.0 + setup r4, and have a
-fresh positive readiness set for Docker, storage and capabilities (plus
-nginx/TLS for HTTP/S). The dashboard mirrors these with inert drop targets,
-service badges, and the full structured readiness card. The agent repeats
-preflight immediately before mutation.
+the target server must be ONLINE, report agent ≥0.63.0 + setup r4, and have a
+fresh positive readiness set for Docker, NVIDIA container support, storage
+and capabilities (plus nginx/TLS for HTTP/S). The dashboard mirrors these
+with inert drop targets, service badges, and the full structured readiness
+card. The agent repeats the Docker/NVIDIA probe immediately before pull or
+container creation.
 
 **Teardown leaves no host garbage (0.18.0):** `STOP` and `REMOVE` both
 delete the container (nothing lingers in `docker ps -a`) and then reclaim
@@ -350,21 +351,21 @@ require restarting the agent.
 
 ### Persistent storage (amendment, Phase 6 — operator requirement)
 
-Users can mount named local persistent volumes into containers. Every volume
-belongs to one GitLab project and has two orthogonal policy axes:
+Users can mount named local persistent volumes into containers. Storage has
+one policy axis, independent of GitLab projects and images:
 
-- visibility `PRIVATE` (creator only) or `PROJECT` (any current project
-  member);
-- placement `SLOT` (the target's primary physical slot) or `SERVER` (any
-  slot on that server).
+- placement `SLOT` (one physical slot or deployable GPU-group slot) or
+  `SERVER` (shared by every slot on that server).
 
-The canonical identity is project + visibility scope + placement + logical
-name. New host directories use opaque IDs at
+The canonical identity is server + placement target + logical name. New host
+directories use opaque IDs at
 `/storage/containers/volumes/<volume-uuid>`; the logical name never controls
 the host path. Data is server-local and independent of deployment lifecycle:
-container removal keeps it, and a permitted later deployment can select the
-exact volume ID or deterministically reuse its policy key. GitLab membership
-is checked live before listing/mounting project storage.
+container removal keeps it, and any signed-in operator deploying to the same
+placement can select the exact volume ID or deterministically reuse its key.
+A GitLab project may therefore be deployed into many slots without coupling
+their storage, while unrelated projects intentionally share a server volume
+when they use the same name.
 
 Creator/admin may explicitly **clean** a detached volume (purge contents,
 retain identity) or **delete** it (purge contents and identity); both are
@@ -372,19 +373,21 @@ refused while an active deployment references it and are audited. Each
 deployment binding may also opt into `purge_on_redeploy`; restart and
 replacement insert one atomic `PURGE_VOLUMES` agent task before
 `DEPLOY_CONTAINER`. Application-level shared-file coordination is the
-workload's responsibility.
+workload's responsibility. A GPU group cannot be deleted while a group-local
+volume exists; the operator removes that root from Storage first.
 
-The Storage page also provides an MC-style dual-pane file browser (0.56.0).
-A current project member can read/write PROJECT roots and their own PRIVATE
-roots: list, folder creation, rename, same/cross-volume copy or move, recursive
-delete, chunked desktop upload/download, and a bounded UTF-8 editor. The
-controller performs live project authorization, registers an in-memory
-session, and supplies the agent only approved `{volume_id,path}` roots. The
-agent — still pull-only — discovers the session at
+The Storage page and each deployment detail provide an MC-style dual-pane
+file browser. Signed-in operators can browse placement roots: list, folder
+creation, rename, same/cross-volume copy or move, recursive delete, chunked
+desktop upload/download, and a bounded UTF-8 editor. A deployment-scoped
+session is narrowed to the exact volume IDs mounted by that deployment. The
+controller registers an in-memory session and supplies the agent only
+approved `{volume_id,path}` roots. The agent — still pull-only — discovers it at
 `/agent/volume-files/next`, dials `/agent/volume-files/attach/{id}` back, and
 confines every relative path below its approved root (no absolute/traversal
 paths and no symlink following). Session open plus every mutation request is
-audited without file contents. Agent ≥0.56.0 is required.
+audited without file contents. Placement-scoped sessions require agent
+≥0.63.0.
 
 Since 0.59.0, browser uploads are resumable: the browser persists a stable
 upload ID, the agent keeps a partial sibling file, and `UPLOAD_READY` returns
@@ -510,17 +513,18 @@ The deploy dialog pre-fills ports and persistent mounts from image metadata
 (controller reads the selected linux/amd64 manifest + config blob — API.md
 § `metadata`). Standard Docker `VOLUME` paths get deterministic suggested
 names; the optional `ai.protv.foundry.volumes` JSON label supplies explicit
-`VolumeSpec` defaults (including visibility, placement and purge policy) for
+`VolumeSpec` defaults (including placement and purge policy) for
 templates that must avoid anonymous Docker volumes. Rows remain editable.
 Discovery is best-effort metadata, never a deployment gate.
 
 Deployment execution itself is not best-effort: create/replace re-fetches the
 selected linux/amd64 manifest and persists `repo@sha256:<digest>`. A legacy
 tag-only deployment is pinned once before its first restart. Stage-one
-controller preflight requires agent ≥0.59, setup revision 4, ONLINE status and
-positive live Docker/storage/capability checks (plus nginx/TLS for web apps).
-Stage two runs on the target immediately before mutation: Docker reachability,
-free ports, volume roots, disk headroom and an exact nginx candidate test.
+controller preflight requires agent ≥0.63, setup revision 4, ONLINE status and
+positive live Docker/NVIDIA/storage/capability checks (plus nginx/TLS for web
+apps). Stage two runs on the target immediately before mutation: Docker and
+NVIDIA-container reachability, free ports, volume roots, disk headroom and an
+exact nginx candidate test.
 Docker HEALTHCHECK is awaited for up to 180 seconds; images without one are
 considered ready once running.
 
@@ -546,11 +550,14 @@ into an opaque `nginx -t` emerg. An HTTP/S deploy onto a not-ready
 server is **rejected at create** with that reason, rather than
 dispatched only to fail on the agent.
 
-The 0.59.0 readiness contract is structured rather than a single nginx flag.
-Each 60-second snapshot (and admin-triggered diagnostic) executes Docker
-socket/daemon, persistent-root write, required process capability,
+The readiness contract is structured rather than a single nginx flag. Each
+60-second snapshot (and admin-triggered diagnostic) executes Docker
+socket/daemon, NVIDIA runtime/CDI discovery, persistent-root write, process capability,
 `sudo -n nginx -t`, wildcard certificate coverage/expiry, and setup-revision
-checks. A dedicated five-minute worker measures storage capacity and volume
+checks. Deploy preflight repeats NVIDIA support and uses the explicit
+`nvidia` device-request driver when that runtime is registered, avoiding
+Docker 29's otherwise ambiguous CDI vendor auto-selection. A dedicated
+five-minute worker measures storage capacity and volume
 usage; inventory publishes its latest completed snapshot, so traversing a
 large model library can never delay heartbeats. The setup
 marker is written atomically only after `--setup-apps` has installed every

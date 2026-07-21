@@ -30,8 +30,8 @@ function requestId() {
  * streams upload/download chunks. */
 export function useVolumeFiles(
   serverId: string | null,
-  projectId: string | null,
   enabled: boolean,
+  deploymentId?: string,
 ) {
   const [status, setStatus] = useState<ConnectionStatus>("idle")
   const [note, setNote] = useState<string | null>(null)
@@ -45,7 +45,7 @@ export function useVolumeFiles(
     pendingRef.current.clear()
     wsRef.current?.close()
     wsRef.current = null
-    if (!enabled || !serverId || !projectId) {
+    if (!enabled || !serverId) {
       queueMicrotask(() => {
         if (wsRef.current === null) setStatus("idle")
       })
@@ -53,7 +53,8 @@ export function useVolumeFiles(
     }
 
     const protocol = location.protocol === "https:" ? "wss" : "ws"
-    const query = new URLSearchParams({ project_id: projectId })
+    const query = new URLSearchParams()
+    if (deploymentId) query.set("deployment_id", deploymentId)
     const ws = new WebSocket(
       `${protocol}://${location.host}/api/servers/${serverId}/volume-files?${query}`,
     )
@@ -120,7 +121,7 @@ export function useVolumeFiles(
       ws.close()
       wsRef.current = null
     }
-  }, [enabled, projectId, serverId])
+  }, [deploymentId, enabled, serverId])
 
   const send = useCallback((message: Record<string, unknown>) => {
     const ws = wsRef.current
@@ -210,7 +211,7 @@ export function useVolumeFiles(
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       throw new Error("volume file session is not connected")
     }
-    const resumeKey = `foundry-upload:${serverId}:${projectId}:${volumeId}:${path}:${file.name}:${file.size}:${file.lastModified}`
+    const resumeKey = `foundry-upload:${serverId}:${deploymentId ?? "server"}:${volumeId}:${path}:${file.name}:${file.size}:${file.lastModified}`
     const id = localStorage.getItem(resumeKey) ?? requestId()
     localStorage.setItem(resumeKey, id)
     let markReady: ((offset: number) => void) | undefined
@@ -262,7 +263,7 @@ export function useVolumeFiles(
     ws.send(JSON.stringify({ type: "upload_finish", request_id: id }))
     await finished
     localStorage.removeItem(resumeKey)
-  }, [projectId, serverId])
+  }, [deploymentId, serverId])
 
   return {
     status,

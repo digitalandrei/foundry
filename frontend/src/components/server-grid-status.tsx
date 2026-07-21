@@ -1,6 +1,7 @@
 import { CheckCircle2Icon, TriangleAlertIcon } from "lucide-react"
 
 import type { HostAlertFlags } from "@/lib/server-alerts"
+import type { HostReadiness } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 export function HostAlerts({ alerts }: { alerts: HostAlertFlags }) {
@@ -56,6 +57,25 @@ export function DockerStatus({ ok }: { ok: boolean | null }) {
     >
       <TriangleAlertIcon className="size-3.5" aria-hidden />
       Docker stopped — deploys blocked
+    </span>
+  )
+}
+
+export function GpuRuntimeStatus({ readiness }: { readiness: HostReadiness | null }) {
+  const probe = readiness?.checks.find((check) => check.code === "docker_gpu")
+  if (!probe) return null
+  if (probe.status === "READY") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-slot-free" title={probe.detail}>
+        <CheckCircle2Icon className="size-3.5" aria-hidden />
+        NVIDIA runtime: ready
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-slot-failed" title={probe.detail}>
+      <TriangleAlertIcon className="size-3.5" aria-hidden />
+      NVIDIA runtime unavailable
     </span>
   )
 }

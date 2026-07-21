@@ -108,6 +108,10 @@ pub trait DockerEngine: Send + Sync {
     /// All containers (running and stopped) with labels; the executor
     /// filters them.
     async fn list(&self) -> Result<Vec<ContainerSummary>, DockerError>;
+    /// Confirm that this daemon can hand NVIDIA devices to containers.
+    /// A reachable Docker socket alone is not sufficient: modern Docker
+    /// may select CDI and fail only when the container is started.
+    async fn gpu_support(&self) -> Result<String, DockerError>;
     /// The image reference a container was created from, if it exists.
     async fn inspect_image(&self, id: &str) -> Result<Option<String>, DockerError>;
     /// Pull an image, streaming aggregated progress into `sink`. An
@@ -318,6 +322,44 @@ impl DockerEngine for BollardEngine {
             .collect())
     }
 
+    async fn gpu_support(&self) -> Result<String, DockerError> {
+        let info = self
+            .docker
+            .info()
+            .await
+            .map_err(|e| map_err("Docker GPU capability probe failed", e))?;
+        if info
+            .runtimes
+            .as_ref()
+            .is_some_and(|runtimes| runtimes.contains_key("nvidia"))
+        {
+            return Ok("Docker exposes the NVIDIA container runtime".into());
+        }
+
+        // Docker 29 prefers CDI for `--gpus` when NVIDIA CDI devices are
+        // present. Bollard's API model predates Info.DiscoveredDevices, so
+        // ask the local Docker CLI (which uses the same daemon/socket) for
+        // that one field instead of treating an absent legacy runtime as a
+        // false negative.
+        let output = tokio::process::Command::new("docker")
+            .args(["info", "--format", "{{json .DiscoveredDevices}}"])
+            .output()
+            .await;
+        if let Ok(output) = output {
+            if output.status.success() {
+                let discovered = String::from_utf8_lossy(&output.stdout);
+                if let Some(device) = nvidia_cdi_device(&discovered) {
+                    return Ok(format!("Docker discovered NVIDIA CDI device {device}"));
+                }
+            }
+        }
+
+        Err(DockerError::Other(
+            "Docker has no NVIDIA runtime or discovered nvidia.com/gpu CDI device; install nvidia-container-toolkit, run `sudo nvidia-ctk runtime configure --runtime=docker`, then `sudo systemctl restart docker`"
+                .into(),
+        ))
+    }
+
     async fn inspect_image(&self, id: &str) -> Result<Option<String>, DockerError> {
         match self
             .docker
@@ -388,6 +430,14 @@ impl DockerEngine for BollardEngine {
     async fn create(&self, spec: &ContainerSpec) -> Result<String, DockerError> {
         use bollard::models::{ContainerCreateBody, DeviceRequest, HostConfig, PortBinding};
 
+        let nvidia_runtime = self
+            .docker
+            .info()
+            .await
+            .map_err(|e| map_err("Docker GPU runtime selection failed", e))?
+            .runtimes
+            .is_some_and(|runtimes| runtimes.contains_key("nvidia"));
+
         let mut port_bindings: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
         let mut exposed: HashMap<String, HashMap<(), ()>> = HashMap::new();
         for port in &spec.ports {
@@ -424,10 +474,13 @@ impl DockerEngine for BollardEngine {
                 port_bindings: Some(port_bindings),
                 binds: (!binds.is_empty()).then_some(binds),
                 memory: spec.memory_bytes,
-                // driver omitted = daemon auto-selects the GPU driver
-                // (what `docker run --gpus device=…` sends).
+                // Be explicit on Docker 29+: an omitted driver may take the
+                // CDI auto-discovery path and fail at start with "no known
+                // GPU vendor" even though the NVIDIA runtime is configured.
+                // A CDI-only daemon keeps the empty driver so Docker can use
+                // the discovered `nvidia.com/gpu` devices validated above.
                 device_requests: Some(vec![DeviceRequest {
-                    driver: None,
+                    driver: nvidia_runtime.then(|| "nvidia".to_string()),
                     count: None,
                     device_ids: Some(spec.device_uuids.clone()),
                     capabilities: Some(vec![vec!["gpu".to_string()]]),
@@ -544,6 +597,17 @@ impl DockerEngine for BollardEngine {
     }
 }
 
+fn nvidia_cdi_device(value: &str) -> Option<String> {
+    let devices = serde_json::from_str::<serde_json::Value>(value.trim()).ok()?;
+    devices.as_array()?.iter().find_map(|device| {
+        ["ID", "Id", "id"]
+            .into_iter()
+            .find_map(|key| device.get(key).and_then(serde_json::Value::as_str))
+            .filter(|id| id.starts_with("nvidia.com/gpu"))
+            .map(str::to_owned)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -593,6 +657,19 @@ mod tests {
             "denied: requested access to the resource"
         ));
         assert!(!looks_unauthorized("manifest unknown"));
+    }
+
+    #[test]
+    fn identifies_nvidia_cdi_devices_from_docker_info() {
+        assert_eq!(
+            nvidia_cdi_device(
+                r#"[{"Source":"cdi","ID":"nvidia.com/gpu=GPU-a"},{"Source":"cdi","ID":"vendor/device=x"}]"#,
+            )
+            .as_deref(),
+            Some("nvidia.com/gpu=GPU-a")
+        );
+        assert_eq!(nvidia_cdi_device("null"), None);
+        assert_eq!(nvidia_cdi_device("not-json"), None);
     }
 
     #[test]
@@ -656,6 +733,8 @@ pub(crate) mod fake {
         pub create_conflict: Mutex<bool>,
         /// If true, every call fails with `Unavailable`.
         pub down: Mutex<bool>,
+        /// Optional NVIDIA-container capability failure.
+        pub gpu_error: Mutex<Option<String>>,
         next_id: Mutex<u32>,
     }
 
@@ -691,6 +770,11 @@ pub(crate) mod fake {
 
         pub fn conflict_on_create(self) -> Self {
             *self.create_conflict.lock().unwrap() = true;
+            self
+        }
+
+        pub fn fail_gpu_support(self, message: &str) -> Self {
+            *self.gpu_error.lock().unwrap() = Some(message.into());
             self
         }
 
@@ -740,6 +824,14 @@ pub(crate) mod fake {
                     labels: c.labels.clone(),
                 })
                 .collect())
+        }
+
+        async fn gpu_support(&self) -> Result<String, DockerError> {
+            self.ensure_up()?;
+            match self.gpu_error.lock().unwrap().as_ref() {
+                Some(message) => Err(DockerError::Other(message.clone())),
+                None => Ok("fake NVIDIA runtime ready".into()),
+            }
         }
 
         async fn inspect_image(&self, id: &str) -> Result<Option<String>, DockerError> {

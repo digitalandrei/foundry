@@ -1,15 +1,14 @@
-//! Project-scoped local persistent storage.
+//! Placement-scoped local persistent storage.
 //!
-//! A volume belongs to one GitLab project and has two independent policy
-//! axes: PRIVATE/PROJECT visibility and SLOT/SERVER placement. New host
-//! directories use opaque IDs under `/storage/containers/volumes/`; names
-//! are logical keys, not path components. Data survives deployments until
-//! an authorised creator/admin explicitly cleans or deletes it.
+//! A volume belongs either to one physical GPU slot or to its whole server.
+//! GitLab projects never participate in storage identity: deploying another
+//! project into the same placement may reuse the same logical volume. Host
+//! directories use opaque IDs under `/storage/containers/volumes/`; logical
+//! names provide the folder layer in the browser.
 
 use foundry_shared::dto::{ServerVolume, TaskPayload, VolumeBatchTarget, VolumeSpec, VolumeTarget};
 use foundry_shared::{
-    GitlabProjectId, ServerId, ServerVolumeId, SlotId, TaskType, UserId, VolumePlacement,
-    VolumeVisibility,
+    GpuGroupId, ServerId, ServerVolumeId, SlotId, TaskType, UserId, VolumePlacement,
 };
 use sqlx::{MySqlConnection, MySqlPool, Row};
 use uuid::Uuid;
@@ -18,7 +17,7 @@ use crate::error::AppError;
 
 pub const VOLUME_ROOT: &str = "/storage/containers";
 const PURGE_MIN_AGENT_VERSION: (u32, u32, u32) = (0, 54, 0);
-const FILES_MIN_AGENT_VERSION: (u32, u32, u32) = (0, 56, 0);
+const FILES_MIN_AGENT_VERSION: (u32, u32, u32) = (0, 63, 0);
 
 fn parse_version(version: &str) -> Option<(u32, u32, u32)> {
     let version = version.trim().trim_start_matches('v');
@@ -50,7 +49,7 @@ pub async fn require_file_support(pool: &MySqlPool, server_id: ServerId) -> Resu
         return Ok(());
     }
     Err(AppError::BadRequest(format!(
-        "volume files require foundry-agent 0.56.0 or newer on this server (reported {})",
+        "placement-scoped volume files require foundry-agent 0.63.0 or newer on this server (reported {})",
         version.as_deref().unwrap_or("unknown")
     )))
 }
@@ -107,14 +106,14 @@ pub fn validate_container_path(path: &str) -> Result<(), AppError> {
 }
 
 /// Resolve an explicit volume or create/reuse the canonical volume for the
-/// requested project, visibility, placement and logical name. The selected
+/// requested placement and logical name. The selected
 /// row is locked inside the deployment transaction, serialising against
 /// destructive actions.
 pub async fn ensure(
     tx: &mut MySqlConnection,
     server_id: ServerId,
-    project_id: GitlabProjectId,
     slot_id: SlotId,
+    group_id: Option<GpuGroupId>,
     spec: &VolumeSpec,
     created_by: UserId,
 ) -> Result<(ServerVolumeId, String), AppError> {
@@ -123,38 +122,38 @@ pub async fn ensure(
     if let Some(volume_id) = spec.volume_id {
         let row = sqlx::query!(
             r#"SELECT server_id AS "server_id: Uuid",
-                      gitlab_project_id AS "project_id: Uuid",
-                      name, path, visibility, placement,
-                      gpu_slot_id AS "slot_id: Uuid",
-                      created_by AS "created_by: Uuid"
+                      name, path, placement, placement_id AS "placement_id: Uuid",
+                      gpu_slot_id AS "slot_id: Uuid"
                FROM server_volumes WHERE id = ? FOR UPDATE"#,
             volume_id.0
         )
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(AppError::NotFound("volume not found"))?;
-        let visibility: VolumeVisibility = row.visibility.parse().map_err(AppError::internal)?;
         let placement: VolumePlacement = row.placement.parse().map_err(AppError::internal)?;
         let accessible = row.server_id == server_id.0
-            && row.project_id == Some(project_id.0)
             && row.name == spec.volume_name
-            && visibility == spec.visibility
             && placement == spec.placement
-            && (visibility == VolumeVisibility::Project || row.created_by == created_by.0)
-            && (placement == VolumePlacement::Server || row.slot_id == Some(slot_id.0));
+            && (row.placement_id
+                == match placement {
+                    VolumePlacement::Slot => group_id.map_or(slot_id.0, |id| id.0),
+                    VolumePlacement::Server => server_id.0,
+                }
+                || (placement == VolumePlacement::Slot
+                    && group_id.is_some()
+                    && row.slot_id == Some(slot_id.0)));
         if !accessible {
             return Err(AppError::Forbidden);
         }
         return Ok((volume_id, row.path));
     }
 
-    let scope_id = match spec.visibility {
-        VolumeVisibility::Private => created_by.0,
-        VolumeVisibility::Project => project_id.0,
-    };
-    let (placement_id, gpu_slot_id) = match spec.placement {
-        VolumePlacement::Slot => (slot_id.0, Some(slot_id.0)),
-        VolumePlacement::Server => (server_id.0, None),
+    let (placement_id, gpu_slot_id, gpu_group_id) = match spec.placement {
+        VolumePlacement::Slot => match group_id {
+            Some(group_id) => (group_id.0, None, Some(group_id.0)),
+            None => (slot_id.0, Some(slot_id.0), None),
+        },
+        VolumePlacement::Server => (server_id.0, None, None),
     };
 
     let candidate_id = Uuid::now_v7();
@@ -165,21 +164,17 @@ pub async fn ensure(
     // same row instead of leaking a uniqueness error to either user.
     sqlx::query!(
         r#"INSERT INTO server_volumes
-           (id, server_id, gitlab_project_id, name, visibility, placement,
-            scope_id, placement_id, gpu_slot_id, owner_slug, path,
+           (id, server_id, name, placement, placement_id, gpu_slot_id, gpu_group_id, path,
             created_by, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON DUPLICATE KEY UPDATE updated_at = updated_at"#,
         candidate_id,
         server_id.0,
-        project_id.0,
         spec.volume_name,
-        spec.visibility.as_str(),
         spec.placement.as_str(),
-        scope_id,
         placement_id,
         gpu_slot_id,
-        spec.visibility.as_str().to_lowercase(),
+        gpu_group_id,
         path,
         created_by.0,
         now,
@@ -191,14 +186,9 @@ pub async fn ensure(
     let row = sqlx::query!(
         r#"SELECT id AS "id: Uuid", path
            FROM server_volumes
-           WHERE server_id = ? AND gitlab_project_id = ?
-             AND visibility = ? AND scope_id = ?
-             AND placement = ? AND placement_id = ? AND name = ?
+           WHERE server_id = ? AND placement = ? AND placement_id = ? AND name = ?
            FOR UPDATE"#,
         server_id.0,
-        project_id.0,
-        spec.visibility.as_str(),
-        scope_id,
         spec.placement.as_str(),
         placement_id,
         spec.volume_name,
@@ -285,14 +275,13 @@ pub async fn set_quota(
     Ok(())
 }
 
-/// Project volumes visible to the requester on one server. A target slot
-/// narrows SLOT volumes while keeping all SERVER volumes; no target lists
-/// every placement (the Storage management page).
+/// Placement volumes on one server. A target placement id (physical slot or
+/// GPU-group slot) narrows SLOT volumes while keeping every SERVER volume;
+/// no target lists every placement (Storage).
 pub async fn list(
     pool: &MySqlPool,
     server_id: ServerId,
-    project_id: GitlabProjectId,
-    target_slot_id: Option<SlotId>,
+    target_placement_id: Option<Uuid>,
     requester: UserId,
     is_admin: bool,
 ) -> Result<Vec<ServerVolume>, AppError> {
@@ -300,25 +289,21 @@ pub async fn list(
         r#"SELECT v.id AS "id: Uuid", v.name, v.path, v.created_at,
                   v.used_bytes AS "used_bytes?: u64", v.quota_bytes AS "quota_bytes?: u64",
                   v.usage_measured_at,
-                  v.gitlab_project_id AS "project_id: Uuid",
-                  p.path_with_namespace AS "project_name?",
-                  v.visibility, v.placement,
+                  v.placement,
                   v.gpu_slot_id AS "slot_id: Uuid", gs.name AS "slot_name?",
+                  v.gpu_group_id AS "gpu_group_id: Uuid", gg.name AS "group_name?",
                   v.created_by AS "created_by: Uuid",
                   u.display_name AS created_by_name
            FROM server_volumes v
            JOIN users u ON u.id = v.created_by
-           LEFT JOIN gitlab_projects p ON p.id = v.gitlab_project_id
            LEFT JOIN gpu_slots gs ON gs.id = v.gpu_slot_id
-           WHERE v.server_id = ? AND v.gitlab_project_id = ?
-             AND (v.visibility = 'PROJECT' OR v.created_by = ?)
-             AND (? IS NULL OR v.placement = 'SERVER' OR v.gpu_slot_id = ?)
-           ORDER BY v.name, v.visibility, v.placement"#,
+           LEFT JOIN gpu_groups gg ON gg.id = v.gpu_group_id
+           WHERE v.server_id = ?
+             AND (? IS NULL OR v.placement = 'SERVER' OR v.placement_id = ?)
+           ORDER BY v.name, v.placement"#,
         server_id.0,
-        project_id.0,
-        requester.0,
-        target_slot_id.map(|id| id.0),
-        target_slot_id.map(|id| id.0),
+        target_placement_id,
+        target_placement_id,
     )
     .fetch_all(pool)
     .await?;
@@ -330,8 +315,7 @@ pub async fn list(
            FROM deployment_volumes dv
            JOIN deployments d ON d.id = dv.deployment_id
            JOIN server_volumes v ON v.id = dv.server_volume_id
-           WHERE v.server_id = ? AND v.gitlab_project_id = ?
-             AND (v.visibility = 'PROJECT' OR v.created_by = ?)
+           WHERE v.server_id = ?
              AND d.container_name IS NOT NULL
              AND d.state IN ('PENDING','VALIDATING','PREPARED','PULLING_IMAGE','CREATING_CONTAINER',
                              'STARTING','WAITING_HEALTH','PUBLISHING','PUBLISH_FAILED','RUNNING','STOPPING','STOPPED','RESTARTING',
@@ -339,8 +323,6 @@ pub async fn list(
            ORDER BY dv.server_volume_id, d.container_name"#,
     )
     .bind(server_id.0)
-    .bind(project_id.0)
-    .bind(requester.0)
     .fetch_all(pool)
     .await?
     {
@@ -364,12 +346,11 @@ pub async fn list(
                 used_bytes: r.used_bytes,
                 quota_bytes: r.quota_bytes,
                 usage_measured_at: r.usage_measured_at.map(|at| at.and_utc()),
-                project_id: r.project_id.map(Into::into),
-                project_name: r.project_name,
-                visibility: r.visibility.parse().map_err(AppError::internal)?,
                 placement: r.placement.parse().map_err(AppError::internal)?,
                 slot_id: r.slot_id.map(Into::into),
                 slot_name: r.slot_name,
+                gpu_group_id: r.gpu_group_id.map(Into::into),
+                group_name: r.group_name,
                 created_by_name: r.created_by_name,
                 can_manage: is_admin || r.created_by == requester.0,
                 attached_to: attachments.remove(&id).unwrap_or_default(),

@@ -1,3 +1,5 @@
+import { agentVersionAtLeast } from "@/lib/agent-version"
+
 export type FileEntryKind = "directory" | "file" | "symlink"
 
 export interface VolumeFileEntry {
@@ -35,7 +37,7 @@ export function formatFileSize(bytes: number): string {
 }
 
 export function agentSupportsVolumeFiles(version: string | null): boolean {
-  return agentVersionAtLeast(version, [0, 56, 0])
+  return agentVersionAtLeast(version, [0, 63, 0])
 }
 
 export function bytesToBase64(bytes: Uint8Array): string {
@@ -54,4 +56,3 @@ export function base64ToBytes(value: string): Uint8Array {
   }
   return bytes
 }
-import { agentVersionAtLeast } from "@/lib/agent-version"
