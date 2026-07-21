@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::DeploymentId;
 
-pub const REQUIRED_SETUP_REVISION: u32 = 3;
+pub const REQUIRED_SETUP_REVISION: u32 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]

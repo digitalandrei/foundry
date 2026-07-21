@@ -31,7 +31,8 @@ const TLS_DIR: &str = "/etc/foundry-agent/tls";
 const SUDOERS_PATH: &str = "/etc/sudoers.d/foundry-agent";
 const NGINX_BOOTSTRAP: &str = "/etc/nginx/conf.d/foundry-apps.conf";
 const NGINX_LOGROTATE: &str = "/etc/logrotate.d/foundry-apps";
-const CAPABILITY_BOUNDING_SET: &str = "CAP_DAC_OVERRIDE CAP_SETUID CAP_SETGID CAP_AUDIT_WRITE";
+const CAPABILITY_BOUNDING_SET: &str =
+    "CAP_DAC_OVERRIDE CAP_SETUID CAP_SETGID CAP_AUDIT_WRITE CAP_NET_BIND_SERVICE";
 const AMBIENT_CAPABILITIES: &str = "CAP_DAC_OVERRIDE";
 const SERVER_NAMES_HASH_BUCKET_SIZE: u16 = 128;
 
@@ -511,9 +512,9 @@ fn render_unit(supplementary: &str) -> String {
     // - CAP_DAC_OVERRIDE is the only capability ambient in the agent and is
     //   narrowly required for project-authorized file sessions: container
     //   UIDs commonly own bind-mounted contents;
-    // - CAP_SETUID, CAP_SETGID, and CAP_AUDIT_WRITE stay out of the ambient
-    //   set but must remain in the bounding set so the setuid-root sudo child
-    //   can initialize and run the two sudoers-scoped nginx commands;
+    // - CAP_SETUID, CAP_SETGID, CAP_AUDIT_WRITE, and CAP_NET_BIND_SERVICE stay
+    //   out of the ambient set but must remain in the bounding set so the
+    //   setuid-root sudo child can initialize and validate/reload nginx;
     // - no NoNewPrivileges — it blocks the setuid transition the
     //   sudoers-scoped `sudo nginx -s reload` needs;
     // - ProtectSystem=full (not strict) — `nginx -t` runs inside this
@@ -617,14 +618,20 @@ mod tests {
     #[test]
     fn sudo_child_capabilities_are_bounded_but_not_ambient() {
         let unit = render_unit("SupplementaryGroups=docker\n");
+        let packaged_unit = include_str!("../../deployment/systemd/foundry-agent.service");
 
         assert!(unit.contains(&format!(
+            "CapabilityBoundingSet={CAPABILITY_BOUNDING_SET}\n"
+        )));
+        assert!(packaged_unit.contains(&format!(
             "CapabilityBoundingSet={CAPABILITY_BOUNDING_SET}\n"
         )));
         assert!(unit.contains(&format!("AmbientCapabilities={AMBIENT_CAPABILITIES}\n")));
         assert!(!AMBIENT_CAPABILITIES.contains("CAP_SETUID"));
         assert!(!AMBIENT_CAPABILITIES.contains("CAP_SETGID"));
         assert!(!AMBIENT_CAPABILITIES.contains("CAP_AUDIT_WRITE"));
+        assert!(!AMBIENT_CAPABILITIES.contains("CAP_NET_BIND_SERVICE"));
+        assert!(CAPABILITY_BOUNDING_SET.contains("CAP_NET_BIND_SERVICE"));
     }
 
     #[test]

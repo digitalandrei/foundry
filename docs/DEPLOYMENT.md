@@ -205,11 +205,12 @@ sudoers rule scoped to `nginx -t`/`-s reload` (SECURITY.md § App
 Publishing), prepares `/storage/containers` for persistent volumes
 (service-user-owned; listed in the unit's ReadWritePaths), installs the
 0.56.0+ file-browser capability (`CAP_DAC_OVERRIDE`, needed when a container
-UID owns bind-mounted files), preserves `CAP_SETUID`, `CAP_SETGID`, and
-`CAP_AUDIT_WRITE` only in the unit's bounding set for the sudo-scoped nginx
-child, rewrites the systemd unit, and restarts the service.
+UID owns bind-mounted files), preserves `CAP_SETUID`, `CAP_SETGID`,
+`CAP_AUDIT_WRITE`, and `CAP_NET_BIND_SERVICE` only in the unit's bounding set
+for the sudo-scoped nginx child, rewrites the systemd unit, and restarts the
+service.
 
-0.59.0 also installs setup-revision marker r3, per-app access-log storage +
+0.59.0 also installs the setup-revision marker, per-app access-log storage +
 seven-day/100 MiB copytruncate log rotation, and root-owned
 `foundry-agent-upgrade.{path,service}` units. Once a host has 0.59.0, an admin
 can use **Upgrade & repair** in its readiness card: the unprivileged agent
@@ -220,8 +221,11 @@ command or URL input.
 
 The upgrade task enum is itself new, so a host older than 0.59.0 needs this
 one manual bootstrap; the controller refuses to enqueue an unknown variant.
-New deploys/restarts are held until the host reports agent ≥0.59.0, setup r3,
-and a fresh positive readiness snapshot.
+Setup revision r4 (0.60.0) adds `CAP_NET_BIND_SERVICE` to the bounding set:
+some nginx configurations bind ports 80/443 during `nginx -t`, even though the
+command only validates configuration. The capability is not ambient in the
+long-running agent. New deploys/restarts are held until the host reports agent
+≥0.59.0, setup r4, and a fresh positive readiness snapshot.
 
 The hash-bucket setting is required because
 `<app>.<server>.ai.protv.ro` can exceed nginx's common 64-byte server-name

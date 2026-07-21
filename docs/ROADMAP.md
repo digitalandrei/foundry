@@ -530,3 +530,10 @@ reflected in the affected docs in the same commit set:
   keep new wire variants away from pre-0.59 agents. Affects API,
   ARCHITECTURE, DATABASE, DEPLOYMENT, GITLAB-INTEGRATION, SECURITY,
   UI-DESIGN, TESTING, codebase-map, and the ComfyUI template.
+- **2026-07-21** (0.60.0) — **Allow privileged-port validation in the
+  sudo-scoped nginx child.** Setup revision r4 retains
+  `CAP_NET_BIND_SERVICE` in the agent unit's capability bounding set while
+  keeping it out of the long-running agent's ambient set. This lets
+  `sudo -n nginx -t` validate host configurations that bind ports 80/443
+  without weakening the agent process. Affects ARCHITECTURE, API,
+  DEPLOYMENT, SECURITY, and ROADMAP.

@@ -37,7 +37,7 @@ function server(over: Partial<ServerSummary> = {}): ServerSummary {
     nginx_status: null,
     docker_ok: true,
     setup_revision: null,
-    required_setup_revision: 3,
+    required_setup_revision: 4,
     readiness: null,
     readiness_checked_at: null,
     storage_total_bytes: null,

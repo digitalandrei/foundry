@@ -229,7 +229,7 @@ Every transition writes a `deployment_events` row (old state, new state,
 actor, timestamp, detail) and is auditable end to end.
 
 **Create-time server gates (fail fast, don't dispatch a doomed deploy):**
-the target server must be ONLINE, report agent ≥0.59.0 + setup r3, and have a
+the target server must be ONLINE, report agent ≥0.59.0 + setup r4, and have a
 fresh positive readiness set for Docker, storage and capabilities (plus
 nginx/TLS for HTTP/S). The dashboard mirrors these with inert drop targets,
 service badges, and the full structured readiness card. The agent repeats
@@ -509,7 +509,7 @@ Discovery is best-effort metadata, never a deployment gate.
 Deployment execution itself is not best-effort: create/replace re-fetches the
 selected linux/amd64 manifest and persists `repo@sha256:<digest>`. A legacy
 tag-only deployment is pinned once before its first restart. Stage-one
-controller preflight requires agent ≥0.59, setup revision 3, ONLINE status and
+controller preflight requires agent ≥0.59, setup revision 4, ONLINE status and
 positive live Docker/storage/capability checks (plus nginx/TLS for web apps).
 Stage two runs on the target immediately before mutation: Docker reachability,
 free ports, volume roots, disk headroom and an exact nginx candidate test.
