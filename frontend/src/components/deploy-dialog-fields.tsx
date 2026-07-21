@@ -247,7 +247,7 @@ export function DeployDialogFields({
       <Separator />
       <SectionHeader
         title="Persistent storage"
-        hint={`${discoveredVolumeCount ? `${discoveredVolumeCount} mount${discoveredVolumeCount === 1 ? "" : "s"} prefilled from the image. ` : ""}Slot volumes follow this physical slot; server volumes are shared across its slots. Purge removes contents immediately before a restart or replacement.`}
+        hint={`${discoveredVolumeCount ? `${discoveredVolumeCount} mount${discoveredVolumeCount === 1 ? "" : "s"} prefilled from the image. ` : ""}Storage is keyed by deploy name, then mount name. Slot volumes follow this target; server volumes follow that deploy name across its slots. Purge removes contents before restart or replacement.`}
         onAdd={() =>
           mounts.append({
             volume_id: null,
@@ -290,7 +290,7 @@ export function DeployDialogFields({
                     <SelectItem value="automatic">Create/reuse by policy</SelectItem>
                     {availableVolumes.map((volume) => (
                       <SelectItem key={volume.id} value={volume.id}>
-                        {volume.name} · {volume.placement === "SERVER"
+                        {volume.project_name} / {volume.name} · {volume.placement === "SERVER"
                           ? "server"
                           : volume.gpu_group_id
                             ? `group ${volume.group_name ?? "?"}`

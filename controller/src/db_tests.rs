@@ -563,6 +563,7 @@ async fn placement_volumes_reuse_across_users_and_projects(pool: MySqlPool) {
         fixture.server_id,
         fixture.slot_id,
         None,
+        "comfy1",
         &spec,
         fixture.admin,
     )
@@ -575,6 +576,7 @@ async fn placement_volumes_reuse_across_users_and_projects(pool: MySqlPool) {
         fixture.server_id,
         fixture.slot_id,
         None,
+        "comfy1",
         &spec,
         collaborator,
     )
@@ -582,7 +584,23 @@ async fn placement_volumes_reuse_across_users_and_projects(pool: MySqlPool) {
     .unwrap();
     tx.commit().await.unwrap();
     assert_eq!(creator_shared, collaborator_shared);
-    assert!(creator_shared.1.starts_with("/storage/containers/volumes/"));
+    assert_eq!(creator_shared.1, "/storage/containers/shared/comfy1/models");
+
+    let mut tx = pool.begin().await.unwrap();
+    let other_project = crate::repos::volumes::ensure(
+        &mut tx,
+        fixture.server_id,
+        fixture.slot_id,
+        None,
+        "comfy2",
+        &spec,
+        collaborator,
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    assert_ne!(creator_shared.0, other_project.0);
+    assert_eq!(other_project.1, "/storage/containers/shared/comfy2/models");
 
     spec.placement = VolumePlacement::Slot;
     let mut tx = pool.begin().await.unwrap();
@@ -591,6 +609,7 @@ async fn placement_volumes_reuse_across_users_and_projects(pool: MySqlPool) {
         fixture.server_id,
         fixture.slot_id,
         None,
+        "comfy1",
         &spec,
         fixture.admin,
     )
@@ -635,6 +654,7 @@ async fn placement_volumes_reuse_across_users_and_projects(pool: MySqlPool) {
         fixture.server_id,
         second_slot,
         None,
+        "comfy1",
         &spec,
         collaborator,
     )
@@ -650,6 +670,7 @@ async fn placement_volumes_reuse_across_users_and_projects(pool: MySqlPool) {
         fixture.server_id,
         second_slot,
         None,
+        "comfy1",
         &spec,
         collaborator,
     )

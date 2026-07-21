@@ -60,9 +60,9 @@ export function StoragePage() {
           </Select>
         </div>
         <p className="text-xs text-muted-foreground">
-          Slot volumes follow one deployable slot (a physical GPU or GPU group). Server volumes
-          are shared across every slot on that server. Clean keeps the volume identity; delete
-          removes it.
+          Storage is grouped by deploy name, then mount name. Slot volumes follow one physical
+          GPU or GPU group; server volumes follow the same deploy name across that server. Clean
+          keeps the volume identity; delete removes it.
         </p>
       </CardHeader>
       <CardContent>
@@ -111,6 +111,7 @@ function VolumeTable({ volumes }: { volumes: ServerVolume[] }) {
     <Table>
       <TableHeader>
         <TableRow>
+          <TableHead>Deploy name</TableHead>
           <TableHead>Name</TableHead>
           <TableHead>Placement</TableHead>
           <TableHead>Creator</TableHead>
@@ -124,6 +125,7 @@ function VolumeTable({ volumes }: { volumes: ServerVolume[] }) {
           const attached = volume.attached_to.length > 0
           return (
             <TableRow key={volume.id}>
+              <TableCell className="font-mono text-xs">{volume.project_name}</TableCell>
               <TableCell className="font-medium">{volume.name}</TableCell>
               <TableCell>
                 {volume.placement === "SERVER"

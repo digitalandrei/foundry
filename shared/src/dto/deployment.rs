@@ -103,6 +103,8 @@ pub struct ServerVolume {
     pub used_bytes: Option<u64>,
     pub quota_bytes: Option<u64>,
     pub usage_measured_at: Option<DateTime<Utc>>,
+    /// User-given deployment name; never a GitLab project identity.
+    pub project_name: String,
     pub placement: VolumePlacement,
     pub slot_id: Option<SlotId>,
     pub slot_name: Option<String>,

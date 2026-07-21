@@ -14,6 +14,7 @@ const volume: ServerVolume = {
   used_bytes: 0,
   quota_bytes: null,
   usage_measured_at: null,
+  project_name: "comfy1",
   placement: "SERVER",
   slot_id: null,
   slot_name: null,

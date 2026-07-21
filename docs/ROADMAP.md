@@ -559,3 +559,8 @@ reflected in the affected docs in the same commit set:
   detail embeds the dual-pane browser narrowed to that deployment's exact
   mounts. Affects API, ARCHITECTURE, DATABASE, DEPLOYMENT, GPU-MIG, SECURITY,
   UI-DESIGN, TESTING, codebase-map, and ROADMAP.
+- **2026-07-21** (0.63.0 storage namespace clarification) — The user-given
+  deploy name is the non-GitLab storage project namespace. Canonical identity
+  and new host directories are `server / slot-or-shared / deploy-name /
+  mount-name`; same-name redeployments reuse data, different deployments in
+  one multi-use slot cannot collide, and legacy data remains in place.

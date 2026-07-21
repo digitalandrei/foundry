@@ -114,7 +114,7 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   `controller/src/lifecycle.rs`; deployments + port allocator →
   `controller/src/repos/deployments.rs`; task queue (claim/complete/
   chains, deploy-payload build) → `controller/src/repos/tasks.rs`;
-  placement-scoped persistent volumes → `controller/src/repos/volumes.rs`;
+  placement/deploy-name-scoped persistent volumes → `controller/src/repos/volumes.rs`;
   deployment + volume routes → `controller/src/routes/volumes.rs`; live
   project authorization for images/deploy control → `controller/src/gitlab/access.rs`; policy-aware
   storage management UI → `frontend/src/pages/storage.tsx`; purge-task

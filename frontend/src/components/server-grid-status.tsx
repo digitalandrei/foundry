@@ -63,6 +63,17 @@ export function DockerStatus({ ok }: { ok: boolean | null }) {
 
 export function GpuRuntimeStatus({ readiness }: { readiness: HostReadiness | null }) {
   const probe = readiness?.checks.find((check) => check.code === "docker_gpu")
+  if (readiness && !probe) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-xs text-slot-reserved"
+        title="This server has not reported the NVIDIA-container probe. Upgrade its agent to 0.63.0, then refresh diagnostics."
+      >
+        <TriangleAlertIcon className="size-3.5" aria-hidden />
+        NVIDIA runtime: upgrade agent
+      </span>
+    )
+  }
   if (!probe) return null
   if (probe.status === "READY") {
     return (

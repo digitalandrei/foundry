@@ -126,6 +126,25 @@ describe("slotDeployability — single-use", () => {
     expect(d).toMatchObject({ deployable: false, reason: "no NVIDIA CDI device" })
   })
 
+  it("an old agent report explains that NVIDIA support is unverified", () => {
+    const d = slotDeployability(
+      slot({ state: "FREE" }),
+      server({
+        readiness: {
+          setup_revision: 4,
+          required_setup_revision: 4,
+          checked_at: "2026-07-21T00:00:00Z",
+          checks: [{ code: "docker", status: "READY", detail: "Docker ready" }],
+        },
+      }),
+      [],
+    )
+    expect(d).toMatchObject({
+      deployable: false,
+      reason: "NVIDIA container support has not been verified",
+    })
+  })
+
   it("a non-Foundry container holding the GPU blocks the deploy", () => {
     const d = slotDeployability(slot({ state: "FREE", external: external() }), server(), [])
     expect(d.deployable).toBe(false)

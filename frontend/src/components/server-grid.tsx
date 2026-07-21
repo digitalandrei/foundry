@@ -491,7 +491,7 @@ function SlotChip({
   onSelect: (deploymentId: string) => void
 }) {
   const { slot, label, occupant, occupants, firstOfSlot } = position
-  const { deployable, replace } = slotDeployability(slot, server, occupants)
+  const { deployable, replace, reason } = slotDeployability(slot, server, occupants)
   // External (non-Foundry) holder is surfaced once, on the slot's first
   // position, and only when Foundry holds nothing.
   const external = firstOfSlot && occupants.length === 0 ? slot.external : null
@@ -554,7 +554,7 @@ function SlotChip({
             ? "click for details"
             : external
               ? "GPU in use by a non-Foundry container"
-              : "free — drop to deploy"
+              : reason ?? "free — drop to deploy"
       }
     >
       <span className="flex items-baseline justify-between gap-2">
@@ -573,8 +573,8 @@ function SlotChip({
           ) : null}
         </span>
         {occupant ? null : (
-          <span className={cn("shrink-0 text-[10px]", external ? "text-muted-foreground" : "text-slot-free")}>
-            {external ? "External" : "Free"}
+          <span className={cn("shrink-0 text-[10px]", external || !deployable ? "text-muted-foreground" : "text-slot-free")}>
+            {external ? "External" : deployable ? "Free" : "Blocked"}
           </span>
         )}
       </span>

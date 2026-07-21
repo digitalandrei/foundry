@@ -114,15 +114,17 @@ pub async fn ensure(
     server_id: ServerId,
     slot_id: SlotId,
     group_id: Option<GpuGroupId>,
+    project_name: &str,
     spec: &VolumeSpec,
     created_by: UserId,
 ) -> Result<(ServerVolumeId, String), AppError> {
     validate_volume_name(&spec.volume_name)?;
+    validate_volume_name(project_name)?;
 
     if let Some(volume_id) = spec.volume_id {
         let row = sqlx::query!(
             r#"SELECT server_id AS "server_id: Uuid",
-                      name, path, placement, placement_id AS "placement_id: Uuid",
+                      name, path, placement, placement_id AS "placement_id: Uuid", project_name,
                       gpu_slot_id AS "slot_id: Uuid"
                FROM server_volumes WHERE id = ? FOR UPDATE"#,
             volume_id.0
@@ -133,6 +135,7 @@ pub async fn ensure(
         let placement: VolumePlacement = row.placement.parse().map_err(AppError::internal)?;
         let accessible = row.server_id == server_id.0
             && row.name == spec.volume_name
+            && row.project_name == project_name
             && placement == spec.placement
             && (row.placement_id
                 == match placement {
@@ -157,22 +160,33 @@ pub async fn ensure(
     };
 
     let candidate_id = Uuid::now_v7();
-    let path = format!("{VOLUME_ROOT}/volumes/{candidate_id}");
+    let placement_path = match spec.placement {
+        VolumePlacement::Server => "shared".to_string(),
+        VolumePlacement::Slot => group_id.map_or_else(
+            || format!("slots/{slot_id}"),
+            |group_id| format!("groups/{group_id}"),
+        ),
+    };
+    let path = format!(
+        "{VOLUME_ROOT}/{placement_path}/{project_name}/{}",
+        spec.volume_name
+    );
     let now = chrono::Utc::now().naive_utc();
     // The scope unique key makes concurrent first-use deterministic. The
     // no-op duplicate clause lets both deploy transactions then select the
     // same row instead of leaking a uniqueness error to either user.
     sqlx::query!(
         r#"INSERT INTO server_volumes
-           (id, server_id, name, placement, placement_id, gpu_slot_id, gpu_group_id, path,
+           (id, server_id, name, placement, placement_id, project_name, gpu_slot_id, gpu_group_id, path,
             created_by, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON DUPLICATE KEY UPDATE updated_at = updated_at"#,
         candidate_id,
         server_id.0,
         spec.volume_name,
         spec.placement.as_str(),
         placement_id,
+        project_name,
         gpu_slot_id,
         gpu_group_id,
         path,
@@ -186,11 +200,13 @@ pub async fn ensure(
     let row = sqlx::query!(
         r#"SELECT id AS "id: Uuid", path
            FROM server_volumes
-           WHERE server_id = ? AND placement = ? AND placement_id = ? AND name = ?
+           WHERE server_id = ? AND placement = ? AND placement_id = ?
+             AND project_name = ? AND name = ?
            FOR UPDATE"#,
         server_id.0,
         spec.placement.as_str(),
         placement_id,
+        project_name,
         spec.volume_name,
     )
     .fetch_one(&mut *tx)
@@ -289,7 +305,7 @@ pub async fn list(
         r#"SELECT v.id AS "id: Uuid", v.name, v.path, v.created_at,
                   v.used_bytes AS "used_bytes?: u64", v.quota_bytes AS "quota_bytes?: u64",
                   v.usage_measured_at,
-                  v.placement,
+                  v.project_name, v.placement,
                   v.gpu_slot_id AS "slot_id: Uuid", gs.name AS "slot_name?",
                   v.gpu_group_id AS "gpu_group_id: Uuid", gg.name AS "group_name?",
                   v.created_by AS "created_by: Uuid",
@@ -300,7 +316,7 @@ pub async fn list(
            LEFT JOIN gpu_groups gg ON gg.id = v.gpu_group_id
            WHERE v.server_id = ?
              AND (? IS NULL OR v.placement = 'SERVER' OR v.placement_id = ?)
-           ORDER BY v.name, v.placement"#,
+           ORDER BY v.project_name, v.name, v.placement"#,
         server_id.0,
         target_placement_id,
         target_placement_id,
@@ -346,6 +362,7 @@ pub async fn list(
                 used_bytes: r.used_bytes,
                 quota_bytes: r.quota_bytes,
                 usage_measured_at: r.usage_measured_at.map(|at| at.and_utc()),
+                project_name: r.project_name,
                 placement: r.placement.parse().map_err(AppError::internal)?,
                 slot_id: r.slot_id.map(Into::into),
                 slot_name: r.slot_name,

@@ -166,6 +166,7 @@ pub async fn create(
                 server_id,
                 target.primary_slot_id,
                 target.group_id,
+                &container_name,
                 v,
                 created_by,
             )

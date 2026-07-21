@@ -440,6 +440,8 @@ export interface ServerVolume {
   used_bytes: number | null
   quota_bytes: number | null
   usage_measured_at: string | null
+  /** User-given deployment name; unrelated to GitLab. */
+  project_name: string
   placement: VolumePlacement
   slot_id: string | null
   slot_name: string | null

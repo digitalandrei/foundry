@@ -152,8 +152,9 @@ The Storage browser is host-filesystem access, so its scope is explicit at
 every boundary:
 
 - The browser session requires an authenticated Foundry user. Its roots are
-  placement-scoped on the selected server; a deployment-detail session is
-  additionally narrowed to the volume IDs attached to that deployment.
+  scoped by placement, user-given deploy name, and mount name on the selected
+  server; a deployment-detail session is additionally narrowed to the volume
+  IDs attached to that deployment. The deploy name is not a GitLab ACL.
 - The browser sends a `volume_id` and relative UTF-8 path, never a host path.
   The agent receives a controller-approved root map for its own `server_id`;
   absolute paths, `..`, root deletion, and symlink following are rejected.

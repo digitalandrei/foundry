@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO server_volumes\n           (id, server_id, name, placement, placement_id, project_name, gpu_slot_id, gpu_group_id, path,\n            created_by, created_at, updated_at)\n           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\n           ON DUPLICATE KEY UPDATE updated_at = updated_at",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 12
+    },
+    "nullable": []
+  },
+  "hash": "3d30f3109022a810b3a6d906ca4bacd57f18187a793f57ac68679c4295c121aa"
+}

@@ -125,7 +125,7 @@ export function VolumeFilePane({
           <SelectContent>
             {volumes.map((volume) => (
               <SelectItem key={volume.id} value={volume.id}>
-                {volume.name} ·{" "}
+                {volume.project_name} / {volume.name} ·{" "}
                 {volume.placement === "SERVER"
                   ? "server shared"
                   : volume.gpu_group_id

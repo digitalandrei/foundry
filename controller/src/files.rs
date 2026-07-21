@@ -106,7 +106,7 @@ pub async fn browser(
         .into_iter()
         .map(|volume| FileVolumeRoot {
             volume_id: volume.id,
-            name: volume.name,
+            name: format!("{} / {}", volume.project_name, volume.name),
             path: volume.path,
             quota_bytes: volume.quota_bytes,
         })

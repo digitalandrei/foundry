@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Loader2Icon } from "lucide-react"
-import { useFieldArray, useForm, useFormState } from "react-hook-form"
+import { useFieldArray, useForm, useFormState, useWatch } from "react-hook-form"
 
 import { DeployDialogFields } from "@/components/deploy-dialog-fields"
 import { Badge } from "@/components/ui/badge"
@@ -91,6 +91,11 @@ export function DeployDialog({
   const envRows = useFieldArray({ control: form.control, name: "env" })
   const mounts = useFieldArray({ control: form.control, name: "volumes" })
   const { isDirty } = useFormState({ control: form.control })
+  const requestedName = useWatch({ control: form.control, name: "name" })
+  const storageProjectName = (target?.replaces?.name ?? requestedName ?? "").trim()
+  const availableVolumes = storageProjectName
+    ? (volumes.data ?? []).filter((volume) => volume.project_name === storageProjectName)
+    : []
 
   const targetKey = target?.slot
     ? `slot:${target.slot.slotId}`
@@ -269,7 +274,7 @@ export function DeployDialog({
               discoveredPorts={discovered.data?.ports}
               discoveredVolumeCount={discovered.data?.volumes.length ?? 0}
               discoverySucceeded={discovered.isSuccess}
-              availableVolumes={volumes.data ?? []}
+              availableVolumes={availableVolumes}
             />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose} disabled={pending}>

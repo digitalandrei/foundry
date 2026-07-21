@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT server_id AS \"server_id: Uuid\",\n                      name, path, placement, placement_id AS \"placement_id: Uuid\",\n                      gpu_slot_id AS \"slot_id: Uuid\"\n               FROM server_volumes WHERE id = ? FOR UPDATE",
+  "query": "SELECT server_id AS \"server_id: Uuid\",\n                      name, path, placement, placement_id AS \"placement_id: Uuid\", project_name,\n                      gpu_slot_id AS \"slot_id: Uuid\"\n               FROM server_volumes WHERE id = ? FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -50,6 +50,15 @@
       },
       {
         "ordinal": 5,
+        "name": "project_name",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL",
+          "max_size": 252
+        }
+      },
+      {
+        "ordinal": 6,
         "name": "slot_id: Uuid",
         "type_info": {
           "type": "String",
@@ -67,8 +76,9 @@
       false,
       false,
       false,
+      false,
       true
     ]
   },
-  "hash": "4624a96b5cb34e9acf4e21d23278616ecdc20a2aa50a07432489b93258166631"
+  "hash": "ea07b983038bfb46feade0047e07e0d6ce8cabfb2254057c4847a8f6a6777e1f"
 }

@@ -357,15 +357,15 @@ one policy axis, independent of GitLab projects and images:
 - placement `SLOT` (one physical slot or deployable GPU-group slot) or
   `SERVER` (shared by every slot on that server).
 
-The canonical identity is server + placement target + logical name. New host
-directories use opaque IDs at
-`/storage/containers/volumes/<volume-uuid>`; the logical name never controls
-the host path. Data is server-local and independent of deployment lifecycle:
-container removal keeps it, and any signed-in operator deploying to the same
-placement can select the exact volume ID or deterministically reuse its key.
-A GitLab project may therefore be deployed into many slots without coupling
-their storage, while unrelated projects intentionally share a server volume
-when they use the same name.
+The canonical identity is server + placement target + user-given deployment
+name + mount name. The deployment name is the storage "project" namespace and
+has no relationship to a GitLab project. New host paths follow the hierarchy:
+`/storage/containers/slots/<slot-id>/<deploy-name>/<mount-name>`,
+`groups/<group-id>/…`, or `shared/<deploy-name>/<mount-name>`. Existing paths
+remain in place during migration. Container removal keeps the data; using the
+same deploy name and mount name deterministically reuses it. A SERVER volume
+with that key follows the deploy name across slots, while a SLOT volume remains
+attached to its physical/group target.
 
 Creator/admin may explicitly **clean** a detached volume (purge contents,
 retain identity) or **delete** it (purge contents and identity); both are
@@ -391,7 +391,7 @@ audited without file contents. Placement-scoped sessions require agent
 
 Since 0.59.0, browser uploads are resumable: the browser persists a stable
 upload ID, the agent keeps a partial sibling file, and `UPLOAD_READY` returns
-the committed offset after reconnect. Inventory measures each opaque volume
+the committed offset after reconnect. Inventory measures each volume root
 plus filesystem total/free capacity. Creator/admin can set an advisory quota;
 the browser upload path refuses a final size beyond it. The quota is not a
 filesystem/container hard limit, so workloads may exceed it and the UI warns

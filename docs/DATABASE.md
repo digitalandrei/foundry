@@ -235,18 +235,19 @@ deleted later), `host_path`, `container_path`, `read_only`,
 ### `server_volumes`
 > Added in Phase 6 (operator requirement): persistent storage.
 
-Placement-scoped local volumes. New paths are opaque
-`/storage/containers/volumes/<uuid>` directories (legacy owner/name paths
-remain valid). Columns: `id`, `server_id` FK, logical `name`, `placement`
-(SLOT/SERVER), `placement_id` (physical slot, GPU group, or server UUID),
-`gpu_slot_id` / `gpu_group_id` FK nullable, `path`, `created_by` FK users,
-timestamps. Canonical
+Placement/deploy-scoped local volumes. New paths mirror their logical
+hierarchy: `/storage/containers/{slots/<slot-uuid>|groups/<group-uuid>|shared}/<project_name>/<mount-name>`.
+Here `project_name` is the user-given deployment name, never a GitLab project;
+legacy paths remain valid and are not moved. Columns: `id`, `server_id` FK,
+logical `name`, `placement` (SLOT/SERVER), `placement_id` (physical slot, GPU
+group, or server UUID), `project_name`, `gpu_slot_id` / `gpu_group_id` FK
+nullable, `path`, `created_by` FK users, timestamps. Canonical
 `used_bytes`, `quota_bytes`, and `usage_measured_at` hold agent-measured
 accounting plus an advisory quota. Browser uploads enforce the quota; the
 database does not claim filesystem/container hard isolation. Canonical
 uniqueness:
-(`server_id`, `placement`, `placement_id`, `name`); path is also unique per
-server. GitLab project identity is deliberately absent. Clean retains the
+(`server_id`, `placement`, `placement_id`, `project_name`, `name`); path is
+also unique per server. GitLab project identity is deliberately absent. Clean retains the
 row and queues PURGE_VOLUMES; delete removes the row and queues REMOVE_VOLUME.
 
 ### `deployment_logs`
