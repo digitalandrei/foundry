@@ -43,6 +43,12 @@ pub struct ContainerSummary {
     pub labels: BTreeMap<String, String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ContainerHealth {
+    pub status: String,
+    pub detail: Option<String>,
+}
+
 /// Registry credential in domain terms (no bollard `DockerCredentials`).
 #[derive(Debug, Clone)]
 pub enum RegistryCreds {
@@ -113,6 +119,7 @@ pub trait DockerEngine: Send + Sync {
     /// Create a container from a domain spec; returns its docker id.
     async fn create(&self, spec: &ContainerSpec) -> Result<String, DockerError>;
     async fn start(&self, id: &str) -> Result<(), DockerError>;
+    async fn health(&self, id: &str) -> Result<ContainerHealth, DockerError>;
     async fn stop(&self, id: &str, timeout_secs: i32) -> Result<(), DockerError>;
     async fn restart(&self, id: &str, timeout_secs: i32) -> Result<(), DockerError>;
     /// Force-remove a container; removing an absent container is `Ok`
@@ -393,6 +400,32 @@ impl DockerEngine for BollardEngine {
             .map_err(|e| map_err("container start failed", e))
     }
 
+    async fn health(&self, id: &str) -> Result<ContainerHealth, DockerError> {
+        let inspect = self
+            .docker
+            .inspect_container(
+                id,
+                None::<bollard::query_parameters::InspectContainerOptions>,
+            )
+            .await
+            .map_err(|e| map_err("container health inspect failed", e))?;
+        let Some(health) = inspect.state.and_then(|state| state.health) else {
+            return Ok(ContainerHealth {
+                status: "none".into(),
+                detail: None,
+            });
+        };
+        let status = health
+            .status
+            .map(|status| status.to_string())
+            .unwrap_or_else(|| "none".into());
+        let detail = health
+            .log
+            .and_then(|logs| logs.last().and_then(|log| log.output.clone()))
+            .map(|output| output.trim().chars().take(800).collect());
+        Ok(ContainerHealth { status, detail })
+    }
+
     async fn stop(&self, id: &str, timeout_secs: i32) -> Result<(), DockerError> {
         self.docker
             .stop_container(
@@ -670,6 +703,13 @@ pub(crate) mod fake {
             self.ensure_up()?;
             self.set_state(id, "running");
             Ok(())
+        }
+
+        async fn health(&self, _id: &str) -> Result<ContainerHealth, DockerError> {
+            Ok(ContainerHealth {
+                status: "none".into(),
+                detail: None,
+            })
         }
 
         async fn stop(&self, id: &str, _timeout_secs: i32) -> Result<(), DockerError> {

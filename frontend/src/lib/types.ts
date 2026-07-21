@@ -92,6 +92,17 @@ export interface ImageMetadataResponse {
   volumes: VolumeSpec[]
   /** Compressed layer size from the selected manifest. */
   size_bytes: number | null
+  digest: string | null
+  apps: ApplicationMetadata[]
+}
+
+export interface ApplicationMetadata {
+  container_port: number
+  scheme: PortKind
+  primary: boolean
+  health_path: string | null
+  max_body_size_bytes: number | null
+  proxy_timeout_seconds: number | null
 }
 
 export type ServerStatus = "ONLINE" | "OFFLINE" | "DEGRADED"
@@ -196,9 +207,23 @@ export interface ServerSummary {
   /** Docker daemon liveness: true → active, false → down (deploys
    * blocked), null → unknown / no snapshot yet. */
   docker_ok: boolean | null
+  setup_revision: number | null
+  required_setup_revision: number
+  readiness: HostReadiness | null
+  readiness_checked_at: string | null
+  storage_total_bytes: number | null
+  storage_available_bytes: number | null
   enrolled: boolean
   gpus: GpuSummary[]
   containers_running: number
+}
+
+export type CheckStatus = "READY" | "WARNING" | "FAILED" | "UNKNOWN"
+export interface HostReadiness {
+  setup_revision: number | null
+  required_setup_revision: number
+  checked_at: string
+  checks: Array<{ code: string; status: CheckStatus; detail: string }>
 }
 
 export interface PortMapping {
@@ -280,6 +305,10 @@ export interface PortSpec {
   container_port: number
   kind: PortKind
   host_port?: number | null
+  primary?: boolean
+  health_path?: string | null
+  max_body_size_bytes?: number | null
+  proxy_timeout_seconds?: number | null
 }
 
 export interface EnvSpec {
@@ -324,18 +353,25 @@ export interface DeploymentPort {
   kind: PortKind
   /** HTTP/HTTPS: the published app hostname (open `https://{hostname}`). */
   hostname: string | null
+  primary: boolean
+  health_path: string | null
+  max_body_size_bytes: number
+  proxy_timeout_seconds: number
 }
 
 export interface DeploymentSummary {
   id: string
   name: string
   image_ref: string
+  image_digest: string | null
   state: import("./states").DeploymentState
   /** Live progress while a DEPLOY task runs (`pulling: 3/7 layers …`). */
   status_detail: string | null
   /** Docker container id — joins the telemetry sample's containers. */
   container_id: string | null
   error_message: string | null
+  health_status: string | null
+  health_detail: string | null
   server_id: string
   server_name: string
   /** Denormalised primary (first/only) member slot. */
@@ -404,6 +440,9 @@ export interface ServerVolume {
   id: string
   name: string
   path: string
+  used_bytes: number | null
+  quota_bytes: number | null
+  usage_measured_at: string | null
   project_id: string | null
   project_name: string | null
   visibility: VolumeVisibility
@@ -414,6 +453,26 @@ export interface ServerVolume {
   can_manage: boolean
   attached_to: string[]
   created_at: string
+}
+
+export interface AppTrafficRecord {
+  deployment_id: string
+  occurred_at: string
+  method: string
+  path: string
+  status: number
+  request_time_ms: number
+  response_bytes: number
+  request_id: string | null
+}
+
+export interface AppRequestMetrics {
+  requests: number
+  errors: number
+  response_bytes: number
+  average_request_time_ms: number
+  p95_request_time_ms: number
+  by_status: Array<{ status: number; count: number }>
 }
 
 /** Drag payload: containers-panel tag card → slot chip. */

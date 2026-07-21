@@ -71,6 +71,40 @@ pub async fn detail(
     }))
 }
 
+pub async fn diagnostics(
+    State(state): State<AppState>,
+    AdminUser(admin): AdminUser,
+    headers: HeaderMap,
+    Path(server_id): Path<ServerId>,
+) -> Result<axum::http::StatusCode, AppError> {
+    crate::repos::tasks::enqueue_server_command(
+        &state.pool,
+        server_id,
+        foundry_shared::TaskType::RefreshInventory,
+        admin.id,
+        client_ip(&headers).as_deref(),
+    )
+    .await?;
+    Ok(axum::http::StatusCode::ACCEPTED)
+}
+
+pub async fn upgrade_agent(
+    State(state): State<AppState>,
+    AdminUser(admin): AdminUser,
+    headers: HeaderMap,
+    Path(server_id): Path<ServerId>,
+) -> Result<axum::http::StatusCode, AppError> {
+    crate::repos::tasks::enqueue_server_command(
+        &state.pool,
+        server_id,
+        foundry_shared::TaskType::UpgradeAgent,
+        admin.id,
+        client_ip(&headers).as_deref(),
+    )
+    .await?;
+    Ok(axum::http::StatusCode::ACCEPTED)
+}
+
 fn registration_command(public_url: &str, token: &str) -> String {
     format!("sudo foundry-agent --register --url {public_url} --token {token}")
 }

@@ -46,6 +46,30 @@ pub struct ImageMetadataResponse {
     /// Compressed sum of manifest layer descriptors. Used when GitLab
     /// reports an invalid zero tag size.
     pub size_bytes: Option<i64>,
+    /// Immutable manifest digest used for the actual deployment pull.
+    pub digest: Option<String>,
+    /// Rich web application policy from `ai.protv.foundry.apps`.
+    #[serde(default)]
+    pub apps: Vec<ApplicationMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApplicationMetadata {
+    pub container_port: u16,
+    #[serde(default = "default_http_kind")]
+    pub scheme: crate::PortKind,
+    #[serde(default)]
+    pub primary: bool,
+    #[serde(default)]
+    pub health_path: Option<String>,
+    #[serde(default)]
+    pub max_body_size_bytes: Option<u64>,
+    #[serde(default)]
+    pub proxy_timeout_seconds: Option<u32>,
+}
+
+fn default_http_kind() -> crate::PortKind {
+    crate::PortKind::Http
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

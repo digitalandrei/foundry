@@ -12,12 +12,14 @@ mod config;
 mod docker;
 mod file_system;
 mod files;
+mod host;
 mod inventory;
 mod logs;
 mod metrics;
 mod register;
 mod shell;
 mod tasks;
+mod traffic;
 mod vhost;
 
 use std::error::Error;
@@ -30,6 +32,7 @@ usage: foundry-agent                                   run (enrolled servers)
        foundry-agent --register --url <controller> --token <token> [--force]
        foundry-agent --register --url <controller> --fleet-token <key> [--force]
        foundry-agent --setup-apps                      (re)install binary + nginx app publishing
+       foundry-agent --perform-upgrade                 root-owned systemd helper
        foundry-agent --version";
 
 #[tokio::main]
@@ -73,6 +76,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     if args.iter().any(|a| a == "--setup-apps") {
         return register::setup_apps_standalone();
     }
+    if args.iter().any(|a| a == "--perform-upgrade") {
+        return register::perform_upgrade().await;
+    }
     if !args.is_empty() {
         eprintln!("{USAGE}");
         return Err(format!("unknown arguments: {args:?}").into());
@@ -112,14 +118,16 @@ async fn run_agent() -> Result<(), Box<dyn Error>> {
             None
         }
     };
+    let storage_cache: host::StorageCache = std::sync::Arc::new(tokio::sync::RwLock::new(None));
 
     // Heartbeat/inventory/metrics and the task loop run concurrently;
     // each exits on SIGTERM/ctrl-c.
     tokio::join!(
-        heartbeat_loop(&client, &config, docker.clone()),
+        heartbeat_loop(&client, &config, docker.clone(), storage_cache.clone()),
         tasks::run_loop(&client, &config, docker.clone()),
         shell::run_loop(&client, &config, docker.clone()),
-        files::run_loop(&client, &config)
+        files::run_loop(&client, &config),
+        host::storage_loop(storage_cache)
     );
     tracing::info!("shut down cleanly");
     Ok(())
@@ -132,6 +140,7 @@ async fn heartbeat_loop(
     client: &reqwest::Client,
     config: &config::AgentConfig,
     docker: Option<bollard::Docker>,
+    storage_cache: host::StorageCache,
 ) {
     let base = config.controller_url.trim_end_matches('/');
     let url = format!("{base}/agent/heartbeat");
@@ -167,6 +176,10 @@ async fn heartbeat_loop(
     let mut logs_interval = tokio::time::interval(Duration::from_secs(10));
     logs_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut healthy: Option<bool> = None;
+    let traffic_url = format!("{base}/agent/app-traffic");
+    let mut traffic_collector = traffic::TrafficCollector::default();
+    let mut traffic_interval = tokio::time::interval(Duration::from_secs(10));
+    traffic_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     // Adopted (externally-created) containers the controller tracks, learned
     // on each heartbeat — short docker id → deployment id, so the log
     // collector can ship their logs (they carry no foundry.managed label).
@@ -175,6 +188,29 @@ async fn heartbeat_loop(
 
     loop {
         tokio::select! {
+            _ = traffic_interval.tick() => {
+                let batch = traffic_collector.collect().await;
+                if !batch.records.is_empty() {
+                    let result = client
+                        .post(&traffic_url)
+                        .header("x-foundry-agent-id", &config.agent_id)
+                        .bearer_auth(&config.agent_secret)
+                        .json(&batch)
+                        .send()
+                        .await;
+                    match result {
+                        Ok(response) if response.status().is_success() => {
+                            traffic_collector.commit();
+                        }
+                        Ok(response) => {
+                            tracing::warn!(status = %response.status(), "app traffic upload rejected");
+                        }
+                        Err(error) => {
+                            tracing::debug!(%error, "app traffic upload failed (controller unreachable)");
+                        }
+                    }
+                }
+            }
             _ = metrics_interval.tick() => {
                 let sample = collector.collect(nvml.as_ref(), docker.as_ref()).await;
                 let result = client
@@ -208,7 +244,8 @@ async fn heartbeat_loop(
                 }
             }
             _ = inventory_interval.tick() => {
-                let snapshot = inventory::collect(nvml.as_ref(), docker.as_ref()).await;
+                let mut snapshot = inventory::collect(nvml.as_ref(), docker.as_ref(), config.server_name.as_deref()).await;
+                snapshot.storage = storage_cache.read().await.clone();
                 tracing::debug!(
                     gpus = snapshot.gpus.len(),
                     containers = snapshot.containers.len(),

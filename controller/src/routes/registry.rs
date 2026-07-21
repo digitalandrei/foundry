@@ -133,6 +133,9 @@ pub async fn image_metadata(
         ImageMetadataResponse::default()
     });
     metadata.project_id = Some(tag.project_id);
+    if let Some(digest) = metadata.digest.as_deref() {
+        mirror::cache_tag_digest(&state.pool, tag_id, digest).await?;
+    }
     Ok(Json(metadata))
 }
 

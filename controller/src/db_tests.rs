@@ -71,11 +71,43 @@ async fn insert_runtime_fixture(pool: &MySqlPool) -> RuntimeFixture {
     .await
     .unwrap();
     let now = chrono::Utc::now().naive_utc();
-    sqlx::query("UPDATE servers SET status = 'ONLINE', docker_ok = 1 WHERE id = ?")
-        .bind(server_id.0)
-        .execute(pool)
-        .await
-        .unwrap();
+    let readiness = serde_json::to_vec(&serde_json::json!({
+        "setup_revision": foundry_shared::dto::REQUIRED_SETUP_REVISION,
+        "required_setup_revision": foundry_shared::dto::REQUIRED_SETUP_REVISION,
+        "checked_at": chrono::Utc::now(),
+        "checks": [
+            {"code": "docker", "status": "READY", "detail": "test fixture"},
+            {"code": "storage_write", "status": "READY", "detail": "test fixture"},
+            {"code": "capabilities", "status": "READY", "detail": "test fixture"}
+        ]
+    }))
+    .unwrap();
+    sqlx::query(
+        "UPDATE servers SET status = 'ONLINE', docker_ok = 1, setup_revision = ?, \
+         readiness_json = ?, readiness_checked_at = ? WHERE id = ?",
+    )
+    .bind(foundry_shared::dto::REQUIRED_SETUP_REVISION)
+    .bind(readiness)
+    .bind(now)
+    .bind(server_id.0)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO server_agents \
+         (id, server_id, agent_version, token_hash, enrolled_at, created_at, updated_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(server_id.0)
+    .bind(env!("CARGO_PKG_VERSION"))
+    .bind(vec![0_u8; 32])
+    .bind(now)
+    .bind(now)
+    .bind(now)
+    .execute(pool)
+    .await
+    .unwrap();
 
     let instance_id: GitlabInstanceId = Uuid::now_v7().into();
     sqlx::query(

@@ -26,11 +26,14 @@ import {
 import {
   useCleanVolume,
   useDeleteVolume,
+  useSetVolumeQuota,
   useServerVolumes,
 } from "@/hooks/use-deployments"
 import { useProjects } from "@/hooks/use-projects"
 import { useServers } from "@/hooks/use-servers"
 import type { ServerVolume } from "@/lib/types"
+import { formatFileSize } from "@/lib/volume-files"
+import { Input } from "@/components/ui/input"
 
 export function StoragePage() {
   const projects = useProjects()
@@ -131,6 +134,7 @@ function VolumeTable({ volumes }: { volumes: ServerVolume[] }) {
           <TableHead>Visibility</TableHead>
           <TableHead>Placement</TableHead>
           <TableHead>Creator</TableHead>
+          <TableHead>Usage / quota</TableHead>
           <TableHead>Attached to</TableHead>
           <TableHead className="text-right">Actions</TableHead>
         </TableRow>
@@ -148,6 +152,7 @@ function VolumeTable({ volumes }: { volumes: ServerVolume[] }) {
                   : `Slot ${volume.slot_name ?? "unknown"}`}
               </TableCell>
               <TableCell>{volume.created_by_name}</TableCell>
+              <TableCell><QuotaCell volume={volume} /></TableCell>
               <TableCell className="text-muted-foreground">
                 {attached ? volume.attached_to.join(", ") : "Not attached"}
               </TableCell>
@@ -198,5 +203,25 @@ function VolumeTable({ volumes }: { volumes: ServerVolume[] }) {
         })}
       </TableBody>
     </Table>
+  )
+}
+
+function QuotaCell({ volume }: { volume: ServerVolume }) {
+  const setQuota = useSetVolumeQuota()
+  const initial = volume.quota_bytes == null ? "" : (volume.quota_bytes / 1024 ** 3).toFixed(1)
+  const [value, setValue] = useState(initial)
+  return (
+    <div className="min-w-48 space-y-1">
+      <p className="text-xs text-muted-foreground">
+        {volume.used_bytes == null ? "Measuring…" : formatFileSize(volume.used_bytes)} / {volume.quota_bytes == null ? "unlimited" : formatFileSize(volume.quota_bytes)}
+      </p>
+      {volume.can_manage ? (
+        <div className="flex items-center gap-1">
+          <Input className="h-7 w-20 text-xs" type="number" min="0.001" step="0.5" value={value} onChange={(event) => setValue(event.target.value)} placeholder="GiB" aria-label={`Quota for ${volume.name} in GiB`} />
+          <Button variant="outline" size="sm" className="h-7" disabled={setQuota.isPending || !value} onClick={() => setQuota.mutate({ id: volume.id, quotaBytes: Math.round(Number(value) * 1024 ** 3) })}>Set</Button>
+          <Button variant="ghost" size="sm" className="h-7" disabled={setQuota.isPending || volume.quota_bytes == null} onClick={() => { setValue(""); setQuota.mutate({ id: volume.id, quotaBytes: null }) }}>∞</Button>
+        </div>
+      ) : null}
+    </div>
   )
 }

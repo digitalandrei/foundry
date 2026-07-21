@@ -1,0 +1,104 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT container_port, host_port, protocol, kind, hostname, is_primary,\n                health_path, max_body_size_bytes, proxy_timeout_seconds\n         FROM deployment_ports WHERE deployment_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "container_port",
+        "type_info": {
+          "type": "Short",
+          "flags": "NOT_NULL | UNSIGNED | NO_DEFAULT_VALUE",
+          "max_size": 5
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "host_port",
+        "type_info": {
+          "type": "Short",
+          "flags": "NOT_NULL | UNSIGNED | NO_DEFAULT_VALUE",
+          "max_size": 5
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "protocol",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL",
+          "max_size": 32
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "kind",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL",
+          "max_size": 32
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "hostname",
+        "type_info": {
+          "type": "VarString",
+          "flags": "MULTIPLE_KEY",
+          "max_size": 1020
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "is_primary",
+        "type_info": {
+          "type": "Tiny",
+          "flags": "NOT_NULL",
+          "max_size": 1
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "health_path",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 4096
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "max_body_size_bytes",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "NOT_NULL | UNSIGNED",
+          "max_size": 20
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "proxy_timeout_seconds",
+        "type_info": {
+          "type": "Long",
+          "flags": "NOT_NULL | UNSIGNED",
+          "max_size": 10
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "1960a2001ece7507a7a0716270c3964229603e3f12d61bd5ab8da148a71e0560"
+}

@@ -19,7 +19,7 @@ pub const VHOST_DIR: &str = "/etc/nginx/foundry-apps";
 pub const TLS_CERT: &str = "/etc/foundry-agent/tls/fullchain.pem";
 pub const TLS_KEY: &str = "/etc/foundry-agent/tls/privkey.pem";
 const NGINX_BIN: &str = "/usr/sbin/nginx";
-const CLIENT_MAX_BODY_SIZE: &str = "2g";
+pub const ACCESS_LOG_DIR: &str = "/var/log/nginx/foundry-apps";
 
 /// Smoke tests redirect the conf dir (`FOUNDRY_VHOST_DIR`) and skip the
 /// nginx test/reload (`FOUNDRY_VHOST_NO_RELOAD`).
@@ -210,6 +210,29 @@ pub async fn apply(deployment_id: &str, ports: &[&PortBinding]) -> Result<(), St
     nginx(&["-s", "reload"]).await
 }
 
+/// Test the exact candidate before an image pull or replacement stop. The
+/// candidate is never reloaded and is always removed afterwards.
+pub async fn preflight(deployment_id: &str, ports: &[&PortBinding]) -> Result<(), String> {
+    if ports.is_empty() || !reload_enabled() {
+        return Ok(());
+    }
+    validate_id(deployment_id)?;
+    for port in ports {
+        if !valid_hostname(port.hostname.as_deref().unwrap_or_default()) {
+            return Err("invalid application hostname".into());
+        }
+    }
+    // Do not prefix this with a dot: nginx's `*.conf` include glob does not
+    // match dotfiles, which would make `nginx -t` skip the candidate.
+    let path = vhost_dir().join(format!("preflight-{deployment_id}.conf"));
+    tokio::fs::write(&path, render(deployment_id, ports))
+        .await
+        .map_err(|error| format!("writing vhost candidate failed: {error}"))?;
+    let result = nginx(&["-t"]).await;
+    let _ = tokio::fs::remove_file(&path).await;
+    result.map_err(|error| format!("nginx candidate rejected: {error}"))
+}
+
 /// Remove the deployment's vhost file (if any) and reload. Absent file
 /// → idempotent success without touching nginx.
 pub async fn remove(deployment_id: &str) -> Result<(), String> {
@@ -217,10 +240,26 @@ pub async fn remove(deployment_id: &str) -> Result<(), String> {
     let path = vhost_dir().join(format!("{deployment_id}.conf"));
     match tokio::fs::remove_file(&path).await {
         Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            remove_access_log(deployment_id).await;
+            return Ok(());
+        }
         Err(e) => return Err(format!("removing vhost {} failed: {e}", path.display())),
     }
-    nginx(&["-s", "reload"]).await
+    nginx(&["-s", "reload"]).await?;
+    remove_access_log(deployment_id).await;
+    Ok(())
+}
+
+async fn remove_access_log(deployment_id: &str) {
+    let path = PathBuf::from(ACCESS_LOG_DIR).join(format!("{deployment_id}.access.log"));
+    match tokio::fs::remove_file(&path).await {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            tracing::warn!(path = %path.display(), %error, "could not remove application access log")
+        }
+    }
 }
 
 /// `sudo -n nginx …` — the sudoers rule installed by `--setup-apps`
@@ -309,11 +348,12 @@ fn render(deployment_id: &str, ports: &[&PortBinding]) -> String {
              \x20   listen [::]:443 ssl;\n\
              \x20   http2 on;\n\
              \x20   server_name {hostname};\n\
+             \x20   access_log {ACCESS_LOG_DIR}/{deployment_id}.access.log foundry_app_json;\n\
              \n\
              \x20   ssl_certificate     {TLS_CERT};\n\
              \x20   ssl_certificate_key {TLS_KEY};\n\
              \n\
-             \x20   client_max_body_size {CLIENT_MAX_BODY_SIZE};\n\
+             \x20   client_max_body_size {max_body_size};\n\
              \n\
              \x20   location / {{\n\
              \x20       proxy_pass {scheme}://127.0.0.1:{port};\n\
@@ -325,12 +365,14 @@ fn render(deployment_id: &str, ports: &[&PortBinding]) -> String {
              \x20       proxy_set_header X-Forwarded-Proto https;\n\
              \x20       proxy_set_header Upgrade $http_upgrade;\n\
              \x20       proxy_set_header Connection $foundry_connection_upgrade;\n\
-             \x20       proxy_read_timeout 300s;\n\
-             \x20       proxy_send_timeout 300s;\n\
+             \x20       proxy_read_timeout {timeout}s;\n\
+             \x20       proxy_send_timeout {timeout}s;\n\
              \x20       proxy_buffering off;\n\
              \x20   }}\n\
              }}\n",
             port = p.host_port,
+            max_body_size = p.max_body_size_bytes,
+            timeout = p.proxy_timeout_seconds,
         ));
     }
     out
@@ -347,6 +389,10 @@ mod tests {
             protocol: kind.protocol().to_string(),
             kind,
             hostname: Some(hostname.to_string()),
+            primary: true,
+            health_path: Some("/health".into()),
+            max_body_size_bytes: 2 * 1024 * 1024 * 1024,
+            proxy_timeout_seconds: 300,
         }
     }
 
@@ -359,7 +405,7 @@ mod tests {
         assert!(conf.contains("proxy_pass http://127.0.0.1:20001;"));
         assert!(conf.contains("ssl_certificate     /etc/foundry-agent/tls/fullchain.pem;"));
         assert!(conf.contains("proxy_set_header Connection $foundry_connection_upgrade;"));
-        assert!(conf.contains("client_max_body_size 2g;"));
+        assert!(conf.contains("client_max_body_size 2147483648;"));
         assert!(!conf.contains("proxy_ssl_verify"));
     }
 

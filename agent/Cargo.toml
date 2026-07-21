@@ -31,6 +31,7 @@ serde_json = { workspace = true }
 base64 = { workspace = true }
 # Object-safe async trait for the Docker engine seam (docker.rs).
 async-trait = "0.1"
+sha2 = "0.10"
 
 [lints]
 workspace = true

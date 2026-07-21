@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE servers SET nvidia_driver_version = ?, docker_version = ?,\n             docker_ok = ?, app_publishing_ready = ?, nginx_status = ?, setup_revision = ?,\n             readiness_json = ?, readiness_checked_at = ?, storage_total_bytes = ?,\n             storage_available_bytes = ?, updated_at = ?\n         WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 12
+    },
+    "nullable": []
+  },
+  "hash": "21e99d1cb9ae7122b97febb9a6304e56a304ef4e964087d7521b716d97c14123"
+}

@@ -27,6 +27,12 @@ pub struct ServerSummary {
     /// active, `Some(false)` → daemon down (deploys blocked), `None` →
     /// unknown / no snapshot yet (pre-0.20 agent included).
     pub docker_ok: Option<bool>,
+    pub setup_revision: Option<u32>,
+    pub required_setup_revision: u32,
+    pub readiness: Option<super::HostReadiness>,
+    pub readiness_checked_at: Option<DateTime<Utc>>,
+    pub storage_total_bytes: Option<u64>,
+    pub storage_available_bytes: Option<u64>,
     /// Whether an agent has ever enrolled for this server.
     pub enrolled: bool,
     /// GPUs with their slots (from the latest inventory snapshot) —

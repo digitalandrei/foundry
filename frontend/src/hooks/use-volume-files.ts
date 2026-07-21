@@ -16,7 +16,7 @@ type SingleResult =
 type Pending = {
   resolve: (result: SingleResult | Blob) => void
   reject: (error: Error) => void
-  ready?: () => void
+  ready?: (offset: number) => void
   readyReject?: (error: Error) => void
   downloadChunks?: ArrayBuffer[]
 }
@@ -104,7 +104,7 @@ export function useVolumeFiles(
         pendingRef.current.delete(message.request_id)
         pending.resolve({ type: "ack" })
       } else if (message.type === "upload_ready") {
-        pending.ready?.()
+        pending.ready?.(message.offset)
       } else if (message.type === "download_start") {
         pending.downloadChunks = []
       } else if (message.type === "download_chunk") {
@@ -210,10 +210,12 @@ export function useVolumeFiles(
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       throw new Error("volume file session is not connected")
     }
-    const id = requestId()
-    let markReady: (() => void) | undefined
+    const resumeKey = `foundry-upload:${serverId}:${projectId}:${volumeId}:${path}:${file.name}:${file.size}:${file.lastModified}`
+    const id = localStorage.getItem(resumeKey) ?? requestId()
+    localStorage.setItem(resumeKey, id)
+    let markReady: ((offset: number) => void) | undefined
     let rejectReady: ((error: Error) => void) | undefined
-    const ready = new Promise<void>((resolve, reject) => {
+    const ready = new Promise<number>((resolve, reject) => {
       markReady = resolve
       rejectReady = reject
     })
@@ -240,9 +242,10 @@ export function useVolumeFiles(
         size: file.size,
       }),
     )
-    await ready
+    const resumeOffset = await ready
+    if (resumeOffset > file.size) throw new Error("server upload offset exceeds this file")
     const chunkSize = 128 * 1024
-    for (let offset = 0; offset < file.size; offset += chunkSize) {
+    for (let offset = resumeOffset; offset < file.size; offset += chunkSize) {
       while (ws.bufferedAmount > 4 * 1024 * 1024) {
         await new Promise((resolve) => setTimeout(resolve, 20))
       }
@@ -251,13 +254,15 @@ export function useVolumeFiles(
         JSON.stringify({
           type: "upload_chunk",
           request_id: id,
+          offset,
           data: bytesToBase64(bytes),
         }),
       )
     }
     ws.send(JSON.stringify({ type: "upload_finish", request_id: id }))
     await finished
-  }, [])
+    localStorage.removeItem(resumeKey)
+  }, [projectId, serverId])
 
   return {
     status,

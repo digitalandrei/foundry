@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT s.id AS \"id: Uuid\", s.name, s.hostname, s.status,\n                  s.last_heartbeat_at, s.os_version,\n                  s.app_publishing_ready AS \"app_publishing_ready: bool\", s.nginx_status,\n                  s.docker_ok AS \"docker_ok: bool\",\n                  a.agent_version, a.id AS \"agent_id: Uuid\",\n                  COALESCE(c.running, 0) AS \"containers_running!: i64\"\n           FROM servers s\n           LEFT JOIN server_agents a ON a.server_id = s.id\n           LEFT JOIN (SELECT server_id, COUNT(*) AS running FROM server_containers\n                      WHERE state = 'running' GROUP BY server_id) c ON c.server_id = s.id\n           ORDER BY s.name",
+  "query": "SELECT s.id AS \"id: Uuid\", s.name, s.hostname, s.status,\n                  s.last_heartbeat_at, s.os_version,\n                  s.app_publishing_ready AS \"app_publishing_ready: bool\", s.nginx_status,\n                  s.docker_ok AS \"docker_ok: bool\",\n                  s.setup_revision AS \"setup_revision?: u32\", s.readiness_json,\n                  s.readiness_checked_at,\n                  s.storage_total_bytes AS \"storage_total_bytes?: u64\",\n                  s.storage_available_bytes AS \"storage_available_bytes?: u64\",\n                  a.agent_version, a.id AS \"agent_id: Uuid\",\n                  COALESCE(c.running, 0) AS \"containers_running!: i64\"\n           FROM servers s\n           LEFT JOIN server_agents a ON a.server_id = s.id\n           LEFT JOIN (SELECT server_id, COUNT(*) AS running FROM server_containers\n                      WHERE state = 'running' GROUP BY server_id) c ON c.server_id = s.id\n           ORDER BY s.name",
   "describe": {
     "columns": [
       {
@@ -86,6 +86,51 @@
       },
       {
         "ordinal": 9,
+        "name": "setup_revision?: u32",
+        "type_info": {
+          "type": "Long",
+          "flags": "UNSIGNED",
+          "max_size": 10
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "readiness_json",
+        "type_info": {
+          "type": "Blob",
+          "flags": "BLOB | BINARY",
+          "max_size": 4294967295
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "readiness_checked_at",
+        "type_info": {
+          "type": "Datetime",
+          "flags": "BINARY",
+          "max_size": 19
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "storage_total_bytes?: u64",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "UNSIGNED",
+          "max_size": 20
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "storage_available_bytes?: u64",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "UNSIGNED",
+          "max_size": 20
+        }
+      },
+      {
+        "ordinal": 14,
         "name": "agent_version",
         "type_info": {
           "type": "VarString",
@@ -94,7 +139,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 15,
         "name": "agent_id: Uuid",
         "type_info": {
           "type": "String",
@@ -103,7 +148,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 16,
         "name": "containers_running!: i64",
         "type_info": {
           "type": "LongLong",
@@ -127,8 +172,13 @@
       true,
       true,
       true,
+      true,
+      true,
+      true,
+      true,
+      true,
       false
     ]
   },
-  "hash": "2f0c9add4f8c3fd1a54ff98df347d84a184427551d206637dde237fba547350b"
+  "hash": "4b413f9fd8d5c5c20eb89110de2dc59ae6c932c51e450795e3ae0e0a7d5fc3bf"
 }

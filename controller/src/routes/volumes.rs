@@ -3,7 +3,7 @@
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::Json;
-use foundry_shared::dto::ServerVolume;
+use foundry_shared::dto::{ServerVolume, SetVolumeQuotaRequest};
 use foundry_shared::{GitlabProjectId, GpuGroupId, ServerId, ServerVolumeId, SlotId};
 use serde::Deserialize;
 use uuid::Uuid;
@@ -136,6 +136,28 @@ pub async fn clean(
         volume.server_id,
         &volume.path,
         &volume.name,
+        user.id,
+        client_ip(&headers).as_deref(),
+    )
+    .await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+pub async fn set_quota(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    headers: HeaderMap,
+    Path(volume_id): Path<ServerVolumeId>,
+    Json(request): Json<SetVolumeQuotaRequest>,
+) -> Result<axum::http::StatusCode, AppError> {
+    let volume = volumes::get(&state.pool, volume_id).await?;
+    if volume.created_by != user.id && !user.is_admin {
+        return Err(AppError::Forbidden);
+    }
+    volumes::set_quota(
+        &state.pool,
+        volume_id,
+        request.quota_bytes,
         user.id,
         client_ip(&headers).as_deref(),
     )

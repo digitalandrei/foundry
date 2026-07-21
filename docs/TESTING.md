@@ -10,7 +10,9 @@ add or tighten one. Don't claim completion without running the relevant set.
   response parsing (recorded JSON fixtures, no live GitLab in tests).
   Registry-config coverage includes compressed manifest-size parsing,
   Foundry-label precedence over standard Docker volume declarations, and
-  rejection of unsafe declared mount defaults.
+  rejection of unsafe declared mount defaults. 0.59.0 adds app-label policy,
+  digest pull-scope, strict readiness evidence, agent-version and request
+  percentile regression coverage.
 - **Integration tests** against a real MySQL (`sqlx::test` with a dedicated
   test database; migrations applied automatically). Cover: enrollment flow,
   task queue dispatch/result handling, deployment transaction atomicity
@@ -42,6 +44,11 @@ add or tighten one. Don't claim completion without running the relevant set.
   (A100 MIG layouts, non-MIG GPUs, geometry changes).
 - Idempotency tests: every task type executed twice yields the same end
   state.
+- Executor regressions cover digest-only preflight, prepare-without-create,
+  retained quiesce/rollback, successful no-HEALTHCHECK startup, normal stop,
+  pull/auth failures and create conflicts. Host rendering tests cover nginx
+  JSON log policy, logrotate and capability bounds; health/publication failure
+  branches remain behind the same fake-Docker/vhost seams.
 - Persistent-directory executors hard-reject every remove/purge target
   outside `/storage/containers/`; purge batches run before deploy as one
   sequential task. Controller version parsing prevents PURGE_VOLUMES dispatch
@@ -49,6 +56,9 @@ add or tighten one. Don't claim completion without running the relevant set.
 - Volume-file path tests reject absolute/traversal paths, the storage root
   itself, and symlink components. Mutation-audit coverage verifies editor and
   transfer content is never copied into the audit detail.
+- Resumable upload tests assert stable partial-file identity; traffic tests
+  cover nginx JSON parsing and cursor advancement only after controller ack so
+  transient failures do not drop request records.
 
 ## Frontend (`frontend/`)
 
@@ -60,6 +70,7 @@ add or tighten one. Don't claim completion without running the relevant set.
   validation/ComfyUI 8188 classification (`deployment-form.test.ts`) and
   volume path/version helpers (`volume-files.test.ts`). Add tests beside the module,
   importing `{ describe, it, expect }` from `vitest`.
+  Primary app URL selection and 0.59 agent feature gates are also covered.
 - **Testing Library component/DOM coverage** now includes named/focusable
   GPU interaction surfaces and Enter/Space activation under both theme
   classes, plus keyboard opening and accessible naming for both themes of the

@@ -214,7 +214,10 @@ deploy authz is unchanged (a GitLab account on the image's instance —
 ## Deployment Lifecycle
 
 ```
-PENDING → VALIDATING → PULLING_IMAGE → CREATING_CONTAINER → STARTING → RUNNING
+PENDING → VALIDATING → PULLING_IMAGE → CREATING_CONTAINER → STARTING
+STARTING → WAITING_HEALTH → PUBLISHING → RUNNING
+PUBLISHING → PUBLISH_FAILED → RUNNING  (publication-only retry)
+VALIDATING → PULLING_IMAGE → PREPARED  (replacement preparation)
 RUNNING → STOPPING → STOPPED
 STOPPED → RESTARTING → RUNNING
 STOPPED → REMOVING → REMOVED
@@ -226,11 +229,11 @@ Every transition writes a `deployment_events` row (old state, new state,
 actor, timestamp, detail) and is auditable end to end.
 
 **Create-time server gates (fail fast, don't dispatch a doomed deploy):**
-the target server must be ONLINE, its **Docker daemon up**
-(`servers.docker_ok != false`, reported each inventory — 0.20.0), and —
-for HTTP/S ports — app-publishing ready. The dashboard mirrors these:
-inert drop targets + a per-server `docker: active` / `Docker stopped`
-badge.
+the target server must be ONLINE, report agent ≥0.59.0 + setup r3, and have a
+fresh positive readiness set for Docker, storage and capabilities (plus
+nginx/TLS for HTTP/S). The dashboard mirrors these with inert drop targets,
+service badges, and the full structured readiness card. The agent repeats
+preflight immediately before mutation.
 
 **Teardown leaves no host garbage (0.18.0):** `STOP` and `REMOVE` both
 delete the container (nothing lingers in `docker ps -a`) and then reclaim
@@ -260,10 +263,16 @@ When a user drags an image onto an **occupied** slot:
 
 1. UI shows the current deployment and a replacement confirmation dialog.
 2. User chooses Cancel or Replace.
-3. Replace executes in order: stop old → remove old → purge any successor
-   mounts marked `purge_on_redeploy` → pull new → start new.
-   The old deployment ends in state `REPLACED`; the new one follows the normal
-   lifecycle. Both are linked in the audit trail.
+3. The controller creates a digest-pinned successor and asks the agent to
+   preflight + pull it while the old workload remains live (`PREPARE_DEPLOY`).
+4. Only a successful preparation quiesces the predecessor: nginx route
+   withdrawn, container stopped but deliberately retained. The successor then
+   purges selected mounts, creates/starts, waits for Docker HEALTHCHECK, and
+   publishes nginx.
+5. Healthy + published successor → remove the retained predecessor and mark
+   it REPLACED. Pull/create/start/health/publication failure → discard the
+   successor and start + republish the exact retained predecessor. A workload
+   that was already STOPPED before replacement stays stopped on failure.
 
 The creator/admin may replace with any image they can read. A different
 current GitLab member may replace only when the old and successor images
@@ -317,13 +326,18 @@ The controller enqueues typed tasks; the agent polls and executes:
 
 | Task | Effect |
 |---|---|
-| `DEPLOY_CONTAINER` | Pull image (with registry credentials), create container with labels + GPU device requests + port bindings + volume binds, start |
+| `PREPARE_DEPLOY` | Validate Docker/storage/ports/nginx candidate and pull the immutable successor without touching its predecessor |
+| `DEPLOY_CONTAINER` | Repeat live preflight, pull digest-pinned image, create/start with labels + GPU/ports/volumes, wait for Docker health, publish web vhost |
+| `QUIESCE_CONTAINER` | Replacement only: withdraw predecessor vhost and stop while retaining the exact container/image |
+| `ROLLBACK_CONTAINER` | Start and republish the retained predecessor |
+| `PUBLISH_VHOST` | Retry nginx publication for an already-healthy retained container |
 | `STOP_CONTAINER` | Stop and remove a managed container, then reclaim its image (best-effort; persistent volumes survive) |
 | `RESTART_CONTAINER` | Restart (running) / start (stopped) an existing managed container. Not used by the user-facing restart action, which re-deploys (see Deployment Lifecycle); retained as an executor for any directly-enqueued restart |
 | `REMOVE_CONTAINER` | Remove a managed container and reclaim its image (best-effort; persistent volumes survive) |
 | `REMOVE_VOLUME` | Delete a persistent volume directory (amendment: persistent storage; hard-scoped under `/storage/containers/`) |
 | `PURGE_VOLUMES` | Delete and recreate an ordered batch of persistent directories before redeploy, or clean one detached volume explicitly |
 | `REFRESH_INVENTORY` | Re-enumerate GPUs/MIG slots/containers and upload |
+| `UPGRADE_AGENT` | Request the root-owned systemd path helper to checksum-verify, install and repair the agent host setup |
 | `UPLOAD_LOGS` | (Reserved task type.) Log capture ships on a periodic **push** loop, not the task queue — see Container logs below |
 
 ### Persistent storage (amendment, Phase 6 — operator requirement)
@@ -363,6 +377,14 @@ agent — still pull-only — discovers the session at
 confines every relative path below its approved root (no absolute/traversal
 paths and no symlink following). Session open plus every mutation request is
 audited without file contents. Agent ≥0.56.0 is required.
+
+Since 0.59.0, browser uploads are resumable: the browser persists a stable
+upload ID, the agent keeps a partial sibling file, and `UPLOAD_READY` returns
+the committed offset after reconnect. Inventory measures each opaque volume
+plus filesystem total/free capacity. Creator/admin can set an advisory quota;
+the browser upload path refuses a final size beyond it. The quota is not a
+filesystem/container hard limit, so workloads may exceed it and the UI warns
+from measured usage.
 
 `PURGE_VOLUMES` entered the agent wire contract in 0.54.0. The controller
 checks the target's heartbeat-reported agent version before accepting a purge
@@ -445,14 +467,21 @@ Division of labor (operator decision — no Cloudflare/DNS integration):
   ambiguous; terminal history releases the name. The dashboard renders the
   primary address directly and clickably inside every occupied slot, while
   the deployment detail page renders every mapped HTTPS address.
+- **Image author** (optional): `ai.protv.foundry.apps` declares one or more
+  web apps (`container_port`, `scheme`, `primary`, `health_path`, body limit,
+  timeout). Foundry normalizes one primary app and applies this template-owned
+  policy when the image is deployed.
 - **Agent**: owns `/etc/nginx/foundry-apps/<deployment_id>.conf` on its
   server — written after the container starts (80→443 redirect + TLS
   proxy_pass to `127.0.0.1:<host_port>`, websocket upgrade, streaming-
-  friendly, 2 GiB request-body ceiling), removed with the container. Reloads
+  friendly; default 2 GiB/300s, policy-overridable), removed with the
+  container. Reloads
   via a sudoers rule
   scoped to `nginx -t` / `nginx -s reload`; a failing `nginx -t` rolls
-  the file back. A vhost that cannot be published fails the deploy and
-  tears the container down — the URL is part of the contract.
+  the file back. For a normal deploy, publication failure leaves the healthy
+  container in recoverable `PUBLISH_FAILED` so the owner can repair nginx and
+  retry publication only. During replacement it instead restores the retained
+  predecessor automatically.
 
 Host prerequisites (`foundry-agent --setup-apps`, also run by
 `--register`): vhost dir + conf.d include + websocket map, a 128-byte
@@ -477,6 +506,23 @@ names; the optional `ai.protv.foundry.volumes` JSON label supplies explicit
 templates that must avoid anonymous Docker volumes. Rows remain editable.
 Discovery is best-effort metadata, never a deployment gate.
 
+Deployment execution itself is not best-effort: create/replace re-fetches the
+selected linux/amd64 manifest and persists `repo@sha256:<digest>`. A legacy
+tag-only deployment is pinned once before its first restart. Stage-one
+controller preflight requires agent ≥0.59, setup revision 3, ONLINE status and
+positive live Docker/storage/capability checks (plus nginx/TLS for web apps).
+Stage two runs on the target immediately before mutation: Docker reachability,
+free ports, volume roots, disk headroom and an exact nginx candidate test.
+Docker HEALTHCHECK is awaited for up to 180 seconds; images without one are
+considered ready once running.
+
+Every generated app vhost writes a per-deployment structured JSON access log.
+The agent tails it with commit-after-ack cursors and uploads request records;
+the controller retains seven days, exposes recent logs plus 24h aggregate
+metrics, and deduplicates retry batches by nginx request ID. Host logrotate
+keeps seven daily files and caps active files with copytruncate; deleting a
+deployment route removes its host access log.
+
 Readiness is reported, not assumed (0.13.0; granular in 0.16.0;
 version + cert checks in 0.17.0): each inventory snapshot carries
 `nginx_status` — READY (nginx ≥ 1.25.1 installed, the service is
@@ -491,6 +537,17 @@ version + cert as a preflight so a stale snapshot can't sneak a deploy
 into an opaque `nginx -t` emerg. An HTTP/S deploy onto a not-ready
 server is **rejected at create** with that reason, rather than
 dispatched only to fail on the agent.
+
+The 0.59.0 readiness contract is structured rather than a single nginx flag.
+Each 60-second snapshot (and admin-triggered diagnostic) executes Docker
+socket/daemon, persistent-root write, required process capability,
+`sudo -n nginx -t`, wildcard certificate coverage/expiry, and setup-revision
+checks. A dedicated five-minute worker measures storage capacity and volume
+usage; inventory publishes its latest completed snapshot, so traversing a
+large model library can never delay heartbeats. The setup
+marker is written atomically only after `--setup-apps` has installed every
+revision-owned host artifact. Version text remains display/rolling-upgrade
+metadata; check results are the readiness evidence.
 
 **External GPU containers (0.13.0):** the agent resolves the GPU/MIG
 UUIDs each *running* container is bound to (from its `--gpus` device

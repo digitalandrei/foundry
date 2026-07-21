@@ -1,10 +1,11 @@
-import { RotateCcwIcon, SquareIcon, Trash2Icon, XCircleIcon } from "lucide-react"
+import { RefreshCwIcon, RotateCcwIcon, SquareIcon, Trash2Icon, XCircleIcon } from "lucide-react"
 
 import { useConfirm } from "@/components/confirm-context"
 import {
   useDismissDeployment,
   useRemoveDeployment,
   useRestartDeployment,
+  useRetryPublish,
   useStopDeployment,
 } from "@/hooks/use-deployments"
 import type { DeploymentState } from "@/lib/states"
@@ -35,12 +36,13 @@ export function DeploymentActions({
   const restart = useRestartDeployment()
   const remove = useRemoveDeployment()
   const dismiss = useDismissDeployment()
-  const busy = stop.isPending || restart.isPending || remove.isPending || dismiss.isPending
+  const retryPublish = useRetryPublish()
+  const busy = stop.isPending || restart.isPending || remove.isPending || dismiss.isPending || retryPublish.isPending
   const terminal = onRemoved ? { onSuccess: onRemoved } : undefined
 
   return (
     <div className="flex shrink-0 gap-1">
-      {d.state === "RUNNING" ? (
+      {d.state === "RUNNING" || d.state === "PUBLISH_FAILED" ? (
         <Button
           variant="outline"
           size="icon"
@@ -64,6 +66,38 @@ export function DeploymentActions({
         >
           <SquareIcon className="size-3.5" />
         </Button>
+      ) : null}
+      {d.state === "PUBLISH_FAILED" ? (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8"
+            disabled={busy}
+            onClick={() => retryPublish.mutate(d.id)}
+            title="Retry only the nginx vhost; the healthy container is retained"
+          >
+            <RefreshCwIcon className="size-3.5" />
+            Retry publishing
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-8 text-slot-failed"
+            disabled={busy}
+            onClick={async () => {
+              if (await confirm({
+                title: `Delete "${d.name}"?`,
+                description: "The retained container is removed. Persistent volumes survive.",
+                destructive: true,
+              })) remove.mutate(d.id, terminal)
+            }}
+            aria-label="Delete"
+            title="Delete retained container"
+          >
+            <Trash2Icon className="size-3.5" />
+          </Button>
+        </>
       ) : null}
       {d.state === "STOPPED" ? (
         <>

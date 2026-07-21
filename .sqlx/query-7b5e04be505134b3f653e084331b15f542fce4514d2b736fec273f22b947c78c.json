@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT status, name,\n                  app_publishing_ready AS \"app_publishing_ready: bool\", nginx_status,\n                  docker_ok AS \"docker_ok: bool\"\n           FROM servers WHERE id = ?",
+  "query": "SELECT s.status, s.name,\n                  app_publishing_ready AS \"app_publishing_ready: bool\", nginx_status,\n                  docker_ok AS \"docker_ok: bool\",\n                  setup_revision AS \"setup_revision?: u32\", readiness_json,\n                  a.agent_version\n           FROM servers s\n           LEFT JOIN server_agents a ON a.server_id = s.id\n           WHERE s.id = ?",
   "describe": {
     "columns": [
       {
@@ -47,6 +47,33 @@
           "flags": "",
           "max_size": 1
         }
+      },
+      {
+        "ordinal": 5,
+        "name": "setup_revision?: u32",
+        "type_info": {
+          "type": "Long",
+          "flags": "UNSIGNED",
+          "max_size": 10
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "readiness_json",
+        "type_info": {
+          "type": "Blob",
+          "flags": "BLOB | BINARY",
+          "max_size": 4294967295
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "agent_version",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 256
+        }
       }
     ],
     "parameters": {
@@ -57,8 +84,11 @@
       false,
       true,
       true,
+      true,
+      true,
+      true,
       true
     ]
   },
-  "hash": "ebfb1e86cbae924a4c03063a007d96280b92fd992297eee65594736a68711cc3"
+  "hash": "7b5e04be505134b3f653e084331b15f542fce4514d2b736fec273f22b947c78c"
 }

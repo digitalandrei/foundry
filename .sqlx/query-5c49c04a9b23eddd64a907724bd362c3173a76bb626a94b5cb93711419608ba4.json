@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT INTO deployment_ports\n               (id, deployment_id, container_port, host_port, protocol, kind, hostname,\n                is_primary, health_path, max_body_size_bytes, proxy_timeout_seconds, created_at)\n               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 12
+    },
+    "nullable": []
+  },
+  "hash": "5c49c04a9b23eddd64a907724bd362c3173a76bb626a94b5cb93711419608ba4"
+}

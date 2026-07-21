@@ -5,9 +5,7 @@
 use foundry_shared::dto::{
     CreateDeploymentRequest, DeploymentPort, EnvSpec, PortSpec, MEM_LIMIT_MAX_MB, MEM_LIMIT_MIN_MB,
 };
-use foundry_shared::{
-    DeploymentId, DeploymentState, PortKind, ServerId, SlotState, TaskType, UserId,
-};
+use foundry_shared::{DeploymentId, DeploymentState, PortKind, ServerId, SlotState, UserId};
 use sqlx::{MySqlConnection, MySqlPool};
 use uuid::Uuid;
 
@@ -58,38 +56,15 @@ pub async fn create(
     let target = resolve_target(&mut tx, &req.target, replaces).await?;
     let server_id = target.server_id;
 
-    // Server-level prechecks (online, Docker up, app publishing for web).
-    let server = fetch_server_precheck(&mut tx, server_id).await?;
-    if server.status != "ONLINE" {
-        return Err(AppError::BadRequest("server is not online".into()));
-    }
-    // Docker must be running on the target server — a deploy is a
-    // `docker pull`/`create`/`start` the agent could only fail. Only
-    // blocks when the agent has explicitly reported the daemon down
-    // (NULL = no inventory yet → don't second-guess).
-    if server.docker_ok == Some(false) {
-        return Err(AppError::BadRequest(format!(
-            "Docker isn't running on {} — start the Docker daemon on the server, then redeploy.",
-            server.name,
-        )));
-    }
-    if req.volumes.iter().any(|volume| volume.purge_on_redeploy) {
-        super::volumes::require_purge_support(&mut tx, server_id).await?;
-    }
-    // HTTP/S deploys need app publishing on the target server. Fail fast
-    // with the agent-reported reason rather than dispatching a deploy
-    // that the agent can only fail on (operator request). Only blocks
-    // when the agent has explicitly reported not-ready.
     let wants_web = req
         .ports
         .iter()
         .any(|p| matches!(p.kind, PortKind::Http | PortKind::Https));
-    if wants_web && server.app_publishing_ready == Some(false) {
-        return Err(AppError::BadRequest(format!(
-            "HTTP/S publishing isn't ready on {}: {}. Fix it on the server, then redeploy.",
-            server.name,
-            nginx_status_hint(server.nginx_status.as_deref()),
-        )));
+    // Controller-side host evidence is stage one; the agent repeats live
+    // preflight immediately before touching Docker as stage two.
+    let server = require_server_ready(&mut tx, server_id, wants_web).await?;
+    if req.volumes.iter().any(|volume| volume.purge_on_redeploy) {
+        super::volumes::require_purge_support(&mut tx, server_id).await?;
     }
 
     // Name: sanitize or generate (primary member slot is the GPU hint).
@@ -120,9 +95,9 @@ pub async fn create(
     let id = DeploymentId::new();
     sqlx::query!(
         r#"INSERT INTO deployments
-           (id, gpu_slot_id, gpu_group_id, server_id, registry_tag_id, gitlab_instance_id, image_ref,
+           (id, gpu_slot_id, gpu_group_id, server_id, registry_tag_id, gitlab_instance_id, image_ref, image_digest,
             created_by, state, container_name, mem_limit_mb, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?)"#,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?)"#,
         id.0,
         target.primary_slot_id.0,
         target.group_id.map(|g| g.0),
@@ -130,6 +105,7 @@ pub async fn create(
         req.registry_tag_id.0,
         instance_id.0,
         image_ref,
+        image_ref.split('@').nth(1),
         created_by.0,
         container_name,
         mem_limit_mb,
@@ -155,8 +131,9 @@ pub async fn create(
     for p in &allocated {
         sqlx::query!(
             r#"INSERT INTO deployment_ports
-               (id, deployment_id, container_port, host_port, protocol, kind, hostname, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
+               (id, deployment_id, container_port, host_port, protocol, kind, hostname,
+                is_primary, health_path, max_body_size_bytes, proxy_timeout_seconds, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
             Uuid::now_v7(),
             id.0,
             p.container_port,
@@ -164,6 +141,10 @@ pub async fn create(
             p.protocol,
             p.kind.as_str(),
             p.hostname,
+            p.primary,
+            p.health_path,
+            p.max_body_size_bytes,
+            p.proxy_timeout_seconds,
             now,
         )
         .execute(&mut *tx)
@@ -265,31 +246,9 @@ pub async fn create(
             )
             .execute(&mut *tx)
             .await?;
-            let (task_type, to) = if old_state == DeploymentState::Running {
-                (TaskType::StopContainer, DeploymentState::Stopping)
-            } else {
-                (TaskType::RemoveContainer, DeploymentState::Removing)
-            };
-            lifecycle::transition_deployment(&mut tx, old_id, to, &Actor::user(created_by), None)
-                .await?;
-            if task_type == TaskType::StopContainer {
-                // Fan out over the outgoing deployment's member slots —
-                // the same physical slots the successor just claimed.
-                lifecycle::transition_member_slots(&mut tx, old_id, SlotState::Stopping).await?;
-            }
-            super::tasks::enqueue(
-                &mut tx,
-                server_id,
-                Some(old_id),
-                task_type,
-                &foundry_shared::dto::TaskPayload::Container(
-                    foundry_shared::dto::ContainerTarget {
-                        deployment_id: old_id,
-                        container_id: old.adopted_container_id.clone(),
-                    },
-                ),
-            )
-            .await?;
+            // The successor's immutable image and all host prerequisites are
+            // prepared while this predecessor remains untouched. The result
+            // handler quiesces the old container only after preparation.
         }
     }
     // PENDING row exists; record the validation step (slot+ports+image
@@ -309,6 +268,8 @@ pub async fn create(
     // enqueued above as part of the same transaction.
     if replaces.is_none() {
         super::tasks::enqueue_deploy(&mut tx, id).await?;
+    } else {
+        super::tasks::enqueue_prepare(&mut tx, id).await?;
     }
     let (action, subject_id, detail) = match replaces {
         Some(old_id) => (
@@ -347,6 +308,108 @@ pub async fn create(
     Ok(NewDeployment { id })
 }
 
+/// Stage-one deployment preflight from the latest host evidence. The agent
+/// repeats live checks at execution time so a stale snapshot can never be the
+/// sole authority.
+pub(super) async fn require_server_ready(
+    tx: &mut MySqlConnection,
+    server_id: ServerId,
+    wants_web: bool,
+) -> Result<super::deployment_targets::ServerPrecheck, AppError> {
+    let server = fetch_server_precheck(tx, server_id).await?;
+    if server.status != "ONLINE" {
+        return Err(AppError::BadRequest("server is not online".into()));
+    }
+    if !crate::agent_version::supports(
+        server.agent_version.as_deref(),
+        crate::agent_version::OPERATIONAL_MIN_AGENT_VERSION,
+    ) {
+        return Err(AppError::BadRequest(format!(
+            "{} reports foundry-agent {}; install 0.59.0 or newer with `sudo foundry-agent --setup-apps` before deploying",
+            server.name,
+            server.agent_version.as_deref().unwrap_or("unknown"),
+        )));
+    }
+    if server.setup_revision != Some(foundry_shared::dto::REQUIRED_SETUP_REVISION) {
+        return Err(AppError::BadRequest(format!(
+            "{} has host setup revision {} (required {}); run `sudo foundry-agent --setup-apps`, then refresh diagnostics",
+            server.name,
+            server
+                .setup_revision
+                .map_or_else(|| "missing".into(), |revision| revision.to_string()),
+            foundry_shared::dto::REQUIRED_SETUP_REVISION,
+        )));
+    }
+    let readiness = server.readiness.as_ref().ok_or_else(|| {
+        AppError::BadRequest(format!(
+            "{} has not reported live readiness yet; run diagnostics and try again",
+            server.name,
+        ))
+    })?;
+    let required_checks: &[&str] = if wants_web {
+        &[
+            "docker",
+            "storage_write",
+            "capabilities",
+            "nginx_config",
+            "tls_certificate",
+        ]
+    } else {
+        &["docker", "storage_write", "capabilities"]
+    };
+    if !readiness.checks_ready(required_checks) {
+        let detail = readiness
+            .checks
+            .iter()
+            .find(|check| {
+                required_checks.contains(&check.code.as_str())
+                    && !matches!(
+                        check.status,
+                        foundry_shared::dto::CheckStatus::Ready
+                            | foundry_shared::dto::CheckStatus::Warning
+                    )
+            })
+            .map(|check| format!("{}: {}", check.code, check.detail))
+            .unwrap_or_else(|| "host readiness is incomplete".into());
+        return Err(AppError::BadRequest(format!(
+            "{} is not deployment-ready: {detail}",
+            server.name,
+        )));
+    }
+    if server.docker_ok == Some(false) {
+        return Err(AppError::BadRequest(format!(
+            "Docker isn't running on {} — start the Docker daemon on the server, then redeploy.",
+            server.name,
+        )));
+    }
+    if wants_web && server.app_publishing_ready == Some(false) {
+        return Err(AppError::BadRequest(format!(
+            "HTTP/S publishing isn't ready on {}: {}. Fix it on the server, then redeploy.",
+            server.name,
+            nginx_status_hint(server.nginx_status.as_deref()),
+        )));
+    }
+    Ok(server)
+}
+
+pub async fn pin_image(
+    pool: &MySqlPool,
+    deployment_id: DeploymentId,
+    image_ref: &str,
+    digest: &str,
+) -> Result<(), AppError> {
+    sqlx::query!(
+        "UPDATE deployments SET image_ref = ?, image_digest = ?, updated_at = ? WHERE id = ?",
+        image_ref,
+        digest,
+        chrono::Utc::now().naive_utc(),
+        deployment_id.0,
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Docker names and the first app hostname both derive from the deployment
 /// name. Creation is already serialized by `allocate_ports`' server-row
 /// lock, so this active-name probe cannot race another deployment on the
@@ -364,8 +427,8 @@ async fn require_unique_active_name(
     let taken = sqlx::query_scalar!(
         r#"SELECT COUNT(*) FROM deployments
            WHERE server_id = ? AND container_name = ? AND id <> ?
-             AND (state IN ('PENDING','VALIDATING','PULLING_IMAGE','CREATING_CONTAINER',
-                            'STARTING','RUNNING','STOPPING','STOPPED','RESTARTING','REMOVING')
+             AND (state IN ('PENDING','VALIDATING','PREPARED','PULLING_IMAGE','CREATING_CONTAINER',
+                            'STARTING','WAITING_HEALTH','PUBLISHING','PUBLISH_FAILED','RUNNING','STOPPING','STOPPED','RESTARTING','REMOVING')
                   OR (state = 'FAILED' AND container_id IS NOT NULL))
            FOR UPDATE"#,
         server_id.0,
@@ -387,6 +450,7 @@ fn validate_ports(specs: &[PortSpec], apps_domain: Option<&str>) -> Result<(), A
         return Err(AppError::BadRequest("too many ports (max 32)".into()));
     }
     let mut seen = std::collections::HashSet::new();
+    let mut primary_apps = 0usize;
     for p in specs {
         if p.container_port == 0 {
             return Err(AppError::BadRequest("container port 0 is invalid".into()));
@@ -414,6 +478,41 @@ fn validate_ports(specs: &[PortSpec], apps_domain: Option<&str>) -> Result<(), A
         if matches!(p.kind, PortKind::Http | PortKind::Https) && apps_domain.is_none() {
             return Err(AppError::BadRequest(
                 "HTTP/HTTPS publishing is disabled: FOUNDRY_APPS_DOMAIN is not configured".into(),
+            ));
+        }
+        if p.primary {
+            if !matches!(p.kind, PortKind::Http | PortKind::Https) {
+                return Err(AppError::BadRequest(
+                    "only an HTTP/HTTPS port can be the primary application".into(),
+                ));
+            }
+            primary_apps += 1;
+        }
+        if primary_apps > 1 {
+            return Err(AppError::BadRequest(
+                "only one published application port can be primary".into(),
+            ));
+        }
+        if p.health_path
+            .as_deref()
+            .is_some_and(|path| !path.starts_with('/') || path.len() > 1024)
+        {
+            return Err(AppError::BadRequest(
+                "health_path must start with / and be at most 1024 characters".into(),
+            ));
+        }
+        if p.max_body_size_bytes
+            .is_some_and(|bytes| !(1024..=8 * 1024 * 1024 * 1024).contains(&bytes))
+        {
+            return Err(AppError::BadRequest(
+                "max_body_size_bytes must be between 1 KiB and 8 GiB".into(),
+            ));
+        }
+        if p.proxy_timeout_seconds
+            .is_some_and(|seconds| !(1..=86_400).contains(&seconds))
+        {
+            return Err(AppError::BadRequest(
+                "proxy_timeout_seconds must be between 1 and 86400".into(),
             ));
         }
     }
@@ -511,8 +610,8 @@ async fn allocate_ports(
         "SELECT dp.host_port FROM deployment_ports dp
          JOIN deployments d ON d.id = dp.deployment_id
          WHERE d.server_id = ?
-           AND (d.state IN ('PENDING','VALIDATING','PULLING_IMAGE','CREATING_CONTAINER',
-                            'STARTING','RUNNING','STOPPING','STOPPED','RESTARTING','REMOVING')
+           AND (d.state IN ('PENDING','VALIDATING','PREPARED','PULLING_IMAGE','CREATING_CONTAINER',
+                            'STARTING','WAITING_HEALTH','PUBLISHING','PUBLISH_FAILED','RUNNING','STOPPING','STOPPED','RESTARTING','REMOVING')
                 OR (d.state = 'FAILED' AND d.container_id IS NOT NULL))
          FOR UPDATE",
         server_id.0
@@ -553,6 +652,10 @@ async fn allocate_ports(
             protocol: spec.kind.protocol().to_string(),
             kind: spec.kind,
             hostname: None,
+            primary: spec.primary,
+            health_path: spec.health_path.clone(),
+            max_body_size_bytes: spec.max_body_size_bytes.unwrap_or(2 * 1024 * 1024 * 1024),
+            proxy_timeout_seconds: spec.proxy_timeout_seconds.unwrap_or(300),
         });
     }
     Ok(out)
@@ -619,8 +722,8 @@ async fn assign_hostnames(
                JOIN deployments d ON d.id = dp.deployment_id
                WHERE dp.hostname = ?
                  AND d.id <> ?
-                 AND (d.state IN ('PENDING','VALIDATING','PULLING_IMAGE','CREATING_CONTAINER',
-                                  'STARTING','RUNNING','STOPPING','STOPPED','RESTARTING','REMOVING')
+                 AND (d.state IN ('PENDING','VALIDATING','PREPARED','PULLING_IMAGE','CREATING_CONTAINER',
+                                  'STARTING','WAITING_HEALTH','PUBLISHING','PUBLISH_FAILED','RUNNING','STOPPING','STOPPED','RESTARTING','REMOVING')
                       OR (d.state = 'FAILED' AND d.container_id IS NOT NULL))
                FOR UPDATE"#,
             hostname,

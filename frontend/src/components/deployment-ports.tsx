@@ -13,7 +13,9 @@ export function DeploymentPrimaryUrl({
   ports: DeploymentPort[]
   className?: string
 }) {
-  const hostname = ports.find((port) => port.hostname)?.hostname
+  const hostname =
+    ports.find((port) => port.primary && port.hostname)?.hostname ??
+    ports.find((port) => port.hostname)?.hostname
   if (!hostname) return null
   const url = `https://${hostname}`
   return (

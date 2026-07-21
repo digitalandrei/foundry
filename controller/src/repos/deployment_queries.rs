@@ -17,6 +17,8 @@ pub struct DeploymentRow {
     pub gpu_group_id: Option<GpuGroupId>,
     pub instance_id: Option<foundry_shared::GitlabInstanceId>,
     pub project_id: Option<foundry_shared::GitlabProjectId>,
+    pub registry_tag_id: Option<foundry_shared::RegistryTagId>,
+    pub image_digest: Option<String>,
     pub created_by: UserId,
     pub adopted_container_id: Option<String>,
 }
@@ -27,6 +29,7 @@ pub async fn get(pool: &MySqlPool, id: DeploymentId) -> Result<DeploymentRow, Ap
                   gpu_slot_id AS "slot_id: Uuid",
                   gpu_group_id AS "gpu_group_id: Uuid",
                   gitlab_instance_id AS "instance_id: Uuid",
+                  registry_tag_id AS "registry_tag_id: Uuid", image_digest,
                   adopted_container_id,
                   d.created_by AS "created_by: Uuid",
                   r.gitlab_project_id AS "project_id: Uuid"
@@ -47,6 +50,8 @@ pub async fn get(pool: &MySqlPool, id: DeploymentId) -> Result<DeploymentRow, Ap
         gpu_group_id: r.gpu_group_id.map(Into::into),
         instance_id: r.instance_id.map(Into::into),
         project_id: r.project_id.map(Into::into),
+        registry_tag_id: r.registry_tag_id.map(Into::into),
+        image_digest: r.image_digest,
         created_by: r.created_by.into(),
         adopted_container_id: r.adopted_container_id,
     })
@@ -83,8 +88,8 @@ async fn summaries(
     filter_id: Option<DeploymentId>,
 ) -> Result<Vec<DeploymentSummary>, AppError> {
     let rows = sqlx::query!(
-        r#"SELECT d.id AS "id: Uuid", d.container_name, d.image_ref, d.state,
-                  d.error_message, d.container_id,
+        r#"SELECT d.id AS "id: Uuid", d.container_name, d.image_ref, d.image_digest, d.state,
+                  d.error_message, d.health_status, d.health_detail, d.container_id,
                   (d.adopted_container_id IS NOT NULL) AS "adopted: bool",
                   d.created_at, d.started_at,
                   d.server_id AS "server_id: Uuid", s.name AS server_name,
@@ -112,7 +117,8 @@ async fn summaries(
     let mut slots_by_deployment = std::collections::HashMap::new();
     if !ids.is_empty() {
         let mut ports = QueryBuilder::<MySql>::new(
-            "SELECT deployment_id, container_port, host_port, protocol, kind, hostname \
+            "SELECT deployment_id, container_port, host_port, protocol, kind, hostname, \
+                    is_primary, health_path, max_body_size_bytes, proxy_timeout_seconds \
              FROM deployment_ports WHERE deployment_id IN (",
         );
         {
@@ -134,6 +140,14 @@ async fn summaries(
                     protocol: p.try_get("protocol").map_err(AppError::internal)?,
                     kind: kind.parse().map_err(AppError::internal)?,
                     hostname: p.try_get("hostname").map_err(AppError::internal)?,
+                    primary: p.try_get("is_primary").map_err(AppError::internal)?,
+                    health_path: p.try_get("health_path").map_err(AppError::internal)?,
+                    max_body_size_bytes: p
+                        .try_get("max_body_size_bytes")
+                        .map_err(AppError::internal)?,
+                    proxy_timeout_seconds: p
+                        .try_get("proxy_timeout_seconds")
+                        .map_err(AppError::internal)?,
                 });
         }
 
@@ -165,10 +179,13 @@ async fn summaries(
             id,
             name: r.container_name.unwrap_or_default(),
             image_ref: r.image_ref,
+            image_digest: r.image_digest,
             state: r.state.parse().map_err(AppError::internal)?,
             status_detail: None,
             container_id: r.container_id,
             error_message: r.error_message,
+            health_status: r.health_status,
+            health_detail: r.health_detail,
             server_id: r.server_id.into(),
             server_name: r.server_name,
             slot_id: r.slot_id.into(),

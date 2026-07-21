@@ -118,11 +118,17 @@ pub async fn run_loop(
             envelope = poll_next(client, config, &next_url) => {
                 let Some(envelope) = envelope else { continue };
                 let task_id = envelope.id;
+                let task_type = envelope.task_type;
                 tracing::info!(task = %task_id, task_type = %envelope.task_type, "executing task");
                 let report = execute(&engine, client, config, envelope).await;
                 tracing::info!(task = %task_id, success = report.success,
                     error = report.error.as_deref().unwrap_or(""), "task finished");
                 report_result(client, config, &result_url, &report).await;
+                if task_type == TaskType::UpgradeAgent && report.success {
+                    if let Err(error) = tokio::fs::write(crate::register::UPGRADE_REQUEST, b"upgrade\n").await {
+                        tracing::error!(%error, "could not trigger agent upgrade");
+                    }
+                }
             }
         }
     }
@@ -196,37 +202,119 @@ async fn execute(
     envelope: TaskEnvelope,
 ) -> TaskResultReport {
     let task_id = envelope.id;
-    let outcome = match (envelope.task_type, envelope.payload) {
-        (TaskType::DeployContainer, TaskPayload::Deploy(p)) => {
-            let mut progress = ProgressReporter::new(client, config, task_id);
-            deploy(engine, *p, &mut progress).await
-        }
-        (TaskType::StopContainer, TaskPayload::Container(t)) => stop(engine, t).await.map(|_| None),
-        (TaskType::RestartContainer, TaskPayload::Container(t)) => {
-            restart(engine, t).await.map(|_| None)
-        }
-        (TaskType::RemoveContainer, TaskPayload::Container(t)) => {
-            remove(engine, t).await.map(|_| None)
-        }
-        (TaskType::RemoveVolume, TaskPayload::Volume(v)) => remove_volume(v).await.map(|_| None),
-        (TaskType::PurgeVolumes, TaskPayload::VolumeBatch(v)) => {
-            purge_volumes(v).await.map(|_| None)
-        }
-        (tt, _) => Err(format!("unsupported task/payload combination: {tt}")),
-    };
+    let outcome: Result<ExecutionSuccess, ExecutionFailure> =
+        match (envelope.task_type, envelope.payload) {
+            (TaskType::DeployContainer, TaskPayload::Deploy(p)) => {
+                let mut progress = ProgressReporter::new(client, config, task_id);
+                deploy(engine, *p, &mut progress).await
+            }
+            (TaskType::PrepareDeploy, TaskPayload::Deploy(p)) => {
+                let mut progress = ProgressReporter::new(client, config, task_id);
+                prepare_deploy(engine, *p, &mut progress).await
+            }
+            (TaskType::QuiesceContainer, TaskPayload::Replacement(t)) => {
+                simple(quiesce(engine, t).await)
+            }
+            (TaskType::RollbackContainer, TaskPayload::Replacement(t)) => {
+                simple(rollback(engine, t).await)
+            }
+            (TaskType::PublishVhost, TaskPayload::Publish(p)) => publish(engine, p).await,
+            (TaskType::StopContainer, TaskPayload::Container(t)) => simple(stop(engine, t).await),
+            (TaskType::RestartContainer, TaskPayload::Container(t)) => {
+                simple(restart(engine, t).await)
+            }
+            (TaskType::RemoveContainer, TaskPayload::Container(t)) => {
+                simple(remove(engine, t).await)
+            }
+            (TaskType::RemoveVolume, TaskPayload::Volume(v)) => simple(remove_volume(v).await),
+            (TaskType::PurgeVolumes, TaskPayload::VolumeBatch(v)) => simple(purge_volumes(v).await),
+            (TaskType::UpgradeAgent, TaskPayload::None) => Ok(empty_success()),
+            (TaskType::RefreshInventory, TaskPayload::None) => {
+                let docker_ok = engine.list().await.is_ok();
+                Ok(ExecutionSuccess {
+                    container_id: None,
+                    health_status: None,
+                    health_detail: None,
+                    readiness: Some(
+                        crate::host::readiness(config.server_name.as_deref(), docker_ok).await,
+                    ),
+                    storage: crate::host::storage_usage().await,
+                })
+            }
+            (tt, _) => Err(ExecutionFailure::new(
+                "TASK",
+                format!("unsupported task/payload combination: {tt}"),
+            )),
+        };
     match outcome {
-        Ok(container_id) => TaskResultReport {
+        Ok(success) => TaskResultReport {
             task_id,
             success: true,
-            container_id,
+            container_id: success.container_id,
             error: None,
+            failure_stage: None,
+            health_status: success.health_status,
+            health_detail: success.health_detail,
+            readiness: success.readiness,
+            storage: success.storage,
         },
-        Err(error) => TaskResultReport {
+        Err(failure) => TaskResultReport {
             task_id,
             success: false,
-            container_id: None,
-            error: Some(error.chars().take(1000).collect()),
+            container_id: failure.container_id,
+            error: Some(failure.message.chars().take(1000).collect()),
+            failure_stage: Some(failure.stage),
+            health_status: failure.health_status,
+            health_detail: failure.health_detail,
+            readiness: None,
+            storage: None,
         },
+    }
+}
+
+#[derive(Debug)]
+struct ExecutionSuccess {
+    container_id: Option<String>,
+    health_status: Option<String>,
+    health_detail: Option<String>,
+    readiness: Option<foundry_shared::dto::HostReadiness>,
+    storage: Option<foundry_shared::dto::StorageUsage>,
+}
+
+#[derive(Debug)]
+struct ExecutionFailure {
+    stage: String,
+    message: String,
+    container_id: Option<String>,
+    health_status: Option<String>,
+    health_detail: Option<String>,
+}
+
+impl ExecutionFailure {
+    fn new(stage: &str, message: impl Into<String>) -> Self {
+        Self {
+            stage: stage.into(),
+            message: message.into(),
+            container_id: None,
+            health_status: None,
+            health_detail: None,
+        }
+    }
+}
+
+fn simple(result: Result<(), String>) -> Result<ExecutionSuccess, ExecutionFailure> {
+    result
+        .map(|_| empty_success())
+        .map_err(|error| ExecutionFailure::new("TASK", error))
+}
+
+fn empty_success() -> ExecutionSuccess {
+    ExecutionSuccess {
+        container_id: None,
+        health_status: None,
+        health_detail: None,
+        readiness: None,
+        storage: None,
     }
 }
 
@@ -350,43 +438,58 @@ async fn deploy(
     engine: &dyn DockerEngine,
     p: DeployPayload,
     progress: &mut ProgressReporter<'_>,
-) -> Result<Option<String>, String> {
+) -> Result<ExecutionSuccess, ExecutionFailure> {
     let deployment_id = p.deployment_id.to_string();
 
     // Idempotency: a previous attempt may have gotten partway.
-    if let Some((existing, state)) = find_managed(engine, &deployment_id).await? {
+    if let Some((existing, state)) = find_managed(engine, &deployment_id)
+        .await
+        .map_err(|error| ExecutionFailure::new("PREFLIGHT", error))?
+    {
         if state == "running" {
             // Re-delivery after a crash: make sure the vhosts exist too
             // (no-op reload when the conf is already in place).
-            crate::vhost::apply(&deployment_id, &crate::vhost::web_ports(&p.ports)).await?;
-            return Ok(Some(existing));
+            crate::vhost::apply(&deployment_id, &crate::vhost::web_ports(&p.ports))
+                .await
+                .map_err(|error| ExecutionFailure::new("PUBLISH", error))?;
+            return Ok(ExecutionSuccess {
+                container_id: Some(existing),
+                health_status: Some("RUNNING".into()),
+                health_detail: None,
+                readiness: None,
+                storage: None,
+            });
         }
         let _ = engine.remove(&existing).await;
     }
 
+    preflight(engine, &p).await?;
+
     // Persistent volume directories (hard-scoped). create_dir_all builds
-    // the full per-user/per-volume path; the only realistic failure is
+    // the full opaque per-volume path; the only realistic failure is
     // the systemd sandbox (the volume root must exist, be owned by the
     // service user, and sit in the unit's ReadWritePaths) — point there.
     for v in &p.volumes {
         if !v.host_path.starts_with(VOLUME_ROOT) || v.host_path.contains("..") {
-            return Err(format!(
-                "refusing mount outside {VOLUME_ROOT}: {}",
-                v.host_path
+            return Err(ExecutionFailure::new(
+                "PREFLIGHT",
+                format!("refusing mount outside {VOLUME_ROOT}: {}", v.host_path),
             ));
         }
         tokio::fs::create_dir_all(&v.host_path).await.map_err(|e| {
-            if e.kind() == std::io::ErrorKind::ReadOnlyFilesystem
-                || e.kind() == std::io::ErrorKind::PermissionDenied
-            {
-                format!(
+            ExecutionFailure::new("PREFLIGHT", {
+                if e.kind() == std::io::ErrorKind::ReadOnlyFilesystem
+                    || e.kind() == std::io::ErrorKind::PermissionDenied
+                {
+                    format!(
                     "creating {} failed: {e} — the volume root {VOLUME_ROOT} is not writable by \
                      the agent; run `sudo foundry-agent --setup-apps` on this server",
                     v.host_path
                 )
-            } else {
-                format!("creating {} failed: {e}", v.host_path)
-            }
+                } else {
+                    format!("creating {} failed: {e}", v.host_path)
+                }
+            })
         })?;
     }
 
@@ -407,21 +510,26 @@ async fn deploy(
     engine
         .pull(&p.image_ref, creds, progress)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| ExecutionFailure::new("PULL", e.to_string()))?;
 
     progress
         .stage(DeploymentState::CreatingContainer, "creating container")
         .await;
     let spec = container_spec(&p);
-    let id = engine.create(&spec).await.map_err(|e| match e {
-        crate::docker::DockerError::Conflict => format!(
+    let id = engine.create(&spec).await.map_err(|e| {
+        ExecutionFailure::new(
+            "CREATE",
+            match e {
+                crate::docker::DockerError::Conflict => format!(
             "container name {:?} is already used by a container not managed by Foundry — pick \
              another name or remove that container on the host",
             p.container_name
         ),
-        // `e`'s Display already carries the "container create failed: …"
-        // context from the adapter — don't prefix it a second time.
-        other => other.to_string(),
+                // `e`'s Display already carries the "container create failed: …"
+                // context from the adapter — don't prefix it a second time.
+                other => other.to_string(),
+            },
+        )
     })?;
 
     progress
@@ -432,24 +540,190 @@ async fn deploy(
         // name and clutter the host; the deploy is failing anyway, so
         // remove it — a failed deploy leaves nothing behind.
         let _ = engine.remove(&id).await;
-        return Err(format!("container start failed: {e}"));
+        return Err(ExecutionFailure::new(
+            "START",
+            format!("container start failed: {e}"),
+        ));
     }
 
-    // HTTP/S app publishing: the URL is part of the deployment contract
-    // — a container nobody can reach is a failed deploy, so tear it
-    // down rather than leave an orphan holding the slot and its ports.
+    progress
+        .stage(
+            DeploymentState::WaitingHealth,
+            "waiting for container health",
+        )
+        .await;
+    let (health_status, health_detail) =
+        wait_for_health(engine, &id).await.map_err(|mut failure| {
+            failure.container_id = Some(id.clone());
+            failure
+        })?;
+
+    // HTTP/S app publishing: the URL is part of the deployment contract.
+    // If publishing fails, retain the healthy container and report a
+    // recoverable PUBLISH failure so the operator can retry just the vhost.
     let web = crate::vhost::web_ports(&p.ports);
     if !web.is_empty() {
         progress
-            .stage(DeploymentState::Starting, "publishing vhost (nginx)")
+            .stage(DeploymentState::Publishing, "publishing vhost (nginx)")
             .await;
         if let Err(err) = crate::vhost::apply(&deployment_id, &web).await {
-            let _ = engine.remove(&id).await;
-            return Err(format!("vhost publish failed: {err}"));
+            return Err(ExecutionFailure {
+                stage: "PUBLISH".into(),
+                message: format!("vhost publish failed: {err}"),
+                container_id: Some(id),
+                health_status: Some(health_status),
+                health_detail,
+            });
         }
     }
 
-    Ok(Some(id))
+    Ok(ExecutionSuccess {
+        container_id: Some(id),
+        health_status: Some(health_status),
+        health_detail,
+        readiness: None,
+        storage: None,
+    })
+}
+
+async fn prepare_deploy(
+    engine: &dyn DockerEngine,
+    p: DeployPayload,
+    progress: &mut ProgressReporter<'_>,
+) -> Result<ExecutionSuccess, ExecutionFailure> {
+    preflight(engine, &p).await?;
+    let creds = p.registry_auth.as_ref().map(|auth| match auth {
+        RegistryAuth::RegistryToken { token } => RegistryCreds::Token(token.clone()),
+        RegistryAuth::UserPassword { username, password } => RegistryCreds::UserPassword {
+            username: username.clone(),
+            password: password.clone(),
+        },
+    });
+    progress
+        .stage(DeploymentState::PullingImage, "preparing replacement image")
+        .await;
+    engine
+        .pull(&p.image_ref, creds, progress)
+        .await
+        .map_err(|error| ExecutionFailure::new("PULL", error.to_string()))?;
+    Ok(empty_success())
+}
+
+async fn preflight(engine: &dyn DockerEngine, p: &DeployPayload) -> Result<(), ExecutionFailure> {
+    if !p.image_ref.contains("@sha256:") {
+        return Err(ExecutionFailure::new(
+            "PREFLIGHT",
+            "deployment image is not pinned by digest",
+        ));
+    }
+    engine
+        .list()
+        .await
+        .map_err(|error| ExecutionFailure::new("PREFLIGHT", error.to_string()))?;
+    let web = crate::vhost::web_ports(&p.ports);
+    crate::vhost::preflight(&p.deployment_id.to_string(), &web)
+        .await
+        .map_err(|error| ExecutionFailure::new("PREFLIGHT", error))?;
+
+    for port in &p.ports {
+        let available = if port.protocol == "udp" {
+            std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, port.host_port)).is_ok()
+        } else {
+            std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port.host_port)).is_ok()
+        };
+        if !available {
+            return Err(ExecutionFailure::new(
+                "PREFLIGHT",
+                format!("host port {} is already bound", port.host_port),
+            ));
+        }
+    }
+    if let (Some(size), Some((_, available_bytes))) =
+        (p.image_size_bytes, crate::host::storage_capacity().await)
+    {
+        // Pull/unpack can temporarily need substantially more than compressed
+        // layer size; reserve 2x plus 2 GiB working room.
+        let required = size
+            .saturating_mul(2)
+            .saturating_add(2 * 1024 * 1024 * 1024);
+        if available_bytes < required {
+            return Err(ExecutionFailure::new(
+                "PREFLIGHT",
+                format!("insufficient disk space: {available_bytes} bytes available, approximately {required} required"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+async fn wait_for_health(
+    engine: &dyn DockerEngine,
+    id: &str,
+) -> Result<(String, Option<String>), ExecutionFailure> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
+    loop {
+        let health = engine
+            .health(id)
+            .await
+            .map_err(|error| ExecutionFailure::new("HEALTH", error.to_string()))?;
+        match health.status.as_str() {
+            "none" => return Ok(("RUNNING".into(), health.detail)),
+            "healthy" => return Ok(("HEALTHY".into(), health.detail)),
+            "unhealthy" => {
+                let _ = engine.remove(id).await;
+                return Err(ExecutionFailure {
+                    stage: "HEALTH".into(),
+                    message: "container reported unhealthy".into(),
+                    container_id: None,
+                    health_status: Some("UNHEALTHY".into()),
+                    health_detail: health.detail,
+                });
+            }
+            _ if tokio::time::Instant::now() >= deadline => {
+                let _ = engine.remove(id).await;
+                return Err(ExecutionFailure {
+                    stage: "HEALTH".into(),
+                    message: "container health check timed out after 180 seconds".into(),
+                    container_id: None,
+                    health_status: Some("TIMEOUT".into()),
+                    health_detail: health.detail,
+                });
+            }
+            _ => tokio::time::sleep(Duration::from_secs(2)).await,
+        }
+    }
+}
+
+async fn publish(
+    engine: &dyn DockerEngine,
+    p: foundry_shared::dto::PublishPayload,
+) -> Result<ExecutionSuccess, ExecutionFailure> {
+    let deployment_id = p.deployment_id.to_string();
+    let Some((id, state)) = find_managed(engine, &deployment_id)
+        .await
+        .map_err(|error| ExecutionFailure::new("PUBLISH", error))?
+    else {
+        return Err(ExecutionFailure::new(
+            "PUBLISH",
+            "managed container is missing",
+        ));
+    };
+    if state != "running" {
+        return Err(ExecutionFailure::new(
+            "PUBLISH",
+            format!("container is {state}, not running"),
+        ));
+    }
+    crate::vhost::apply(&deployment_id, &crate::vhost::web_ports(&p.ports))
+        .await
+        .map_err(|error| ExecutionFailure::new("PUBLISH", error))?;
+    Ok(ExecutionSuccess {
+        container_id: Some(id),
+        health_status: Some("HEALTHY".into()),
+        health_detail: None,
+        readiness: None,
+        storage: None,
+    })
 }
 
 /// The image a container was created from — captured before the container
@@ -469,6 +743,9 @@ async fn reclaim_image(engine: &dyn DockerEngine, image: &str) {
 }
 
 async fn stop(engine: &dyn DockerEngine, t: ContainerTarget) -> Result<(), String> {
+    // Withdraw the public route even when Docker already lost the container;
+    // stop is the authoritative cleanup point for normal lifecycle actions.
+    crate::vhost::remove(&t.deployment_id.to_string()).await?;
     let Some((id, state)) = resolve_target(engine, &t).await? else {
         return Ok(()); // already gone — idempotent success
     };
@@ -486,6 +763,46 @@ async fn stop(engine: &dyn DockerEngine, t: ContainerTarget) -> Result<(), Strin
     if let Some(image) = image {
         reclaim_image(engine, &image).await;
     }
+    Ok(())
+}
+
+/// Replacement-only stop: retain the exact container and image until the
+/// successor is healthy and published, making rollback a cheap `start`.
+async fn quiesce(
+    engine: &dyn DockerEngine,
+    t: foundry_shared::dto::ReplacementTarget,
+) -> Result<(), String> {
+    let Some((id, state)) = resolve_target(engine, &t.container).await? else {
+        return Err("replacement predecessor is missing".into());
+    };
+    if state == "running" {
+        engine
+            .stop(&id, 30)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    if let Err(error) = crate::vhost::remove(&t.container.deployment_id.to_string()).await {
+        let _ = engine.start(&id).await;
+        return Err(format!("could not withdraw predecessor vhost: {error}"));
+    }
+    Ok(())
+}
+
+async fn rollback(
+    engine: &dyn DockerEngine,
+    t: foundry_shared::dto::ReplacementTarget,
+) -> Result<(), String> {
+    let Some((id, state)) = resolve_target(engine, &t.container).await? else {
+        return Err("rollback container is missing".into());
+    };
+    if state != "running" {
+        engine.start(&id).await.map_err(|error| error.to_string())?;
+    }
+    crate::vhost::apply(
+        &t.container.deployment_id.to_string(),
+        &crate::vhost::web_ports(&t.ports),
+    )
+    .await?;
     Ok(())
 }
 
@@ -562,7 +879,7 @@ mod tests {
     fn payload() -> DeployPayload {
         DeployPayload {
             deployment_id: foundry_shared::DeploymentId::new(),
-            image_ref: "registry.example/app:1".into(),
+            image_ref: "registry.example/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
             container_name: "app-1".into(),
             gpu_device_uuid: "GPU-aaaa".into(),
             gpu_device_uuids: vec![],
@@ -574,15 +891,20 @@ mod tests {
             // shells out to nginx during the test.
             ports: vec![PortBinding {
                 container_port: 8000,
-                host_port: 18000,
+                host_port: 0,
                 protocol: "tcp".into(),
                 kind: foundry_shared::PortKind::default(),
                 hostname: None,
+                primary: false,
+                health_path: None,
+                max_body_size_bytes: 2 * 1024 * 1024 * 1024,
+                proxy_timeout_seconds: 300,
             }],
             env: vec![("KEY".into(), "VAL".into())],
             volumes: vec![],
             registry_auth: None,
             mem_limit_mb: Some(1024),
+            image_size_bytes: None,
         }
     }
 
@@ -624,6 +946,7 @@ mod tests {
         let id = deploy(&engine, payload(), &mut progress)
             .await
             .expect("deploy ok")
+            .container_id
             .expect("returns container id");
 
         // Exactly one container created, carrying the managed label.
@@ -665,7 +988,7 @@ mod tests {
         let err = deploy(&engine, payload(), &mut progress)
             .await
             .expect_err("pull should fail");
-        assert!(err.contains("image pull failed"), "got: {err}");
+        assert!(err.message.contains("image pull failed"), "got: {err:?}");
         // Nothing was created when the pull failed.
         assert!(engine.created.lock().unwrap().is_empty());
     }
@@ -681,9 +1004,56 @@ mod tests {
             .await
             .expect_err("create should conflict");
         assert!(
-            err.contains("already used by a container not managed by Foundry"),
-            "got: {err}"
+            err.message
+                .contains("already used by a container not managed by Foundry"),
+            "got: {err:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn preflight_rejects_mutable_image_reference() {
+        let engine = FakeEngine::new();
+        let mut p = payload();
+        p.image_ref = "registry.example/app:latest".into();
+        let error = preflight(&engine, &p)
+            .await
+            .expect_err("tag-only reference must fail");
+        assert_eq!(error.stage, "PREFLIGHT");
+        assert!(error.message.contains("not pinned by digest"));
+    }
+
+    #[tokio::test]
+    async fn prepare_pulls_without_creating_a_container() {
+        let engine = FakeEngine::new();
+        let client = reqwest::Client::new();
+        let config = cfg();
+        let mut progress = ProgressReporter::new(&client, &config, TaskId::new());
+
+        prepare_deploy(&engine, payload(), &mut progress)
+            .await
+            .expect("prepare ok");
+        assert!(engine.created.lock().unwrap().is_empty());
+        assert!(engine.ids().is_empty());
+    }
+
+    #[tokio::test]
+    async fn replacement_quiesce_retains_and_rollback_restarts_container() {
+        let dep = foundry_shared::DeploymentId::new();
+        let engine = FakeEngine::new().with_managed("old", "running", &dep.to_string());
+        let target = foundry_shared::dto::ReplacementTarget {
+            container: ContainerTarget {
+                deployment_id: dep,
+                container_id: None,
+            },
+            ports: vec![],
+        };
+
+        quiesce(&engine, target.clone()).await.expect("quiesce ok");
+        assert!(engine.ids().contains(&"old".to_string()));
+        assert_eq!(engine.list().await.unwrap()[0].state, "exited");
+
+        rollback(&engine, target).await.expect("rollback ok");
+        assert_eq!(engine.list().await.unwrap()[0].state, "running");
     }
 
     #[tokio::test]

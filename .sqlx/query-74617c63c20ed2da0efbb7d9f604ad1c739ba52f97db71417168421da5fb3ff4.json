@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT d.id AS \"id: Uuid\", d.container_name, d.image_ref, d.state,\n                  d.error_message, d.container_id,\n                  (d.adopted_container_id IS NOT NULL) AS \"adopted: bool\",\n                  d.created_at, d.started_at,\n                  d.server_id AS \"server_id: Uuid\", s.name AS server_name,\n                  d.gpu_slot_id AS \"slot_id: Uuid\", gs.name AS slot_name,\n                  d.gpu_group_id AS \"gpu_group_id: Uuid\", gg.name AS \"group_name?\",\n                  g.display_index AS gpu_index, g.model AS gpu_model,\n                  u.display_name AS created_by_name\n           FROM deployments d\n           JOIN servers s ON s.id = d.server_id\n           JOIN gpu_slots gs ON gs.id = d.gpu_slot_id\n           JOIN gpus g ON g.id = gs.gpu_id\n           JOIN users u ON u.id = d.created_by\n           LEFT JOIN gpu_groups gg ON gg.id = d.gpu_group_id\n           WHERE (? IS NULL AND d.state <> 'REMOVED') OR d.id = ?\n           ORDER BY d.created_at DESC\n           LIMIT 200",
+  "query": "SELECT d.id AS \"id: Uuid\", d.container_name, d.image_ref, d.image_digest, d.state,\n                  d.error_message, d.health_status, d.health_detail, d.container_id,\n                  (d.adopted_container_id IS NOT NULL) AS \"adopted: bool\",\n                  d.created_at, d.started_at,\n                  d.server_id AS \"server_id: Uuid\", s.name AS server_name,\n                  d.gpu_slot_id AS \"slot_id: Uuid\", gs.name AS slot_name,\n                  d.gpu_group_id AS \"gpu_group_id: Uuid\", gg.name AS \"group_name?\",\n                  g.display_index AS gpu_index, g.model AS gpu_model,\n                  u.display_name AS created_by_name\n           FROM deployments d\n           JOIN servers s ON s.id = d.server_id\n           JOIN gpu_slots gs ON gs.id = d.gpu_slot_id\n           JOIN gpus g ON g.id = gs.gpu_id\n           JOIN users u ON u.id = d.created_by\n           LEFT JOIN gpu_groups gg ON gg.id = d.gpu_group_id\n           WHERE (? IS NULL AND d.state <> 'REMOVED') OR d.id = ?\n           ORDER BY d.created_at DESC\n           LIMIT 200",
   "describe": {
     "columns": [
       {
@@ -32,6 +32,15 @@
       },
       {
         "ordinal": 3,
+        "name": "image_digest",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 320
+        }
+      },
+      {
+        "ordinal": 4,
         "name": "state",
         "type_info": {
           "type": "VarString",
@@ -40,7 +49,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "error_message",
         "type_info": {
           "type": "Blob",
@@ -49,7 +58,25 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
+        "name": "health_status",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 128
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "health_detail",
+        "type_info": {
+          "type": "Blob",
+          "flags": "BLOB",
+          "max_size": 262140
+        }
+      },
+      {
+        "ordinal": 8,
         "name": "container_id",
         "type_info": {
           "type": "VarString",
@@ -58,7 +85,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 9,
         "name": "adopted: bool",
         "type_info": {
           "type": "Long",
@@ -67,7 +94,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 10,
         "name": "created_at",
         "type_info": {
           "type": "Datetime",
@@ -76,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 11,
         "name": "started_at",
         "type_info": {
           "type": "Datetime",
@@ -85,7 +112,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 12,
         "name": "server_id: Uuid",
         "type_info": {
           "type": "String",
@@ -94,7 +121,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 13,
         "name": "server_name",
         "type_info": {
           "type": "VarString",
@@ -103,7 +130,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 14,
         "name": "slot_id: Uuid",
         "type_info": {
           "type": "String",
@@ -112,7 +139,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 15,
         "name": "slot_name",
         "type_info": {
           "type": "VarString",
@@ -121,7 +148,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 16,
         "name": "gpu_group_id: Uuid",
         "type_info": {
           "type": "String",
@@ -130,7 +157,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 17,
         "name": "group_name?",
         "type_info": {
           "type": "VarString",
@@ -139,7 +166,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 18,
         "name": "gpu_index",
         "type_info": {
           "type": "Long",
@@ -148,7 +175,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 19,
         "name": "gpu_model",
         "type_info": {
           "type": "VarString",
@@ -157,7 +184,7 @@
         }
       },
       {
-        "ordinal": 17,
+        "ordinal": 20,
         "name": "created_by_name",
         "type_info": {
           "type": "VarString",
@@ -173,7 +200,10 @@
       false,
       true,
       false,
+      true,
       false,
+      true,
+      true,
       true,
       true,
       false,
@@ -190,5 +220,5 @@
       false
     ]
   },
-  "hash": "e4a8a519b98fc1b4e978e3f53a0d31b289ebe37590947cc7fb37670d776c38a1"
+  "hash": "74617c63c20ed2da0efbb7d9f604ad1c739ba52f97db71417168421da5fb3ff4"
 }

@@ -181,8 +181,13 @@ full table — each **row clicks through to the deployment page**
 same. Rows carry the lifecycle actions. Destructive ones (Stop, Delete) open a
 **confirmation modal** with a red **CONFIRM** button (`confirm-dialog.tsx`
 / `useConfirm` — never the native `window.confirm`); in-flight deploys
-show live progress; FAILED rows show their error. The dashboard's **System Status** card keeps the
-running/online counts.
+show live progress; FAILED rows show their error. `PUBLISH_FAILED` is a
+distinct recoverable state with **Retry publishing**, Stop and Delete; its
+healthy container and shell remain available. Deployment detail shows the
+immutable digest, Docker health and an **Application traffic** card (24h
+request/error/bytes/latency/status metrics plus recent request rows). The
+primary image-declared app URL is preferred in compact slot surfaces. The
+dashboard's **System Status** card keeps the running/online counts.
 
 ## Slot State Colors
 
@@ -230,7 +235,9 @@ mockup — final token mapping fixed when the palette lands in Phase 8).
   controls. Opening it inspects the image:
   EXPOSE ports and persistent mounts declared by Docker `VOLUME` or the
   Foundry volume-default label are prefilled once, remain editable, and do
-  not overwrite input the operator has already changed.
+  not overwrite input the operator has already changed. The optional Foundry
+  apps label also supplies primary web port, health path, request ceiling and
+  proxy timeout; the UI keeps one deterministic primary URL.
 - **Storage** (live since 0.54.0; files 0.56.0): select a GitLab project and
   local server, then use a responsive dual-pane, MC-inspired browser over
   every accessible PROJECT or own PRIVATE volume. Each pane selects a root
@@ -241,7 +248,10 @@ mockup — final token mapping fixed when the palette lands in Phase 8).
   between panes copies server-side. Below it, the policy table still exposes
   visibility, placement, creator and active attachments. Creator/admin
   **Clean** irreversibly wipes contents but retains identity; **Delete** wipes
-  both. Mounted volumes disable those whole-volume actions.
+  both. Mounted volumes disable those whole-volume actions. Used/quota bytes
+  and over/near-quota warnings come from agent measurement. Creator/admin can
+  set/remove an advisory quota. Desktop upload resumes after reconnect by
+  reselecting the same local file (stable upload identity + server offset).
 - **Servers** (live since 0.2.0): table with status dot (same color
   tokens), hostname/OS/agent version/last heartbeat; admin "Add
   server" dialog → names the server, shows the one-time registration
@@ -255,6 +265,11 @@ mockup — final token mapping fixed when the palette lands in Phase 8).
   table with per-container **Load** (cores used / cores) + memory
   (used/max) and **port mappings** (`host→container/proto`). Series:
   30s samples, 24h retention.
+  A **Host readiness** card lists live Docker, storage-write, capability,
+  nginx-config, wildcard-certificate and setup-revision checks with exact
+  details, plus persistent filesystem used/free capacity. Admin actions run
+  diagnostics or trigger **Upgrade & repair**; upgrade is disabled with a
+  one-time bootstrap hint for agents older than 0.59.0.
   **Graph scale rule (operator, 0.6.0):** percentage graphs are always
   pinned 0–100; capacity-bound graphs (memory, disk, GPU memory) are
   pinned 0–capacity; only truly unbounded series (network rates,

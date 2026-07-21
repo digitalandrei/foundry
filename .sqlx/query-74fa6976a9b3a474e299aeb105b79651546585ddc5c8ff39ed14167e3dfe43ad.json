@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE server_volumes SET used_bytes = ?, usage_measured_at = ?, updated_at = ?\n                 WHERE id = ? AND server_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "74fa6976a9b3a474e299aeb105b79651546585ddc5c8ff39ed14167e3dfe43ad"
+}

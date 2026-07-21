@@ -58,6 +58,14 @@ pub fn router(state: AppState) -> Router {
             get(servers::detail).delete(servers::delete),
         )
         .route("/api/servers/{server_id}/metrics", get(servers::metrics))
+        .route(
+            "/api/servers/{server_id}/diagnostics",
+            post(servers::diagnostics),
+        )
+        .route(
+            "/api/servers/{server_id}/upgrade-agent",
+            post(servers::upgrade_agent),
+        )
         // GPU groups + slot use-mode (admin-only; docs/API.md § GPU groups)
         .route(
             "/api/servers/{server_id}/gpu-groups",
@@ -74,7 +82,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/servers/{server_id}/volumes", get(volumes::list))
         .route(
             "/api/volumes/{volume_id}",
-            axum::routing::delete(volumes::delete),
+            axum::routing::delete(volumes::delete).patch(volumes::set_quota),
         )
         .route("/api/volumes/{volume_id}/clean", post(volumes::clean))
         .route(
@@ -85,10 +93,22 @@ pub fn router(state: AppState) -> Router {
         .route("/api/deployments", post(deployments::create))
         .route("/api/deployments/{id}", get(deployments::detail))
         .route("/api/deployments/{id}/logs", get(deployments::logs))
+        .route(
+            "/api/deployments/{id}/access-logs",
+            get(deployments::access_logs),
+        )
+        .route(
+            "/api/deployments/{id}/request-metrics",
+            get(deployments::request_metrics),
+        )
         // Interactive shell (WebSocket; docs/API.md § Shell)
         .route("/api/deployments/{id}/shell", get(crate::shell::browser))
         .route("/api/deployments/{id}/stop", post(deployments::stop))
         .route("/api/deployments/{id}/restart", post(deployments::restart))
+        .route(
+            "/api/deployments/{id}/retry-publish",
+            post(deployments::retry_publish),
+        )
         .route("/api/deployments/{id}/dismiss", post(deployments::dismiss))
         .route(
             "/api/deployments/{id}",
@@ -119,6 +139,7 @@ pub fn router(state: AppState) -> Router {
         .route("/agent/inventory", post(agent::inventory))
         .route("/agent/metrics", post(agent::metrics))
         .route("/agent/logs", post(agent::logs))
+        .route("/agent/app-traffic", post(agent::app_traffic))
         .route("/agent/tasks/next", get(agent::tasks_next))
         .route("/agent/tasks/result", post(agent::tasks_result))
         .route("/agent/tasks/progress", post(agent::tasks_progress))

@@ -1,0 +1,44 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT status, request_time_ms, response_bytes FROM app_access_logs\n         WHERE deployment_id = ? AND occurred_at >= UTC_TIMESTAMP() - INTERVAL 24 HOUR",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": {
+          "type": "Short",
+          "flags": "NOT_NULL | UNSIGNED | NO_DEFAULT_VALUE",
+          "max_size": 5
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "request_time_ms",
+        "type_info": {
+          "type": "Long",
+          "flags": "NOT_NULL | UNSIGNED | NO_DEFAULT_VALUE",
+          "max_size": 10
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "response_bytes",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "NOT_NULL | UNSIGNED | NO_DEFAULT_VALUE",
+          "max_size": 20
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ca49e1f4ac4c1086b2cb50dbc49b202ca653897fd30943bb245d6c4d0c08917d"
+}

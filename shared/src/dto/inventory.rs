@@ -25,6 +25,14 @@ pub struct InventorySnapshot {
     /// `TLS_MISSING`); `None` from pre-0.16 agents.
     #[serde(default)]
     pub nginx_status: Option<String>,
+    /// Live host checks. This is authoritative; version strings are only
+    /// display metadata and never imply readiness.
+    #[serde(default)]
+    pub readiness: Option<super::HostReadiness>,
+    /// Capacity of the persistent-storage filesystem and measured volume
+    /// usage. Missing on older agents.
+    #[serde(default)]
+    pub storage: Option<super::StorageUsage>,
     pub gpus: Vec<GpuInfo>,
     /// Every container on the host (docker ps -a); `managed` marks
     /// Foundry-created ones. Visibility only — unmanaged containers

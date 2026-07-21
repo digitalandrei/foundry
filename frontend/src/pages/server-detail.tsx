@@ -3,6 +3,7 @@ import { ArrowLeftIcon } from "lucide-react"
 
 import { GpuTelemetryCard, HostMetrics } from "@/components/server-telemetry"
 import { ServerGpuConfig } from "@/components/server-gpu-config"
+import { ServerReadiness } from "@/components/server-readiness"
 import { useMe } from "@/hooks/use-auth"
 import { useAdoptContainer } from "@/hooks/use-deployments"
 import { useServerDetail, useServerMetrics } from "@/hooks/use-servers"
@@ -64,6 +65,9 @@ export function ServerDetailPage() {
           <Skeleton className="h-7 w-64" />
         )}
       </div>
+
+      {/* Host metrics */}
+      {detail.data ? <ServerReadiness server={detail.data.server} admin={me.data?.is_admin ?? false} /> : null}
 
       {/* Host metrics */}
       <HostMetrics metrics={metrics.data} />

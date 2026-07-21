@@ -115,6 +115,23 @@ cache, not an ACL.
   first-seen GitLab object at once. Every caller converges on the one row
   selected by its natural unique key.
 
+Image-config discovery uses the read-only Registry HTTP API v2. For a
+multi-arch tag Foundry selects linux/amd64, records that child manifest's
+digest, then fetches its config. Deployment create repeats this lookup and
+stores/pulls `repo@sha256:<digest>`; mutable tags never cross the
+controller→agent execution boundary. Pull-token scope is derived from the
+repository path before `@sha256`, not from the full image reference.
+
+Optional general-purpose OCI labels enrich the editable defaults:
+
+- `ai.protv.foundry.volumes` — `VolumeSpec[]` persistence policy;
+- `ai.protv.foundry.apps` — application descriptors (`container_port`,
+  `scheme`, `primary`, `health_path`, request-body limit, proxy timeout).
+
+Malformed or out-of-bounds entries are ignored/normalized. Browse-time
+metadata remains best-effort, but create requires a valid immutable digest so
+an unavailable registry fails before slot mutation.
+
 ## Image Pulls on GPU Servers
 
 Agents must authenticate to the instance's container registry to pull.

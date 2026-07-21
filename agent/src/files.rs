@@ -83,12 +83,18 @@ async fn poll_next(
 struct PendingUpload {
     destination: PathBuf,
     temporary: PathBuf,
-    remaining: u64,
+    size: u64,
+    written: u64,
     file: tokio::fs::File,
 }
 
 async fn handle(config: &AgentConfig, request: FileSessionRequest) -> Result<(), String> {
     let roots = approved_roots(&request).await?;
+    let quotas: HashMap<ServerVolumeId, Option<u64>> = request
+        .volumes
+        .iter()
+        .map(|volume| (volume.volume_id, volume.quota_bytes))
+        .collect();
     let url = ws_url(&config.controller_url, request.session_id);
     let mut ws_request = url
         .as_str()
@@ -125,7 +131,9 @@ async fn handle(config: &AgentConfig, request: FileSessionRequest) -> Result<(),
                     }
                 };
                 let request_id = operation.request_id();
-                if let Err(error) = process(&mut sender, &roots, &mut uploads, operation).await {
+                if let Err(error) =
+                    process(&mut sender, &roots, &quotas, &mut uploads, operation).await
+                {
                     send(
                         &mut sender,
                         &FileServerMessage::Error {
@@ -146,9 +154,8 @@ async fn handle(config: &AgentConfig, request: FileSessionRequest) -> Result<(),
             _ => {}
         }
     }
-    for (_, upload) in uploads {
-        let _ = tokio::fs::remove_file(upload.temporary).await;
-    }
+    // Partial uploads intentionally survive disconnects; a browser can
+    // reconnect and continue from the offset returned by UploadReady.
     let _ = sender.send(Message::Close(None)).await;
     Ok(())
 }
@@ -156,6 +163,7 @@ async fn handle(config: &AgentConfig, request: FileSessionRequest) -> Result<(),
 async fn process<S>(
     sender: &mut S,
     roots: &HashMap<ServerVolumeId, PathBuf>,
+    quotas: &HashMap<ServerVolumeId, Option<u64>>,
     uploads: &mut HashMap<Uuid, PendingUpload>,
     operation: FileClientMessage,
 ) -> Result<(), String>
@@ -313,8 +321,35 @@ where
                 return Err("cannot replace a directory with an uploaded file".into());
             }
             let temporary = temporary_sibling(&destination, request_id)?;
+            let written = tokio::fs::metadata(&temporary)
+                .await
+                .map(|m| m.len())
+                .unwrap_or(0);
+            if written > size {
+                return Err("partial upload is larger than the declared file".into());
+            }
+            if let Some(quota) = quotas.get(&volume_id).copied().flatten() {
+                let root = root(roots, volume_id)?.clone();
+                let existing = tokio::fs::metadata(&destination)
+                    .await
+                    .map(|m| m.len())
+                    .unwrap_or(0);
+                let used =
+                    tokio::task::spawn_blocking(move || crate::host::directory_size_for(&root))
+                        .await
+                        .map_err(|error| format!("quota task: {error}"))?;
+                let final_used = used
+                    .saturating_sub(existing)
+                    .saturating_add(size.saturating_sub(written));
+                if final_used > quota {
+                    return Err(format!(
+                        "upload would exceed the volume quota ({final_used} > {quota} bytes)"
+                    ));
+                }
+            }
             let file = tokio::fs::OpenOptions::new()
-                .create_new(true)
+                .create(true)
+                .append(true)
                 .write(true)
                 .open(&temporary)
                 .await
@@ -324,13 +359,25 @@ where
                 PendingUpload {
                     destination,
                     temporary,
-                    remaining: size,
+                    size,
+                    written,
                     file,
                 },
             );
-            send(sender, &FileServerMessage::UploadReady { request_id }).await
+            send(
+                sender,
+                &FileServerMessage::UploadReady {
+                    request_id,
+                    offset: written,
+                },
+            )
+            .await
         }
-        FileClientMessage::UploadChunk { request_id, data } => {
+        FileClientMessage::UploadChunk {
+            request_id,
+            offset,
+            data,
+        } => {
             if data.len() > TRANSFER_CHUNK * 2 {
                 return Err("upload chunk is too large".into());
             }
@@ -340,7 +387,13 @@ where
             let upload = uploads
                 .get_mut(&request_id)
                 .ok_or_else(|| "upload is not active".to_string())?;
-            if decoded.len() as u64 > upload.remaining {
+            if offset != upload.written {
+                return Err(format!(
+                    "upload offset mismatch: expected {}, received {offset}",
+                    upload.written
+                ));
+            }
+            if upload.written.saturating_add(decoded.len() as u64) > upload.size {
                 return Err("upload exceeds its declared size".into());
             }
             upload
@@ -348,18 +401,17 @@ where
                 .write_all(&decoded)
                 .await
                 .map_err(|error| fs_error("write upload", error))?;
-            upload.remaining -= decoded.len() as u64;
+            upload.written += decoded.len() as u64;
             Ok(())
         }
         FileClientMessage::UploadFinish { request_id } => {
             let mut upload = uploads
                 .remove(&request_id)
                 .ok_or_else(|| "upload is not active".to_string())?;
-            if upload.remaining != 0 {
-                let _ = tokio::fs::remove_file(&upload.temporary).await;
+            if upload.written != upload.size {
                 return Err(format!(
                     "upload ended {} bytes before its declared size",
-                    upload.remaining
+                    upload.size.saturating_sub(upload.written)
                 ));
             }
             upload

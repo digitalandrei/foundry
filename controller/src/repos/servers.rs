@@ -26,6 +26,10 @@ pub async fn list(pool: &MySqlPool) -> Result<Vec<ServerSummary>, AppError> {
                   s.last_heartbeat_at, s.os_version,
                   s.app_publishing_ready AS "app_publishing_ready: bool", s.nginx_status,
                   s.docker_ok AS "docker_ok: bool",
+                  s.setup_revision AS "setup_revision?: u32", s.readiness_json,
+                  s.readiness_checked_at,
+                  s.storage_total_bytes AS "storage_total_bytes?: u64",
+                  s.storage_available_bytes AS "storage_available_bytes?: u64",
                   a.agent_version, a.id AS "agent_id: Uuid",
                   COALESCE(c.running, 0) AS "containers_running!: i64"
            FROM servers s
@@ -55,6 +59,17 @@ pub async fn list(pool: &MySqlPool) -> Result<Vec<ServerSummary>, AppError> {
             app_publishing_ready: r.app_publishing_ready,
             nginx_status: r.nginx_status,
             docker_ok: r.docker_ok,
+            setup_revision: r.setup_revision,
+            required_setup_revision: foundry_shared::dto::REQUIRED_SETUP_REVISION,
+            readiness: r
+                .readiness_json
+                .as_deref()
+                .map(serde_json::from_slice)
+                .transpose()
+                .map_err(AppError::internal)?,
+            readiness_checked_at: r.readiness_checked_at.map(|at| at.and_utc()),
+            storage_total_bytes: r.storage_total_bytes,
+            storage_available_bytes: r.storage_available_bytes,
             enrolled: r.agent_id.is_some(),
             gpus: gpus_by_server.remove(&id).unwrap_or_default(),
             containers_running: r.containers_running,
@@ -87,6 +102,10 @@ pub async fn get_summary(pool: &MySqlPool, id: ServerId) -> Result<ServerSummary
                   s.last_heartbeat_at, s.os_version,
                   s.app_publishing_ready AS "app_publishing_ready: bool", s.nginx_status,
                   s.docker_ok AS "docker_ok: bool",
+                  s.setup_revision AS "setup_revision?: u32", s.readiness_json,
+                  s.readiness_checked_at,
+                  s.storage_total_bytes AS "storage_total_bytes?: u64",
+                  s.storage_available_bytes AS "storage_available_bytes?: u64",
                   a.agent_version, a.id AS "agent_id: Uuid",
                   COALESCE(c.running, 0) AS "containers_running!: i64"
            FROM servers s
@@ -113,6 +132,17 @@ pub async fn get_summary(pool: &MySqlPool, id: ServerId) -> Result<ServerSummary
         app_publishing_ready: r.app_publishing_ready,
         nginx_status: r.nginx_status,
         docker_ok: r.docker_ok,
+        setup_revision: r.setup_revision,
+        required_setup_revision: foundry_shared::dto::REQUIRED_SETUP_REVISION,
+        readiness: r
+            .readiness_json
+            .as_deref()
+            .map(serde_json::from_slice)
+            .transpose()
+            .map_err(AppError::internal)?,
+        readiness_checked_at: r.readiness_checked_at.map(|at| at.and_utc()),
+        storage_total_bytes: r.storage_total_bytes,
+        storage_available_bytes: r.storage_available_bytes,
         enrolled: r.agent_id.is_some(),
         gpus: super::inventory::gpus_for_server(pool, sid).await?,
         containers_running: r.containers_running,

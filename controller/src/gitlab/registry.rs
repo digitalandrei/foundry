@@ -5,14 +5,17 @@
 
 use std::collections::{HashMap, HashSet};
 
-use foundry_shared::dto::{ExposedPort, ImageMetadataResponse, VolumeSpec};
+use foundry_shared::dto::{ApplicationMetadata, ExposedPort, ImageMetadataResponse, VolumeSpec};
+use foundry_shared::PortKind;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
 use crate::error::AppError;
 
 /// Optional image label carrying richer persistent-volume defaults than
 /// Docker's path-only `VOLUME` metadata. Value: JSON `VolumeSpec[]`.
 const FOUNDRY_VOLUMES_LABEL: &str = "ai.protv.foundry.volumes";
+const FOUNDRY_APPS_LABEL: &str = "ai.protv.foundry.apps";
 const MAX_DECLARED_VOLUMES: usize = 16;
 
 /// Every manifest media type we can read; the registry answers with
@@ -80,10 +83,11 @@ pub async fn image_metadata(
     tag: &str,
 ) -> Result<ImageMetadataResponse, AppError> {
     let base = registry_url.trim_end_matches('/');
-    let manifest = selected_manifest(http, base, pull_token, repo_path, tag).await?;
-    let size_bytes = compressed_size_from_manifest(&manifest);
+    let selected = selected_manifest(http, base, pull_token, repo_path, tag).await?;
+    let size_bytes = compressed_size_from_manifest(&selected.manifest);
 
-    let config = manifest
+    let config = selected
+        .manifest
         .config
         .ok_or_else(|| AppError::BadRequest("manifest carries no image config".into()))?;
     let url = format!("{base}/v2/{repo_path}/blobs/{}", config.digest);
@@ -98,17 +102,21 @@ pub async fn image_metadata(
         .collect();
     ports.sort_by_key(|port| (port.container_port, port.protocol.clone()));
 
+    let labels = config.labels.unwrap_or_default();
     let volumes = declared_volumes(
         repo_path,
         config.volumes.unwrap_or_default().into_keys(),
-        config.labels.unwrap_or_default().get(FOUNDRY_VOLUMES_LABEL),
+        labels.get(FOUNDRY_VOLUMES_LABEL),
     );
+    let apps = declared_apps(labels.get(FOUNDRY_APPS_LABEL));
 
     Ok(ImageMetadataResponse {
         project_id: None,
         ports,
         volumes,
         size_bytes,
+        digest: Some(selected.digest),
+        apps,
     })
 }
 
@@ -124,7 +132,12 @@ pub async fn compressed_size(
 ) -> Result<Option<i64>, AppError> {
     let base = registry_url.trim_end_matches('/');
     let manifest = selected_manifest(http, base, pull_token, repo_path, tag).await?;
-    Ok(compressed_size_from_manifest(&manifest))
+    Ok(compressed_size_from_manifest(&manifest.manifest))
+}
+
+struct SelectedManifest {
+    manifest: Manifest,
+    digest: String,
 }
 
 async fn selected_manifest(
@@ -133,9 +146,9 @@ async fn selected_manifest(
     pull_token: Option<&str>,
     repo_path: &str,
     tag: &str,
-) -> Result<Manifest, AppError> {
+) -> Result<SelectedManifest, AppError> {
     let url = format!("{base}/v2/{repo_path}/manifests/{tag}");
-    let mut manifest: Manifest = fetch(http, &url, pull_token).await?;
+    let (mut manifest, mut digest) = fetch_manifest(http, &url, pull_token).await?;
 
     if let Some(list) = manifest.manifests.take() {
         // The GPU fleet is linux/amd64. Fall back to the first entry
@@ -151,9 +164,91 @@ async fn selected_manifest(
             .or_else(|| list.first())
             .ok_or_else(|| AppError::BadRequest("image index lists no platforms".into()))?;
         let url = format!("{base}/v2/{repo_path}/manifests/{}", chosen.digest);
-        manifest = fetch(http, &url, pull_token).await?;
+        digest = chosen.digest.clone();
+        manifest = fetch_manifest(http, &url, pull_token).await?.0;
     }
-    Ok(manifest)
+    Ok(SelectedManifest { manifest, digest })
+}
+
+async fn fetch_manifest(
+    http: &reqwest::Client,
+    url: &str,
+    pull_token: Option<&str>,
+) -> Result<(Manifest, String), AppError> {
+    let mut request = http.get(url).header(reqwest::header::ACCEPT, ACCEPT);
+    if let Some(token) = pull_token {
+        request = request.bearer_auth(token);
+    }
+    let response = request.send().await.map_err(AppError::gitlab)?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(AppError::BadRequest(format!(
+            "registry returned {status} for this image"
+        )));
+    }
+    let header_digest = response
+        .headers()
+        .get("docker-content-digest")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let body = response.bytes().await.map_err(AppError::gitlab)?;
+    let digest = header_digest.unwrap_or_else(|| format!("sha256:{:x}", Sha256::digest(&body)));
+    let manifest = serde_json::from_slice(&body).map_err(AppError::gitlab)?;
+    Ok((manifest, digest))
+}
+
+#[derive(Deserialize)]
+struct RawApp {
+    container_port: u16,
+    #[serde(default = "default_http")]
+    scheme: String,
+    #[serde(default)]
+    primary: bool,
+    health_path: Option<String>,
+    max_body_size_bytes: Option<u64>,
+    proxy_timeout_seconds: Option<u32>,
+}
+
+fn default_http() -> String {
+    "http".into()
+}
+
+fn declared_apps(label: Option<&String>) -> Vec<ApplicationMetadata> {
+    let Some(label) = label else {
+        return Vec::new();
+    };
+    let Ok(raw) = serde_json::from_str::<Vec<RawApp>>(label) else {
+        return Vec::new();
+    };
+    let mut seen = HashSet::new();
+    raw.into_iter()
+        .take(32)
+        .filter_map(|app| {
+            if app.container_port == 0 || !seen.insert(app.container_port) {
+                return None;
+            }
+            let scheme = match app.scheme.to_ascii_lowercase().as_str() {
+                "http" => PortKind::Http,
+                "https" => PortKind::Https,
+                _ => return None,
+            };
+            let health_path = app
+                .health_path
+                .filter(|path| path.starts_with('/') && path.len() <= 1024);
+            Some(ApplicationMetadata {
+                container_port: app.container_port,
+                scheme,
+                primary: app.primary,
+                health_path,
+                max_body_size_bytes: app
+                    .max_body_size_bytes
+                    .map(|value| value.clamp(1024, 8 * 1024 * 1024 * 1024)),
+                proxy_timeout_seconds: app
+                    .proxy_timeout_seconds
+                    .map(|value| value.clamp(1, 86_400)),
+            })
+        })
+        .collect()
 }
 
 fn compressed_size_from_manifest(manifest: &Manifest) -> Option<i64> {
@@ -343,5 +438,24 @@ mod tests {
         ]"#
         .to_string();
         assert!(declared_volumes("team/image", std::iter::empty(), Some(&label)).is_empty());
+    }
+
+    #[test]
+    fn foundry_apps_label_parses_and_bounds_policy() {
+        let label = r#"[
+            {"container_port":8188,"scheme":"http","primary":true,"health_path":"/system_stats","max_body_size_bytes":2147483648,"proxy_timeout_seconds":300},
+            {"container_port":8443,"scheme":"https","health_path":"relative"},
+            {"container_port":9999,"scheme":"invalid"}
+        ]"#
+        .to_string();
+        let apps = declared_apps(Some(&label));
+        assert_eq!(apps.len(), 2);
+        assert_eq!(apps[0].container_port, 8188);
+        assert_eq!(apps[0].scheme, PortKind::Http);
+        assert!(apps[0].primary);
+        assert_eq!(apps[0].health_path.as_deref(), Some("/system_stats"));
+        assert_eq!(apps[0].max_body_size_bytes, Some(2 * 1024 * 1024 * 1024));
+        assert_eq!(apps[1].scheme, PortKind::Https);
+        assert_eq!(apps[1].health_path, None);
     }
 }

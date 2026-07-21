@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE deployments SET error_message = NULL, updated_at = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "7f7aed70c14c891ff02f9c6342c9531431c6bbccfa0993edb3f25a68d8f44a4a"
+}

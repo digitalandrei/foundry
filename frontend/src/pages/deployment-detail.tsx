@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { ArrowLeftIcon, HardDriveIcon, LockIcon } from "lucide-react"
 
 import { ConsolePanel } from "@/components/console-panel"
+import { AppTrafficPanel } from "@/components/app-traffic-panel"
 import { DeploymentActions } from "@/components/deployment-actions"
 import { DeploymentPorts } from "@/components/deployment-ports"
 import { ShellPanel } from "@/components/shell-panel"
@@ -101,6 +102,8 @@ export function DeploymentDetailPage() {
                   <Row label="Image">
                     <span className="break-all font-mono text-xs">{d.image_ref}</span>
                   </Row>
+                  {d.image_digest ? <Row label="Digest"><span className="font-mono text-[10px]">{d.image_digest.slice(0, 19)}…</span></Row> : null}
+                  {d.health_status ? <Row label="Health"><span className={d.health_status === "UNHEALTHY" || d.health_status === "TIMEOUT" ? "text-slot-failed" : "text-slot-free"}>{d.health_status}</span>{d.health_detail ? <span className="ml-1 text-xs text-muted-foreground" title={d.health_detail}>details</span> : null}</Row> : null}
                   {usage ? (
                     <Row label="Usage">
                       <span className="tabular-nums">
@@ -153,6 +156,8 @@ export function DeploymentDetailPage() {
             </CardContent>
           </Card>
 
+          {d.ports.some((port) => port.kind === "HTTP" || port.kind === "HTTPS") ? <AppTrafficPanel deploymentId={d.id} /> : null}
+
           {/* Bottom: console + shell, side by side on lg (each expandable),
               stacked one-per-screen on phones. */}
           <div className="flex flex-col gap-4 lg:h-[calc(100svh-5.5rem)] lg:flex-row">
@@ -164,7 +169,7 @@ export function DeploymentDetailPage() {
             />
             <ShellPanel
               deploymentId={d.id}
-              running={d.state === "RUNNING"}
+              running={d.state === "RUNNING" || d.state === "PUBLISH_FAILED"}
               expanded={expanded === "shell"}
               onToggle={() => setExpanded((e) => (e === "shell" ? "none" : "shell"))}
               className={cn(ONE_SCREEN, expanded === "logs" ? "lg:hidden" : "lg:flex-1")}

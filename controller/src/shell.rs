@@ -71,8 +71,9 @@ const SESSION_TTL: Duration = Duration::from_secs(60);
 
 // ── Browser side (`GET /api/deployments/{id}/shell`) ─────────────────
 
-/// Owner/admin only; the deployment must be RUNNING. Authorization
-/// happens before the upgrade so a refusal is a normal HTTP error.
+/// Owner/admin only; the deployment must be RUNNING or PUBLISH_FAILED.
+/// Authorization happens before the upgrade so a refusal is a normal HTTP
+/// error.
 pub async fn browser(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
@@ -84,7 +85,10 @@ pub async fn browser(
     if d.created_by != user.id && !user.is_admin {
         return Err(AppError::Forbidden);
     }
-    if d.state != DeploymentState::Running {
+    if !matches!(
+        d.state,
+        DeploymentState::Running | DeploymentState::PublishFailed
+    ) {
         return Err(AppError::BadRequest(
             "a shell can only be opened on a running deployment".into(),
         ));

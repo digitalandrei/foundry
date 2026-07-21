@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE deployments SET image_ref = ?, image_digest = ?, updated_at = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "9591b123841f989ae0d20087ffd01458d64974d2811da8a62890557583226b68"
+}

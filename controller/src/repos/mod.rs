@@ -16,5 +16,6 @@ pub mod mirror;
 pub mod servers;
 pub mod slots;
 pub mod tasks;
+pub mod traffic;
 pub mod users;
 pub mod volumes;

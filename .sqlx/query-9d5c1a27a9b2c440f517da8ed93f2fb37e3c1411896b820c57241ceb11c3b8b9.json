@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "DELETE FROM app_access_logs WHERE occurred_at < UTC_TIMESTAMP() - INTERVAL 7 DAY",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "9d5c1a27a9b2c440f517da8ed93f2fb37e3c1411896b820c57241ceb11c3b8b9"
+}

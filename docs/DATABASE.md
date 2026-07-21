@@ -78,6 +78,11 @@ NGINX_INACTIVE / NOT_CONFIGURED / TLS_MISSING; agent-reported, 0.16.0,
 values extended 0.17.0), `docker_ok` (BOOL null — Docker daemon
 liveness from the latest snapshot; NULL = unknown/no inventory yet,
 false = down → deploys rejected at create; 0.20.0), timestamps.
+Operational-safety columns (0.59.0): `setup_revision`, `readiness_json`,
+`readiness_checked_at`, `storage_total_bytes`, and
+`storage_available_bytes`. The JSON is the latest structured live probe set;
+the scalar columns support fleet summaries and deploy gates without deriving
+readiness from agent version strings.
 
 ### `server_agents`
 Agent identity and auth per server. Columns: `id`, `server_id` FK,
@@ -171,8 +176,9 @@ revokes unused older tokens), `used_at`, `used_by_server_id` FK null
 One row per deployment attempt onto a slot. Columns: `id`, `gpu_slot_id` FK,
 `server_id` FK, `registry_tag_id` FK **null** + `gitlab_instance_id` FK
 **null** (both NULL for an *adopted* deployment — no registry origin; 0.42.0)
-plus denormalized `image_ref` — full pullable reference at deploy time (the
-observed image for an adopted container), `created_by` FK
+plus denormalized `image_ref` — normally immutable
+`registry/repo@sha256:digest` (the observed image for an adopted container),
+`image_digest` (selected linux/amd64 manifest), `created_by` FK
 users, `state` (see ARCHITECTURE.md § Deployment lifecycle), `container_id`
 (Docker, once created), `container_name`, `adopted_container_id` null (set
 when this wraps an externally-created container — lifecycle/shell/logs
@@ -184,7 +190,8 @@ one non-terminal adoption of a server/container pair),
 NULL = unlimited, the default), `gpu_group_id` FK gpu_groups null
 (set for a group deploy — NULL = single-GPU; cleared if the group is
 later deleted), `replaced_by_deployment_id` FK null, `error_message`
-null, timestamps, `started_at`, `stopped_at`. `gpu_slot_id` is the
+null, `health_status` + `health_detail` (Docker HEALTHCHECK/running evidence),
+timestamps, `started_at`, `stopped_at`. `gpu_slot_id` is the
 denormalised primary member; `deployment_slots` is authoritative for the
 full set of GPUs held.
 `container_name` is transactionally unique among active deployments on one
@@ -209,6 +216,9 @@ app hostname as a per-server subdomain, e.g.
 across active deployments except the one a replacement supersedes, so
 the URL survives swaps; the agent renders the per-server nginx vhost from
 it, ARCHITECTURE.md § App Publishing).
+Application-policy columns (0.59.0): `is_primary`, `health_path`,
+`max_body_size_bytes` (default 2 GiB), and `proxy_timeout_seconds` (default
+300). Exactly one web port is normalized primary by the controller.
 
 ### `deployment_env`
 Environment variables. Columns: `id`, `deployment_id` FK, `env_key`,
@@ -232,6 +242,9 @@ only for unattached legacy rows, logical `name`, `visibility`
 (PRIVATE/PROJECT), `placement` (SLOT/SERVER), `scope_id` (creator or project
 UUID), `placement_id` (slot or server UUID), `gpu_slot_id` FK nullable,
 legacy `owner_slug`, `path`, `created_by` FK users, timestamps. Canonical
+`used_bytes`, `quota_bytes`, and `usage_measured_at` hold agent-measured
+accounting plus an advisory quota. Browser uploads enforce the quota; the
+database does not claim filesystem/container hard isolation. Canonical
 uniqueness:
 (`server_id`, `gitlab_project_id`, `visibility`, `scope_id`, `placement`,
 `placement_id`, `name`); path is also unique per server. Clean retains the
@@ -252,12 +265,24 @@ cannot exhaust the controller. Deleted with the deployment when it goes
 REMOVED (`lifecycle::transition_deployment`); a STOPPED deployment keeps
 its logs.
 
+### `app_access_logs`
+> Added in 0.59.0: per-application HTTP request observability.
+
+Structured nginx request records. Columns: auto-increment `id`,
+`deployment_id` FK, `occurred_at`, `method`, `path`, `status`,
+`request_time_ms`, `response_bytes`, `request_id`. Indexed by deployment/time
+and global time; (`deployment_id`, `request_id`) is unique so an agent retry
+after a lost response is idempotent. Seven-day retention is swept during
+ingest; transition to REMOVED deletes the deployment's records.
+
 ## Agent Task Queue
 
 ### `agent_tasks`
 Work queue, polled by agents. Columns: `id`, `server_id` FK,
-`deployment_id` FK null, `task_type` (DEPLOY_CONTAINER / STOP_CONTAINER /
-RESTART_CONTAINER / REMOVE_CONTAINER / REFRESH_INVENTORY / UPLOAD_LOGS),
+`deployment_id` FK null, `task_type` (including PREPARE_DEPLOY,
+DEPLOY_CONTAINER, QUIESCE_CONTAINER, ROLLBACK_CONTAINER, PUBLISH_VHOST,
+STOP/RESTART/REMOVE_CONTAINER, volume tasks, REFRESH_INVENTORY,
+UPGRADE_AGENT and reserved UPLOAD_LOGS),
 `payload` JSON, `state` (QUEUED/DISPATCHED/SUCCEEDED/FAILED/CANCELLED),
 `dispatched_at`, `completed_at`, `attempts`, timestamps. Tasks are idempotent;
 re-dispatch after agent crash is expected.
@@ -303,11 +328,11 @@ null, `created_at`. Never updated or deleted.
 18 spec tables + amendments (`gitlab_instances`, `sessions`,
 `local_credentials`, `server_containers`, `server_metrics`,
 `server_volumes`, `deployment_logs`, `gpu_groups`, `gpu_group_members`,
-`deployment_slots`) = 28 tables total: users, gitlab_accounts,
+`deployment_slots`, `app_access_logs`) = 29 tables total: users, gitlab_accounts,
 gitlab_instances, local_credentials, sessions, gitlab_projects,
 registry_repositories, registry_tags, servers, server_agents,
 server_containers, server_metrics, server_volumes, gpus, gpu_slots,
 gpu_groups, gpu_group_members, deployments, deployment_slots,
 deployment_events, deployment_ports, deployment_env, deployment_volumes,
-deployment_logs, agent_tasks, agent_task_results, audit_logs,
+deployment_logs, app_access_logs, agent_tasks, agent_task_results, audit_logs,
 enrollment_tokens.

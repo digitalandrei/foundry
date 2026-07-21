@@ -15,6 +15,7 @@ pub struct FileVolumeRoot {
     pub volume_id: ServerVolumeId,
     pub name: String,
     pub path: String,
+    pub quota_bytes: Option<u64>,
 }
 
 /// A pending file-browser session the target agent should attach to.
@@ -89,6 +90,7 @@ pub enum FileClientMessage {
     },
     UploadChunk {
         request_id: uuid::Uuid,
+        offset: u64,
         data: String,
     },
     UploadFinish {
@@ -148,6 +150,7 @@ pub enum FileServerMessage {
     },
     UploadReady {
         request_id: uuid::Uuid,
+        offset: u64,
     },
     DownloadStart {
         request_id: uuid::Uuid,

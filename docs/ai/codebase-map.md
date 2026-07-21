@@ -12,7 +12,7 @@ doc-drift hook nudges when watched code paths change without a docs change).
 | `agent/` | `foundry-agent` binary — task loop, Docker (bollard), NVML inventory | live: config, HTTPS client, connectivity loop |
 | `shared/` | Wire contract: DTOs, state enums, ID newtypes | live |
 | `frontend/` | React + TS + Vite + shadcn SPA | live: shell, theming, 11 pages |
-| `migrations/` | sqlx MySQL migrations (embedded into controller, run at startup) | live: 28-table schema |
+| `migrations/` | sqlx MySQL migrations (embedded into controller, run at startup) | live: 29-table schema |
 | `deployment/` | production systemd, nginx, and MariaDB backup artifacts | controller/nginx live; backup installed by next canonical deploy |
 | `scripts/` | verification, deploy, and atomic local-backup automation | live |
 | `docs/` | knowledge base (you are here) | live |
@@ -30,7 +30,8 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   these exact strings; mirrored by `frontend/src/lib/states.ts`
 - ID newtypes (UUIDv7) → `shared/src/ids.rs`
 - Shared DTOs (error, health, instance, me, project, registry) →
-  `shared/src/dto/`; frontend mirror → `frontend/src/lib/types.ts`
+  `shared/src/dto/` (operational readiness/traffic in `operations.rs`);
+  frontend mirror → `frontend/src/lib/types.ts`
 - Controller config / app state → `controller/src/config.rs`, `state.rs`
 - Secrets-at-rest + token hashing → `controller/src/crypto.rs`
   (AES-256-GCM SecretBox, `random_token`, `token_hash`)
@@ -50,6 +51,8 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   deletion). Deployment reads, target locking, and external-container adoption
   are separated into `deployment_{queries,targets,adoption}.rs`; command
   orchestration remains in `deployments.rs`.
+- Agent wire-version parsing/gates → `controller/src/agent_version.rs`;
+  operational deploy checks are shared by create/restart/publication paths.
 - Agent auth extractor → `controller/src/auth/agent.rs`; agent routes →
   `controller/src/routes/{servers,agent}.rs`
 - Routes (one module per resource) → `controller/src/routes/{health,me,instances,projects,registry}.rs`
@@ -63,6 +66,9 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   → `agent/src/register.rs` (host prerequisites before token consumption,
   atomic mode-0600 credential config); NVML/Docker snapshot collection (incl.
   `nvidia-smi -L` MIG parse) → `agent/src/inventory.rs`
+- Live host probes + setup revision + storage accounting →
+  `agent/src/host.rs`; structured nginx traffic cursor → `agent/src/traffic.rs`;
+  controller ingest/metrics/retention → `controller/src/repos/traffic.rs`
 - Inventory reconcile (two-phase OFFLINE/upsert, containers
   replace-all incl. ports) → `controller/src/repos/inventory.rs`
 - Telemetry: agent collector (sysinfo/NVML/docker-stats, incl. per-MIG-slice
@@ -84,7 +90,9 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   `empty-state.tsx`, `slot-legend.tsx`, `mode-toggle.tsx`; shadcn
   primitives in `frontend/src/components/ui/` (generated, don't edit)
 - Server hooks → `frontend/src/hooks/use-servers.ts` (10s refetch;
-  detail 15s)
+  detail 15s); structured readiness/actions →
+  `frontend/src/components/server-readiness.tsx`; reusable agent semver gates
+  → `frontend/src/lib/agent-version.ts`
 - Dashboard slot grid → `frontend/src/components/server-grid.tsx`
   (ServerRow/GpuStrip/SlotChip, with the primary mapped HTTPS URL directly
   clickable on occupied slots); docker-ps detail dialog →
@@ -119,7 +127,7 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   + filesystem operations → `agent/src/file_system.rs`; wire protocol →
   `shared/src/dto/files.rs`; dual-pane
   UI/editor → `frontend/src/components/{volume-browser,volume-file-pane}.tsx`
-  + `hooks/use-volume-files.ts`
+  + `hooks/use-volume-files.ts` (0.59 stable upload IDs/resume offsets + quota)
 - GPU groups & multi-use slots (group a GPU set, soft-share a slot among
   N containers): group CRUD + occupancy/cap + `member_slots_for_deploy`
   (FOR-UPDATE-locked member slots, counted then capped) →
@@ -135,12 +143,14 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   publishing: render/apply/remove, sudo-scoped reload, rollback) →
   `agent/src/vhost.rs`; host setup for it (`--setup-apps`: include +
   sudoers + TLS dir + unit) → `agent/src/register.rs`
-- Registry image-config read (EXPOSE + persistent-mount defaults,
-  compressed layer size, multi-arch manifest→config blob)
+- Registry image-config read (EXPOSE + persistent-mount/application defaults,
+  compressed layer size, selected multi-arch digest→config blob)
   → `controller/src/gitlab/registry.rs`; route →
   `controller/src/routes/registry.rs` (`image_metadata`)
 - Frontend deployments: hooks → `hooks/use-deployments.ts` (incl.
-  useLatestMetrics + useDeploymentDetail); deploy/replace dialog →
+  useLatestMetrics + useDeploymentDetail + publication retry/traffic);
+  request observability → `components/app-traffic-panel.tsx`;
+  deploy/replace dialog →
   `components/deploy-dialog.tsx`, with typed field sections in
   `components/deploy-dialog-fields.tsx` and schema/defaults in
   `lib/deployment-form.ts`; tap/drag sources in

@@ -233,6 +233,58 @@ pub async fn get(pool: &MySqlPool, id: ServerVolumeId) -> Result<VolumeRow, AppE
     })
 }
 
+pub async fn set_quota(
+    pool: &MySqlPool,
+    id: ServerVolumeId,
+    quota_bytes: Option<u64>,
+    user: UserId,
+    ip_address: Option<&str>,
+) -> Result<(), AppError> {
+    if quota_bytes.is_some_and(|quota| quota < 1024 * 1024) {
+        return Err(AppError::BadRequest(
+            "volume quota must be at least 1 MiB".into(),
+        ));
+    }
+    let mut tx = pool.begin().await?;
+    let row = sqlx::query!(
+        "SELECT used_bytes AS `used_bytes?: u64` FROM server_volumes WHERE id = ? FOR UPDATE",
+        id.0,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound("volume not found"))?;
+    if let (Some(quota), Some(used)) = (quota_bytes, row.used_bytes) {
+        if quota < used {
+            return Err(AppError::BadRequest(format!(
+                "quota is below current measured usage ({used} bytes)"
+            )));
+        }
+    }
+    sqlx::query!(
+        "UPDATE server_volumes SET quota_bytes = ?, updated_at = ? WHERE id = ?",
+        quota_bytes,
+        chrono::Utc::now().naive_utc(),
+        id.0,
+    )
+    .execute(&mut *tx)
+    .await?;
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(user),
+            action: "VOLUME_QUOTA_CHANGED",
+            subject_type: Some("server_volume"),
+            subject_id: Some(id.0),
+            detail: Some(serde_json::json!({ "quota_bytes": quota_bytes })),
+            ip_address,
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 /// Project volumes visible to the requester on one server. A target slot
 /// narrows SLOT volumes while keeping all SERVER volumes; no target lists
 /// every placement (the Storage management page).
@@ -246,6 +298,8 @@ pub async fn list(
 ) -> Result<Vec<ServerVolume>, AppError> {
     let rows = sqlx::query!(
         r#"SELECT v.id AS "id: Uuid", v.name, v.path, v.created_at,
+                  v.used_bytes AS "used_bytes?: u64", v.quota_bytes AS "quota_bytes?: u64",
+                  v.usage_measured_at,
                   v.gitlab_project_id AS "project_id: Uuid",
                   p.path_with_namespace AS "project_name?",
                   v.visibility, v.placement,
@@ -279,8 +333,8 @@ pub async fn list(
            WHERE v.server_id = ? AND v.gitlab_project_id = ?
              AND (v.visibility = 'PROJECT' OR v.created_by = ?)
              AND d.container_name IS NOT NULL
-             AND d.state IN ('PENDING','VALIDATING','PULLING_IMAGE','CREATING_CONTAINER',
-                             'STARTING','RUNNING','STOPPING','STOPPED','RESTARTING',
+             AND d.state IN ('PENDING','VALIDATING','PREPARED','PULLING_IMAGE','CREATING_CONTAINER',
+                             'STARTING','WAITING_HEALTH','PUBLISHING','PUBLISH_FAILED','RUNNING','STOPPING','STOPPED','RESTARTING',
                              'REMOVING','FAILED')
            ORDER BY dv.server_volume_id, d.container_name"#,
     )
@@ -307,6 +361,9 @@ pub async fn list(
                 id,
                 name: r.name,
                 path: r.path,
+                used_bytes: r.used_bytes,
+                quota_bytes: r.quota_bytes,
+                usage_measured_at: r.usage_measured_at.map(|at| at.and_utc()),
                 project_id: r.project_id.map(Into::into),
                 project_name: r.project_name,
                 visibility: r.visibility.parse().map_err(AppError::internal)?,
@@ -337,8 +394,8 @@ async fn lock_and_require_detached(
         r#"SELECT COUNT(*) FROM deployment_volumes dv
            JOIN deployments d ON d.id = dv.deployment_id
            WHERE dv.server_volume_id = ?
-             AND d.state IN ('PENDING','VALIDATING','PULLING_IMAGE','CREATING_CONTAINER',
-                             'STARTING','RUNNING','STOPPING','STOPPED','RESTARTING',
+             AND d.state IN ('PENDING','VALIDATING','PREPARED','PULLING_IMAGE','CREATING_CONTAINER',
+                             'STARTING','WAITING_HEALTH','PUBLISHING','PUBLISH_FAILED','RUNNING','STOPPING','STOPPED','RESTARTING',
                              'REMOVING','FAILED')
            FOR UPDATE"#,
         id.0

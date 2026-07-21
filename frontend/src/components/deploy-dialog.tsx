@@ -147,9 +147,18 @@ export function DeployDialog({
       prefilled.current = prefillKey
       return
     }
-    const rows = (discovered.data?.ports ?? []).map((port) => ({
+    const appByPort = new Map(
+      (discovered.data?.apps ?? []).map((app) => [app.container_port, app] as const),
+    )
+    const discoveredPorts = [...(discovered.data?.ports ?? [])]
+    for (const app of discovered.data?.apps ?? []) {
+      if (!discoveredPorts.some((port) => port.container_port === app.container_port)) {
+        discoveredPorts.push({ container_port: app.container_port, protocol: "tcp" })
+      }
+    }
+    const rows = discoveredPorts.map((port) => ({
       container_port: String(port.container_port),
-      kind: defaultPortKind(port, appsDomain !== null),
+      kind: appByPort.get(port.container_port)?.scheme ?? defaultPortKind(port, appsDomain !== null),
       host_port: "",
     }))
     form.reset({
@@ -237,7 +246,8 @@ export function DeployDialog({
           <div className="rounded-md border border-slot-reserved/50 bg-slot-reserved/10 p-3 text-sm">
             This slot runs <span className="font-medium">{target.replaces.name}</span>{" "}
             (<span className="font-mono text-xs">{target.replaces.image_ref}</span>). Replacing
-            stops and removes it first — its persistent volumes survive.
+            stays live while Foundry prepares the new image, then is retained through health and
+            publication checks for automatic rollback. Its persistent volumes survive.
           </div>
         ) : null}
 

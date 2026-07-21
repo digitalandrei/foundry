@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE agent_tasks SET task_type = 'PREPARE_DEPLOY' WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "c629e24761166cffc9ac6dcb4fcaba5ab7b5b55b10a83557caad1917110bf57f"
+}

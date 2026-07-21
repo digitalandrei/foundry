@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE servers SET setup_revision = ?, readiness_json = ?, readiness_checked_at = ?,\n             storage_total_bytes = ?, storage_available_bytes = ?, updated_at = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "9e2dc9ec51d0df4e7392ccd9a1e153dc7a82b2b6227e688494e5ae5dc6e0053a"
+}

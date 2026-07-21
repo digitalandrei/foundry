@@ -23,10 +23,14 @@ use foundry_shared::dto::{AgentEnrollRequest, AgentEnrollResponse};
 
 pub const INSTALL_PATH: &str = "/usr/local/bin/foundry-agent";
 const UNIT_PATH: &str = "/etc/systemd/system/foundry-agent.service";
+const UPGRADE_UNIT_PATH: &str = "/etc/systemd/system/foundry-agent-upgrade.service";
+const UPGRADE_PATH_PATH: &str = "/etc/systemd/system/foundry-agent-upgrade.path";
+pub const UPGRADE_REQUEST: &str = "/etc/foundry-agent/upgrade-request";
 const SERVICE_USER: &str = "foundry-agent";
 const TLS_DIR: &str = "/etc/foundry-agent/tls";
 const SUDOERS_PATH: &str = "/etc/sudoers.d/foundry-agent";
 const NGINX_BOOTSTRAP: &str = "/etc/nginx/conf.d/foundry-apps.conf";
+const NGINX_LOGROTATE: &str = "/etc/logrotate.d/foundry-apps";
 const CAPABILITY_BOUNDING_SET: &str = "CAP_DAC_OVERRIDE CAP_SETUID CAP_SETGID CAP_AUDIT_WRITE";
 const AMBIENT_CAPABILITIES: &str = "CAP_DAC_OVERRIDE";
 const SERVER_NAMES_HASH_BUCKET_SIZE: u16 = 128;
@@ -70,7 +74,9 @@ pub async fn run(args: RegisterArgs) -> Result<(), Box<dyn std::error::Error>> {
         prepare_config_directory(&config_path)?;
         setup_apps()?;
         write_unit()?;
+        write_upgrade_units()?;
         systemctl(&["daemon-reload"])?;
+        mark_setup_success()?;
     }
 
     // Enroll only after the host is ready to persist and run the identity.
@@ -113,6 +119,7 @@ pub async fn run(args: RegisterArgs) -> Result<(), Box<dyn std::error::Error>> {
     write_config(&config_path, &url, &enrolled, system_mode)?;
     println!("config written: {}", config_path.display());
     if system_mode {
+        systemctl(&["enable", "--now", "foundry-agent-upgrade.path"])?;
         systemctl(&["enable", "--now", "foundry-agent"])?;
         println!("service enabled and started: systemctl status foundry-agent");
     }
@@ -130,7 +137,10 @@ pub fn setup_apps_standalone() -> Result<(), Box<dyn std::error::Error>> {
     create_service_user()?;
     setup_apps()?;
     write_unit()?;
+    write_upgrade_units()?;
     systemctl(&["daemon-reload"])?;
+    systemctl(&["enable", "--now", "foundry-agent-upgrade.path"])?;
+    mark_setup_success()?;
     if crate::config::config_path().exists() {
         systemctl(&["restart", "foundry-agent"])?;
         println!("service restarted: systemctl status foundry-agent");
@@ -176,6 +186,7 @@ fn setup_apps() -> Result<(), Box<dyn std::error::Error>> {
     // Vhost dir is created even without nginx so the unit's
     // ReadWritePaths never points at a missing path.
     std::fs::create_dir_all(crate::vhost::VHOST_DIR)?;
+    std::fs::create_dir_all(crate::vhost::ACCESS_LOG_DIR)?;
     let status = Command::new("chown")
         .args([
             &format!("{SERVICE_USER}:{SERVICE_USER}"),
@@ -184,6 +195,10 @@ fn setup_apps() -> Result<(), Box<dyn std::error::Error>> {
         .status()?;
     if !status.success() {
         return Err(format!("chown of {} failed", crate::vhost::VHOST_DIR).into());
+    }
+    if Path::new("/etc/logrotate.d").is_dir() {
+        std::fs::write(NGINX_LOGROTATE, render_logrotate())?;
+        std::fs::set_permissions(NGINX_LOGROTATE, std::fs::Permissions::from_mode(0o644))?;
     }
 
     std::fs::create_dir_all(TLS_DIR)?;
@@ -225,6 +240,17 @@ fn setup_apps() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn mark_setup_success() -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Write;
+    let path = Path::new(crate::host::SETUP_MARKER);
+    let temp = path.with_extension(format!("{}.tmp", uuid::Uuid::now_v7()));
+    let mut file = std::fs::File::create(&temp)?;
+    writeln!(file, "{}", crate::host::SETUP_REVISION)?;
+    file.sync_all()?;
+    std::fs::rename(&temp, path)?;
+    Ok(())
+}
+
 fn render_nginx_bootstrap() -> String {
     format!(
         "# Managed by foundry-agent --setup-apps (Foundry HTTP/S app publishing).\n\
@@ -234,8 +260,25 @@ fn render_nginx_bootstrap() -> String {
          \x20   default upgrade;\n\
          \x20   ''      close;\n\
          }}\n\
+         log_format foundry_app_json escape=json '{{\"ts\":\"$time_iso8601\",\"request_id\":\"$request_id\",\"method\":\"$request_method\",\"path\":\"$uri\",\"status\":$status,\"request_time\":$request_time,\"bytes\":$body_bytes_sent}}';\n\
          include {}/*.conf;\n",
         crate::vhost::VHOST_DIR
+    )
+}
+
+fn render_logrotate() -> String {
+    format!(
+        "{}/*.access.log {{\n\
+         \x20   daily\n\
+         \x20   rotate 7\n\
+         \x20   maxsize 100M\n\
+         \x20   missingok\n\
+         \x20   notifempty\n\
+         \x20   compress\n\
+         \x20   delaycompress\n\
+         \x20   copytruncate\n\
+         }}\n",
+        crate::vhost::ACCESS_LOG_DIR,
     )
 }
 
@@ -403,6 +446,66 @@ fn write_unit() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn write_upgrade_units() -> Result<(), Box<dyn std::error::Error>> {
+    let service = format!(
+        "[Unit]\nDescription=Upgrade and repair Foundry agent\nAfter=network-online.target\n\n\
+         [Service]\nType=oneshot\nExecStart={INSTALL_PATH} --perform-upgrade\n"
+    );
+    let path = format!(
+        "[Unit]\nDescription=Watch for Foundry agent upgrade requests\n\n\
+         [Path]\nPathExists={UPGRADE_REQUEST}\nUnit=foundry-agent-upgrade.service\n\n\
+         [Install]\nWantedBy=multi-user.target\n"
+    );
+    std::fs::write(UPGRADE_UNIT_PATH, service)?;
+    std::fs::write(UPGRADE_PATH_PATH, path)?;
+    Ok(())
+}
+
+pub async fn perform_upgrade() -> Result<(), Box<dyn std::error::Error>> {
+    use sha2::{Digest, Sha256};
+    if unsafe { libc_geteuid() } != 0 {
+        return Err("--perform-upgrade must run as root".into());
+    }
+    let config = crate::config::load(&crate::config::config_path())?;
+    let base = config.controller_url.trim_end_matches('/');
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()?;
+    let binary = client
+        .get(format!("{base}/downloads/foundry-agent"))
+        .send()
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
+    let checksum = client
+        .get(format!("{base}/downloads/foundry-agent.sha256"))
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    let expected = checksum
+        .split_whitespace()
+        .next()
+        .ok_or("empty agent checksum")?;
+    let actual = format!("{:x}", Sha256::digest(&binary));
+    if actual != expected {
+        return Err("downloaded agent checksum mismatch".into());
+    }
+    let staged = format!("{INSTALL_PATH}.upgrade");
+    std::fs::write(&staged, &binary)?;
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755))?;
+    std::fs::rename(&staged, INSTALL_PATH)?;
+    let status = Command::new(INSTALL_PATH).arg("--setup-apps").status()?;
+    if !status.success() {
+        return Err("upgraded agent setup failed".into());
+    }
+    std::fs::remove_file(UPGRADE_REQUEST)?;
+    Ok(())
+}
+
 fn render_unit(supplementary: &str) -> String {
     // Hardening notes (docs/SECURITY.md § App Publishing):
     // - CAP_DAC_OVERRIDE is the only capability ambient in the agent and is
@@ -438,7 +541,7 @@ fn render_unit(supplementary: &str) -> String {
          ProtectSystem=full\n\
          ProtectHome=yes\n\
          PrivateTmp=yes\n\
-         ReadWritePaths=/etc/foundry-agent /etc/nginx/foundry-apps /storage/containers\n\
+         ReadWritePaths=/etc/foundry-agent /etc/nginx/foundry-apps /storage/containers /var/log/nginx/foundry-apps\n\
          \n\
          [Install]\n\
          WantedBy=multi-user.target\n"
@@ -531,5 +634,13 @@ mod tests {
         assert!(bootstrap.contains("server_names_hash_bucket_size 128;\n"));
         assert!(bootstrap.contains("map $http_upgrade $foundry_connection_upgrade"));
         assert!(bootstrap.contains(&format!("include {}/*.conf;\n", crate::vhost::VHOST_DIR)));
+    }
+
+    #[test]
+    fn access_logs_rotate_without_renaming_the_active_file() {
+        let policy = render_logrotate();
+        assert!(policy.contains(crate::vhost::ACCESS_LOG_DIR));
+        assert!(policy.contains("rotate 7"));
+        assert!(policy.contains("copytruncate"));
     }
 }

@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE server_volumes SET quota_bytes = ?, updated_at = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "802dbcaef975b3887192a2623d253f06edc3fc03448a15b019f8c97353cf1ce6"
+}

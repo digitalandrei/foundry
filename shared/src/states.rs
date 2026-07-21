@@ -87,9 +87,13 @@ str_enum! {
     pub enum DeploymentState {
         Pending => "PENDING",
         Validating => "VALIDATING",
+        Prepared => "PREPARED",
         PullingImage => "PULLING_IMAGE",
         CreatingContainer => "CREATING_CONTAINER",
         Starting => "STARTING",
+        WaitingHealth => "WAITING_HEALTH",
+        Publishing => "PUBLISHING",
+        PublishFailed => "PUBLISH_FAILED",
         Running => "RUNNING",
         Stopping => "STOPPING",
         Stopped => "STOPPED",
@@ -106,6 +110,9 @@ str_enum! {
     /// REMOVE_VOLUME/PURGE_VOLUMES are persistent-storage amendments.
     pub enum TaskType {
         DeployContainer => "DEPLOY_CONTAINER",
+        PrepareDeploy => "PREPARE_DEPLOY",
+        QuiesceContainer => "QUIESCE_CONTAINER",
+        RollbackContainer => "ROLLBACK_CONTAINER",
         StopContainer => "STOP_CONTAINER",
         RestartContainer => "RESTART_CONTAINER",
         RemoveContainer => "REMOVE_CONTAINER",
@@ -113,6 +120,8 @@ str_enum! {
         PurgeVolumes => "PURGE_VOLUMES",
         RefreshInventory => "REFRESH_INVENTORY",
         UploadLogs => "UPLOAD_LOGS",
+        PublishVhost => "PUBLISH_VHOST",
+        UpgradeAgent => "UPGRADE_AGENT",
     }
 }
 

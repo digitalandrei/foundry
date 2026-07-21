@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT p.id AS `id: Uuid` FROM deployments p\n         WHERE p.replaced_by_deployment_id = ? AND p.state = 'STOPPED'\n           AND EXISTS (\n             SELECT 1 FROM deployment_events e\n             WHERE e.deployment_id = p.id AND e.from_state = 'STOPPING'\n               AND e.to_state = 'STOPPED'\n               AND JSON_UNQUOTE(JSON_EXTRACT(e.detail, '$.retained_for')) = ?\n           )\n         FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | PRIMARY_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b51c40fd0f2cd6273d9212d9c64cedcb87ae3a3301289075849c3851901d291b"
+}

@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT used_bytes AS `used_bytes?: u64` FROM server_volumes WHERE id = ? FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "used_bytes?: u64",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "UNSIGNED",
+          "max_size": 20
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "b5a29d5e4fedbede17375d00bf27f236e214532a737d2dca21bff14d6cc632e4"
+}

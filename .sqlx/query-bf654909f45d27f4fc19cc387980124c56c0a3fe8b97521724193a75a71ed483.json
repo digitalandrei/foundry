@@ -1,0 +1,34 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT s.id AS `id: Uuid`, a.agent_version FROM servers s\n         LEFT JOIN server_agents a ON a.server_id = s.id WHERE s.id = ? FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | PRIMARY_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "agent_version",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 256
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "bf654909f45d27f4fc19cc387980124c56c0a3fe8b97521724193a75a71ed483"
+}

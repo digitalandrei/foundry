@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT COUNT(*) FROM agent_tasks WHERE deployment_id = ? AND task_type = 'PUBLISH_VHOST' AND state IN ('QUEUED','DISPATCHED') FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "COUNT(*)",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "NOT_NULL | BINARY",
+          "max_size": 21
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4b7bde0e440da19574f4defcf3e396bf579832dec3ec2b75d009372659ab7d00"
+}

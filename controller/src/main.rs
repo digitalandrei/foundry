@@ -1,6 +1,7 @@
 //! Foundry control plane: axum API, GitLab integration, scheduler state,
 //! agent task queue.
 
+mod agent_version;
 mod audit;
 mod auth;
 mod cli;

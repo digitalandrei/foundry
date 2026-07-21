@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "INSERT IGNORE INTO app_access_logs\n             (deployment_id, occurred_at, method, path, status, request_time_ms, response_bytes, request_id)\n             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "396a33719272e77ce596b0219b6126ce182a92b3c66fd5fde6df17aad9631bae"
+}

@@ -22,20 +22,53 @@ pub async fn apply_snapshot(
     let now = Utc::now().naive_utc();
     let mut tx = pool.begin().await?;
 
+    let readiness_json = snap
+        .readiness
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(AppError::internal)?;
+    let setup_revision = snap.readiness.as_ref().and_then(|r| r.setup_revision);
+    let readiness_checked_at = snap.readiness.as_ref().map(|r| r.checked_at.naive_utc());
+    let storage_total = snap.storage.as_ref().map(|storage| storage.total_bytes);
+    let storage_available = snap.storage.as_ref().map(|storage| storage.available_bytes);
     sqlx::query!(
         "UPDATE servers SET nvidia_driver_version = ?, docker_version = ?,
-             docker_ok = ?, app_publishing_ready = ?, nginx_status = ?, updated_at = ?
+             docker_ok = ?, app_publishing_ready = ?, nginx_status = ?, setup_revision = ?,
+             readiness_json = ?, readiness_checked_at = ?, storage_total_bytes = ?,
+             storage_available_bytes = ?, updated_at = ?
          WHERE id = ?",
         snap.nvidia_driver_version,
         snap.docker_version,
         snap.docker_ok,
         snap.app_publishing,
         snap.nginx_status,
+        setup_revision,
+        readiness_json,
+        readiness_checked_at,
+        storage_total,
+        storage_available,
         now,
         server_id.0,
     )
     .execute(&mut *tx)
     .await?;
+
+    if let Some(storage) = &snap.storage {
+        for volume in &storage.volumes {
+            sqlx::query!(
+                "UPDATE server_volumes SET used_bytes = ?, usage_measured_at = ?, updated_at = ?
+                 WHERE id = ? AND server_id = ?",
+                volume.used_bytes,
+                now,
+                now,
+                volume.volume_id.0,
+                server_id.0,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
 
     // ── GPUs + slots, UUID-keyed, two-phase ─────────────────────────
     // Phase 1: everything on this server provisionally OFFLINE;
@@ -182,8 +215,12 @@ pub async fn apply_snapshot(
                             WHEN 'RUNNING' THEN 1
                             WHEN 'STOPPING' THEN 2
                             WHEN 'PULLING_IMAGE' THEN 3
+                            WHEN 'PREPARED' THEN 3
                             WHEN 'CREATING_CONTAINER' THEN 3
                             WHEN 'STARTING' THEN 3
+                            WHEN 'WAITING_HEALTH' THEN 3
+                            WHEN 'PUBLISHING' THEN 3
+                            WHEN 'PUBLISH_FAILED' THEN 1
                             ELSE 4 END) AS prio
                FROM deployment_slots ds
                JOIN deployments d ON d.id = ds.deployment_id

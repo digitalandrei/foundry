@@ -83,9 +83,9 @@ deployment, not a failure.
   the container) rather than only-while-RUNNING — a stopped app 502s
   because its upstream is down, never a stale upstream (condition 4's
   intent holds); upstreams bind loopback-adjacent on the same host, so
-  condition 7's LAN-reachability concern disappears; body-size/timeout
-  are fixed defaults (100 MB / 300 s) for now, per-deployment knobs
-  deferred (condition 5 partially).
+  condition 7's LAN-reachability concern disappears. OCI application metadata
+  now controls primary-port selection, health path, body-size, and timeout
+  within bounded defaults (2 GiB / 300 s when omitted).
 - Port discovery (a) shipped: `GET /api/registry/tags/{id}/exposed-
   ports` reads the image config blob and pre-fills the dialog;
   post-pull verification (b) deferred.
@@ -105,8 +105,10 @@ and § Agent Tasks.
   Machines)
 - `POST /api/deployments` (validation: slot FREE, user may pull the tag),
   stop/restart/delete endpoints
-- Replacement: `POST /api/deployments/{id}/replace` —
-  stop old → remove old → pull new → start new; old ends `REPLACED`
+- Replacement: `POST /api/deployments/{id}/replace` — prepare/pull the immutable
+  successor while the predecessor serves; quiesce and retain the predecessor;
+  health-check and publish the successor; remove the old container and mark it
+  `REPLACED` only after success. Restore the retained predecessor on failure.
 - Agent executors: DEPLOY/STOP/RESTART/REMOVE_CONTAINER via bollard —
   labels, GPU device requests by UUID, ports/env/volumes, short-lived pull
   credentials (`../GITLAB-INTEGRATION.md` § Image Pulls)

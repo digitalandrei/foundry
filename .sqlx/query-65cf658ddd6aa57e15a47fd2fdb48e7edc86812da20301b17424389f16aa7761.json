@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT v.id AS \"id: Uuid\", v.name, v.path, v.created_at,\n                  v.gitlab_project_id AS \"project_id: Uuid\",\n                  p.path_with_namespace AS \"project_name?\",\n                  v.visibility, v.placement,\n                  v.gpu_slot_id AS \"slot_id: Uuid\", gs.name AS \"slot_name?\",\n                  v.created_by AS \"created_by: Uuid\",\n                  u.display_name AS created_by_name\n           FROM server_volumes v\n           JOIN users u ON u.id = v.created_by\n           LEFT JOIN gitlab_projects p ON p.id = v.gitlab_project_id\n           LEFT JOIN gpu_slots gs ON gs.id = v.gpu_slot_id\n           WHERE v.server_id = ? AND v.gitlab_project_id = ?\n             AND (v.visibility = 'PROJECT' OR v.created_by = ?)\n             AND (? IS NULL OR v.placement = 'SERVER' OR v.gpu_slot_id = ?)\n           ORDER BY v.name, v.visibility, v.placement",
+  "query": "SELECT v.id AS \"id: Uuid\", v.name, v.path, v.created_at,\n                  v.used_bytes AS \"used_bytes?: u64\", v.quota_bytes AS \"quota_bytes?: u64\",\n                  v.usage_measured_at,\n                  v.gitlab_project_id AS \"project_id: Uuid\",\n                  p.path_with_namespace AS \"project_name?\",\n                  v.visibility, v.placement,\n                  v.gpu_slot_id AS \"slot_id: Uuid\", gs.name AS \"slot_name?\",\n                  v.created_by AS \"created_by: Uuid\",\n                  u.display_name AS created_by_name\n           FROM server_volumes v\n           JOIN users u ON u.id = v.created_by\n           LEFT JOIN gitlab_projects p ON p.id = v.gitlab_project_id\n           LEFT JOIN gpu_slots gs ON gs.id = v.gpu_slot_id\n           WHERE v.server_id = ? AND v.gitlab_project_id = ?\n             AND (v.visibility = 'PROJECT' OR v.created_by = ?)\n             AND (? IS NULL OR v.placement = 'SERVER' OR v.gpu_slot_id = ?)\n           ORDER BY v.name, v.visibility, v.placement",
   "describe": {
     "columns": [
       {
@@ -41,6 +41,33 @@
       },
       {
         "ordinal": 4,
+        "name": "used_bytes?: u64",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "UNSIGNED",
+          "max_size": 20
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "quota_bytes?: u64",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "UNSIGNED",
+          "max_size": 20
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "usage_measured_at",
+        "type_info": {
+          "type": "Datetime",
+          "flags": "BINARY",
+          "max_size": 19
+        }
+      },
+      {
+        "ordinal": 7,
         "name": "project_id: Uuid",
         "type_info": {
           "type": "String",
@@ -49,7 +76,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 8,
         "name": "project_name?",
         "type_info": {
           "type": "VarString",
@@ -58,7 +85,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 9,
         "name": "visibility",
         "type_info": {
           "type": "VarString",
@@ -67,7 +94,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 10,
         "name": "placement",
         "type_info": {
           "type": "VarString",
@@ -76,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 11,
         "name": "slot_id: Uuid",
         "type_info": {
           "type": "String",
@@ -85,7 +112,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 12,
         "name": "slot_name?",
         "type_info": {
           "type": "VarString",
@@ -94,7 +121,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 13,
         "name": "created_by: Uuid",
         "type_info": {
           "type": "String",
@@ -103,7 +130,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 14,
         "name": "created_by_name",
         "type_info": {
           "type": "VarString",
@@ -122,6 +149,9 @@
       false,
       true,
       true,
+      true,
+      true,
+      true,
       false,
       false,
       true,
@@ -130,5 +160,5 @@
       false
     ]
   },
-  "hash": "38aee875595bf57388f42fc56e6cd010d5cc6138c3d7f4d26edccf26c4a93fd4"
+  "hash": "65cf658ddd6aa57e15a47fd2fdb48e7edc86812da20301b17424389f16aa7761"
 }

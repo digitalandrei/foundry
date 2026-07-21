@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "UPDATE deployments SET container_id = ?, error_message = ?, health_status = ?, health_detail = ?, updated_at = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "98db71fc60503a6db65f3ba0ccfdcdc5bf1230ba7a7ff95002eaac9c0245a0eb"
+}

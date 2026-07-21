@@ -9,6 +9,8 @@ import type {
   DeploymentSummary,
   ImageMetadataResponse,
   LatestMetricsResponse,
+  AppRequestMetrics,
+  AppTrafficRecord,
   ServerVolume,
 } from "@/lib/types"
 
@@ -19,6 +21,22 @@ export function useDeployments() {
     // Lifecycle moves fast (pull → run); keep the table close to live.
     refetchInterval: 5_000,
   })
+}
+
+export function useAppTraffic(id: string | null) {
+  const logs = useQuery({
+    queryKey: ["deployments", id, "access-logs"],
+    queryFn: () => api<AppTrafficRecord[]>(`/api/deployments/${id}/access-logs`),
+    enabled: id !== null,
+    refetchInterval: 5_000,
+  })
+  const metrics = useQuery({
+    queryKey: ["deployments", id, "request-metrics"],
+    queryFn: () => api<AppRequestMetrics>(`/api/deployments/${id}/request-metrics`),
+    enabled: id !== null,
+    refetchInterval: 10_000,
+  })
+  return { logs, metrics }
 }
 
 /** Mounts + env names for the slot detail dialog. */
@@ -106,6 +124,19 @@ export function useDeleteVolume() {
   })
 }
 
+export function useSetVolumeQuota() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, quotaBytes }: { id: string; quotaBytes: number | null }) =>
+      api<void>(`/api/volumes/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ quota_bytes: quotaBytes }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["servers"] }),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Quota update failed"),
+  })
+}
+
 function invalidateAll(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.invalidateQueries({ queryKey: queryKeys.deployments })
   queryClient.invalidateQueries({ queryKey: queryKeys.servers })
@@ -185,6 +216,18 @@ export function useRestartDeployment() {
       api<DeploymentSummary>(`/api/deployments/${id}/restart`, { method: "POST" }),
     onSuccess: () => invalidateAll(queryClient),
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Restart failed"),
+  })
+}
+
+export function useRetryPublish() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api<DeploymentSummary>(`/api/deployments/${id}/retry-publish`, { method: "POST" }),
+    onSuccess: () => {
+      toast.success("Publication retry queued")
+      invalidateAll(queryClient)
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Publication retry failed"),
   })
 }
 

@@ -16,6 +16,10 @@ const mapped: DeploymentPort = {
   protocol: "tcp",
   kind: "HTTP",
   hostname: "comfy-auto.protv-ai-04-03.ai.protv.ro",
+  primary: true,
+  health_path: "/",
+  max_body_size_bytes: 2 * 1024 ** 3,
+  proxy_timeout_seconds: 300,
 }
 
 describe.each(["light", "dark"])("deployment app address (%s theme)", (theme) => {
@@ -36,5 +40,17 @@ describe.each(["light", "dark"])("deployment app address (%s theme)", (theme) =>
         "https://comfy-auto.protv-ai-04-03.ai.protv.ro",
       )
     }
+  })
+
+  it("prefers the image-declared primary application", () => {
+    render(
+      <DeploymentPrimaryUrl
+        ports={[
+          { ...mapped, container_port: 3000, hostname: "secondary.example", primary: false },
+          { ...mapped, container_port: 8188, hostname: "primary.example", primary: true },
+        ]}
+      />,
+    )
+    expect(screen.getByRole("link")).toHaveAttribute("href", "https://primary.example")
   })
 })

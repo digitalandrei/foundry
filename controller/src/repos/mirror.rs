@@ -214,6 +214,7 @@ pub async fn insert_new_tag_names(
 
 /// Everything needed to build a pullable image_ref + mint a pull token.
 pub struct TagRef {
+    pub tag_id: foundry_shared::RegistryTagId,
     pub tag_name: String,
     pub repo_path: String,
     pub project_id: GitlabProjectId,
@@ -227,7 +228,7 @@ pub async fn tag_ref(
     tag_id: foundry_shared::RegistryTagId,
 ) -> Result<TagRef, AppError> {
     let row = sqlx::query!(
-        r#"SELECT t.name AS tag_name, r.path AS repo_path,
+        r#"SELECT t.id AS "tag_id: Uuid", t.name AS tag_name, r.path AS repo_path,
                   p.id AS "project_id: Uuid", p.gitlab_project_id,
                   p.gitlab_instance_id AS "instance_id: Uuid", i.registry_url
            FROM registry_tags t
@@ -241,6 +242,7 @@ pub async fn tag_ref(
     .await?
     .ok_or(AppError::NotFound("image tag not found"))?;
     Ok(TagRef {
+        tag_id: row.tag_id.into(),
         tag_name: row.tag_name,
         repo_path: row.repo_path,
         project_id: row.project_id.into(),
@@ -248,4 +250,25 @@ pub async fn tag_ref(
         instance_id: row.instance_id.into(),
         registry_url: row.registry_url,
     })
+}
+
+pub async fn cache_tag_digest(
+    pool: &MySqlPool,
+    tag_id: foundry_shared::RegistryTagId,
+    digest: &str,
+) -> Result<(), AppError> {
+    if !digest.starts_with("sha256:") || digest.len() != 71 {
+        return Err(AppError::BadRequest(
+            "registry returned an invalid image digest".into(),
+        ));
+    }
+    sqlx::query!(
+        "UPDATE registry_tags SET digest = ?, updated_at = ? WHERE id = ?",
+        digest,
+        chrono::Utc::now().naive_utc(),
+        tag_id.0,
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
 }

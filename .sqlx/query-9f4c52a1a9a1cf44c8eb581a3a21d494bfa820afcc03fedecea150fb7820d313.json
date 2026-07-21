@@ -1,0 +1,12 @@
+{
+  "db_name": "MySQL",
+  "query": "DELETE FROM app_access_logs WHERE deployment_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "9f4c52a1a9a1cf44c8eb581a3a21d494bfa820afcc03fedecea150fb7820d313"
+}

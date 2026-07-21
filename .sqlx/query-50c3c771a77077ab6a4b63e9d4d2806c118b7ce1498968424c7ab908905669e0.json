@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT d.server_id AS \"server_id: Uuid\", d.image_ref, d.container_name,\n                  d.gpu_slot_id AS \"slot_id: Uuid\", gs.name AS slot_name,\n                  d.gpu_group_id AS \"gpu_group_id: Uuid\",\n                  d.mem_limit_mb AS \"mem_limit_mb?: u32\",\n                  COALESCE(gs.mig_uuid, g.gpu_uuid) AS \"gpu_device_uuid!\"\n           FROM deployments d\n           JOIN gpu_slots gs ON gs.id = d.gpu_slot_id\n           JOIN gpus g ON g.id = gs.gpu_id\n           WHERE d.id = ?",
+  "query": "SELECT d.server_id AS \"server_id: Uuid\", d.image_ref, d.container_name,\n                  d.gpu_slot_id AS \"slot_id: Uuid\", gs.name AS slot_name,\n                  d.gpu_group_id AS \"gpu_group_id: Uuid\",\n                  d.mem_limit_mb AS \"mem_limit_mb?: u32\", t.size_bytes,\n                  COALESCE(gs.mig_uuid, g.gpu_uuid) AS \"gpu_device_uuid!\"\n           FROM deployments d\n           JOIN gpu_slots gs ON gs.id = d.gpu_slot_id\n           JOIN gpus g ON g.id = gs.gpu_id\n           JOIN registry_tags t ON t.id = d.registry_tag_id\n           WHERE d.id = ?",
   "describe": {
     "columns": [
       {
@@ -68,6 +68,15 @@
       },
       {
         "ordinal": 7,
+        "name": "size_bytes",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "",
+          "max_size": 20
+        }
+      },
+      {
+        "ordinal": 8,
         "name": "gpu_device_uuid!",
         "type_info": {
           "type": "VarString",
@@ -87,8 +96,9 @@
       false,
       true,
       true,
+      true,
       false
     ]
   },
-  "hash": "629506ecb2745af277330741d66be9984bae198461a949d32eb76695ff8fbd15"
+  "hash": "50c3c771a77077ab6a4b63e9d4d2806c118b7ce1498968424c7ab908905669e0"
 }

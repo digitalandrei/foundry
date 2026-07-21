@@ -271,7 +271,7 @@ pub(crate) fn fs_error(action: &str, error: std::io::Error) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_relative, resolve_existing, validate_root_path};
+    use super::{normalize_relative, resolve_existing, temporary_sibling, validate_root_path};
     use std::path::Path;
 
     #[test]
@@ -299,5 +299,19 @@ mod tests {
         let error = resolve_existing(&root, "escape/passwd").unwrap_err();
         assert!(error.contains("symlink"));
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn upload_request_id_selects_a_stable_partial_file() {
+        let id = uuid::Uuid::now_v7();
+        let destination = Path::new("/storage/containers/volumes/one/model.bin");
+        let first = temporary_sibling(destination, id).unwrap();
+        let resumed = temporary_sibling(destination, id).unwrap();
+        let expected = format!(".foundry-upload-{id}");
+        assert_eq!(first, resumed);
+        assert_eq!(
+            first.file_name().and_then(|name| name.to_str()),
+            Some(expected.as_str())
+        );
     }
 }

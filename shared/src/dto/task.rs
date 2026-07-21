@@ -18,8 +18,10 @@ pub struct TaskEnvelope {
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TaskPayload {
     Deploy(Box<DeployPayload>),
+    Publish(PublishPayload),
     /// STOP / RESTART / REMOVE all target one managed container.
     Container(ContainerTarget),
+    Replacement(ReplacementTarget),
     /// REMOVE_VOLUME: delete a persistent volume directory. The agent
     /// hard-validates the prefix (`/storage/containers/`).
     Volume(VolumeTarget),
@@ -83,6 +85,16 @@ pub struct DeployPayload {
     /// DEPLOY payloads queued by a pre-0.31 controller still deserialize.
     #[serde(default)]
     pub mem_limit_mb: Option<u32>,
+    /// Compressed image size from the registry; the agent uses it for a
+    /// conservative free-space preflight. Unknown stays `None`.
+    #[serde(default)]
+    pub image_size_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublishPayload {
+    pub deployment_id: DeploymentId,
+    pub ports: Vec<PortBinding>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,6 +111,21 @@ pub struct PortBinding {
     /// (`<name>.ai.protv.ro`); the wildcard cert lives at
     /// /etc/foundry-agent/tls/ on the server (operator-managed).
     pub hostname: Option<String>,
+    #[serde(default)]
+    pub primary: bool,
+    #[serde(default)]
+    pub health_path: Option<String>,
+    #[serde(default = "default_max_body_size")]
+    pub max_body_size_bytes: u64,
+    #[serde(default = "default_proxy_timeout")]
+    pub proxy_timeout_seconds: u32,
+}
+
+fn default_max_body_size() -> u64 {
+    2 * 1024 * 1024 * 1024
+}
+fn default_proxy_timeout() -> u32 {
+    300
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,6 +158,12 @@ pub struct ContainerTarget {
     pub container_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplacementTarget {
+    pub container: ContainerTarget,
+    pub ports: Vec<PortBinding>,
+}
+
 /// `POST /agent/tasks/result`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskResultReport {
@@ -140,6 +173,18 @@ pub struct TaskResultReport {
     pub container_id: Option<String>,
     /// Operator-readable failure summary (no secrets).
     pub error: Option<String>,
+    /// Machine-readable phase. `PUBLISH` is recoverable and deliberately
+    /// leaves the healthy container running for a vhost-only retry.
+    #[serde(default)]
+    pub failure_stage: Option<String>,
+    #[serde(default)]
+    pub health_status: Option<String>,
+    #[serde(default)]
+    pub health_detail: Option<String>,
+    #[serde(default)]
+    pub readiness: Option<super::HostReadiness>,
+    #[serde(default)]
+    pub storage: Option<super::StorageUsage>,
 }
 
 /// `POST /agent/tasks/progress` — best-effort live status while a

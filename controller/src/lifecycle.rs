@@ -20,17 +20,37 @@ use DeploymentState as D;
 const DEPLOYMENT_TRANSITIONS: &[(D, D)] = &[
     (D::Pending, D::Validating),
     (D::Validating, D::PullingImage),
+    (D::Validating, D::Prepared),
     (D::Validating, D::Failed),
     (D::PullingImage, D::CreatingContainer),
     (D::PullingImage, D::Running),
     (D::PullingImage, D::Failed),
+    (D::PullingImage, D::Prepared),
+    (D::Prepared, D::PullingImage),
+    (D::Prepared, D::Failed),
+    (D::PullingImage, D::WaitingHealth),
+    (D::PullingImage, D::Publishing),
     (D::CreatingContainer, D::Starting),
     (D::CreatingContainer, D::Failed),
+    (D::CreatingContainer, D::WaitingHealth),
+    (D::CreatingContainer, D::Publishing),
     // Progress reports are best-effort: a lost STARTING report must not
     // wedge the success result.
     (D::CreatingContainer, D::Running),
     (D::Starting, D::Running),
     (D::Starting, D::Failed),
+    (D::Starting, D::WaitingHealth),
+    (D::Starting, D::Publishing),
+    (D::WaitingHealth, D::Publishing),
+    (D::WaitingHealth, D::Running),
+    (D::WaitingHealth, D::Failed),
+    (D::Publishing, D::Running),
+    (D::Publishing, D::PublishFailed),
+    (D::Publishing, D::Failed),
+    (D::PublishFailed, D::Running),
+    (D::PublishFailed, D::Stopping),
+    (D::PublishFailed, D::Removing),
+    (D::PublishFailed, D::Failed),
     (D::Running, D::Stopping),
     (D::Running, D::Failed),
     (D::Running, D::Replaced),
@@ -40,6 +60,7 @@ const DEPLOYMENT_TRANSITIONS: &[(D, D)] = &[
     (D::Stopped, D::Restarting),
     (D::Stopped, D::Removing),
     (D::Stopped, D::Replaced),
+    (D::Stopped, D::Failed),
     (D::Restarting, D::Running),
     (D::Restarting, D::Failed),
     (D::Failed, D::Removing),
@@ -48,6 +69,7 @@ const DEPLOYMENT_TRANSITIONS: &[(D, D)] = &[
     // to remove — the slot already auto-healed). 0.11.0.
     (D::Failed, D::Removed),
     (D::Removing, D::Removed),
+    (D::Removing, D::Replaced),
     (D::Removing, D::Failed),
 ];
 
@@ -129,6 +151,7 @@ pub async fn transition_deployment(
     // keeps them — a stopped deployment's logs stay readable.
     if to.as_str() == "REMOVED" {
         crate::repos::logs::delete_for(tx, deployment_id).await?;
+        crate::repos::traffic::delete_for(tx, deployment_id).await?;
     }
 
     sqlx::query!(

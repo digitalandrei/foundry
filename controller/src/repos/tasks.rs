@@ -43,6 +43,73 @@ pub async fn enqueue(
     Ok(id)
 }
 
+pub async fn enqueue_server_command(
+    pool: &MySqlPool,
+    server_id: ServerId,
+    task_type: TaskType,
+    user: UserId,
+    ip_address: Option<&str>,
+) -> Result<TaskId, AppError> {
+    if !matches!(
+        task_type,
+        TaskType::RefreshInventory | TaskType::UpgradeAgent
+    ) {
+        return Err(AppError::BadRequest("unsupported server command".into()));
+    }
+    let mut tx = pool.begin().await?;
+    let server = sqlx::query!(
+        "SELECT s.id AS `id: Uuid`, a.agent_version FROM servers s
+         LEFT JOIN server_agents a ON a.server_id = s.id WHERE s.id = ? FOR UPDATE",
+        server_id.0,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound("server not found"))?;
+    if task_type == TaskType::UpgradeAgent
+        && !crate::agent_version::supports(
+            server.agent_version.as_deref(),
+            crate::agent_version::OPERATIONAL_MIN_AGENT_VERSION,
+        )
+    {
+        return Err(AppError::BadRequest(format!(
+            "remote upgrade requires foundry-agent 0.59.0 or newer (reported {}); bootstrap this host once with `sudo foundry-agent --setup-apps`",
+            server.agent_version.as_deref().unwrap_or("unknown"),
+        )));
+    }
+    let pending = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM agent_tasks WHERE server_id = ? AND task_type = ? AND state IN ('QUEUED','DISPATCHED') FOR UPDATE",
+        server_id.0,
+        task_type.as_str(),
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if pending > 0 {
+        return Err(AppError::BadRequest(
+            "the server command is already queued".into(),
+        ));
+    }
+    let task_id = enqueue(&mut tx, server_id, None, task_type, &TaskPayload::None).await?;
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(user),
+            action: if task_type == TaskType::UpgradeAgent {
+                "AGENT_UPGRADE_REQUESTED"
+            } else {
+                "SERVER_DIAGNOSTICS_REQUESTED"
+            },
+            subject_type: Some("server"),
+            subject_id: Some(server_id.0),
+            detail: None,
+            ip_address,
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(task_id)
+}
+
 pub struct DispatchedTask {
     pub id: TaskId,
     pub task_type: TaskType,
@@ -117,9 +184,11 @@ pub async fn progress(
         DeploymentState::PullingImage
             | DeploymentState::CreatingContainer
             | DeploymentState::Starting
+            | DeploymentState::WaitingHealth
+            | DeploymentState::Publishing
     ) {
         return Err(AppError::BadRequest(
-            "progress may only report PULLING_IMAGE/CREATING_CONTAINER/STARTING".into(),
+            "unsupported deployment progress state".into(),
         ));
     }
     let mut tx = pool.begin().await?;
@@ -228,6 +297,11 @@ pub async fn complete(
         serde_json::to_string(&serde_json::json!({
             "container_id": report.container_id,
             "error": report.error,
+            "failure_stage": report.failure_stage,
+            "health_status": report.health_status,
+            "health_detail": report.health_detail,
+            "readiness": report.readiness,
+            "storage": report.storage,
         }))
         .map_err(AppError::internal)?,
         now,
@@ -240,13 +314,63 @@ pub async fn complete(
         deployment_id: row.deployment_id.map(Into::into),
         server_id: row.server_id.into(),
     };
+    if task.task_type == TaskType::RefreshInventory && report.success {
+        let readiness_json = report
+            .readiness
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(AppError::internal)?;
+        let setup_revision = report
+            .readiness
+            .as_ref()
+            .and_then(|readiness| readiness.setup_revision);
+        let checked_at = report
+            .readiness
+            .as_ref()
+            .map(|readiness| readiness.checked_at.naive_utc());
+        let storage_total = report.storage.as_ref().map(|storage| storage.total_bytes);
+        let storage_available = report
+            .storage
+            .as_ref()
+            .map(|storage| storage.available_bytes);
+        sqlx::query!(
+            "UPDATE servers SET setup_revision = ?, readiness_json = ?, readiness_checked_at = ?,
+             storage_total_bytes = ?, storage_available_bytes = ?, updated_at = ? WHERE id = ?",
+            setup_revision,
+            readiness_json,
+            checked_at,
+            storage_total,
+            storage_available,
+            now,
+            task.server_id.0,
+        )
+        .execute(&mut *tx)
+        .await?;
+        if let Some(storage) = &report.storage {
+            for volume in &storage.volumes {
+                sqlx::query!(
+                    "UPDATE server_volumes SET used_bytes = ?, usage_measured_at = ?, updated_at = ?
+                     WHERE id = ? AND server_id = ?",
+                    volume.used_bytes,
+                    now,
+                    now,
+                    volume.volume_id.0,
+                    task.server_id.0,
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+    }
     advance_deployment(&mut tx, &task, report).await?;
     tx.commit().await?;
     Ok(task.deployment_id)
 }
 
-/// Result → state-machine mapping, including the replacement chain
-/// (stop old → remove old → REPLACED → deploy new on the same slot).
+/// Result → state-machine mapping, including the replacement chain:
+/// prepare the immutable successor, quiesce and retain the predecessor,
+/// publish the healthy successor, then remove/mark the predecessor replaced.
 async fn advance_deployment(
     tx: &mut MySqlConnection,
     task: &TaskRow,
@@ -271,6 +395,59 @@ async fn advance_deployment(
         .map(|e| serde_json::json!({ "error": e }));
 
     match (task.task_type, report.success) {
+        (TaskType::PrepareDeploy, true) => {
+            lifecycle::transition_deployment(
+                tx,
+                deployment_id,
+                DeploymentState::Prepared,
+                &actor,
+                None,
+            )
+            .await?;
+            let predecessor = sqlx::query!(
+                "SELECT id AS `id: Uuid`, state, adopted_container_id FROM deployments WHERE replaced_by_deployment_id = ? FOR UPDATE",
+                deployment_id.0,
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(AppError::NotFound("replacement predecessor not found"))?;
+            let old_id: DeploymentId = predecessor.id.into();
+            let old_state: DeploymentState =
+                predecessor.state.parse().map_err(AppError::internal)?;
+            if old_state == DeploymentState::Running {
+                lifecycle::transition_deployment(
+                    tx,
+                    old_id,
+                    DeploymentState::Stopping,
+                    &actor,
+                    None,
+                )
+                .await?;
+                lifecycle::transition_member_slots(tx, old_id, SlotState::Stopping).await?;
+                let old_ports = load_port_bindings(tx, old_id).await?;
+                enqueue(
+                    tx,
+                    task.server_id,
+                    Some(old_id),
+                    TaskType::QuiesceContainer,
+                    &TaskPayload::Replacement(foundry_shared::dto::ReplacementTarget {
+                        container: foundry_shared::dto::ContainerTarget {
+                            deployment_id: old_id,
+                            container_id: predecessor.adopted_container_id,
+                        },
+                        ports: old_ports,
+                    }),
+                )
+                .await?;
+            } else {
+                if !enqueue_purge_volumes(tx, deployment_id).await? {
+                    enqueue_deploy(tx, deployment_id).await?;
+                }
+            }
+        }
+        (TaskType::PrepareDeploy, false) => {
+            fail_replacement_successor(tx, deployment_id, report, &actor).await?;
+        }
         (TaskType::DeployContainer, true) => {
             if let Some(cid) = &report.container_id {
                 sqlx::query!(
@@ -282,6 +459,15 @@ async fn advance_deployment(
                 .execute(&mut *tx)
                 .await?;
             }
+            sqlx::query!(
+                "UPDATE deployments SET health_status = ?, health_detail = ?, error_message = NULL, updated_at = ? WHERE id = ?",
+                report.health_status,
+                report.health_detail,
+                chrono::Utc::now().naive_utc(),
+                deployment_id.0,
+            )
+            .execute(&mut *tx)
+            .await?;
             lifecycle::transition_deployment(
                 tx,
                 deployment_id,
@@ -291,10 +477,104 @@ async fn advance_deployment(
             )
             .await?;
             lifecycle::transition_member_slots(tx, deployment_id, SlotState::Running).await?;
+            finish_replacement(tx, deployment_id, task.server_id).await?;
         }
         (TaskType::DeployContainer, false) => {
-            // Nothing got deployed — free the slot(s) so they auto-heal.
-            fail_deployment(tx, deployment_id, report, &actor, true).await?;
+            if report.failure_stage.as_deref() == Some("PUBLISH") && report.container_id.is_some() {
+                sqlx::query!(
+                    "UPDATE deployments SET container_id = ?, error_message = ?, health_status = ?, health_detail = ?, updated_at = ? WHERE id = ?",
+                    report.container_id,
+                    report.error,
+                    report.health_status,
+                    report.health_detail,
+                    chrono::Utc::now().naive_utc(),
+                    deployment_id.0,
+                )
+                .execute(&mut *tx)
+                .await?;
+                lifecycle::transition_deployment(
+                    tx,
+                    deployment_id,
+                    DeploymentState::PublishFailed,
+                    &actor,
+                    detail,
+                )
+                .await?;
+                lifecycle::transition_member_slots(tx, deployment_id, SlotState::Running).await?;
+                if retained_predecessor(tx, deployment_id).await?.is_some() {
+                    lifecycle::transition_deployment(tx, deployment_id, DeploymentState::Stopping, &actor, Some(serde_json::json!({ "reason": "replacement publication failed; restoring predecessor" }))).await?;
+                    enqueue(
+                        tx,
+                        task.server_id,
+                        Some(deployment_id),
+                        TaskType::StopContainer,
+                        &TaskPayload::Container(foundry_shared::dto::ContainerTarget {
+                            deployment_id,
+                            container_id: None,
+                        }),
+                    )
+                    .await?;
+                }
+            } else {
+                // Preflight/pull/create/health failures leave no workload.
+                fail_deployment(tx, deployment_id, report, &actor, true).await?;
+                rollback_replacement(tx, deployment_id, task.server_id, &actor).await?;
+            }
+        }
+        (TaskType::PublishVhost, true) => {
+            sqlx::query!(
+                "UPDATE deployments SET error_message = NULL, updated_at = ? WHERE id = ?",
+                chrono::Utc::now().naive_utc(),
+                deployment_id.0,
+            )
+            .execute(&mut *tx)
+            .await?;
+            lifecycle::transition_deployment(
+                tx,
+                deployment_id,
+                DeploymentState::Running,
+                &actor,
+                None,
+            )
+            .await?;
+            lifecycle::transition_member_slots(tx, deployment_id, SlotState::Running).await?;
+            finish_replacement(tx, deployment_id, task.server_id).await?;
+        }
+        (TaskType::PublishVhost, false) => {
+            sqlx::query!(
+                "UPDATE deployments SET error_message = ?, updated_at = ? WHERE id = ?",
+                report.error,
+                chrono::Utc::now().naive_utc(),
+                deployment_id.0,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        (TaskType::QuiesceContainer, true) => {
+            let Some(new_id) = d.replaced_by else {
+                return Err(AppError::BadRequest(
+                    "quiesced deployment has no successor".into(),
+                ));
+            };
+            lifecycle::transition_deployment(
+                tx,
+                deployment_id,
+                DeploymentState::Stopped,
+                &actor,
+                Some(serde_json::json!({ "retained_for": new_id.to_string() })),
+            )
+            .await?;
+            lifecycle::transition_member_slots(tx, deployment_id, SlotState::Reserved).await?;
+            let new_id: DeploymentId = new_id.into();
+            if !enqueue_purge_volumes(tx, new_id).await? {
+                enqueue_deploy(tx, new_id).await?;
+            }
+        }
+        (TaskType::QuiesceContainer, false) => {
+            fail_deployment(tx, deployment_id, report, &actor, false).await?;
+            if let Some(new_id) = d.replaced_by {
+                fail_replacement_successor(tx, new_id.into(), report, &actor).await?;
+            }
         }
         (TaskType::StopContainer, true) => {
             lifecycle::transition_deployment(
@@ -307,6 +587,25 @@ async fn advance_deployment(
             .await?;
             // Stopped container still holds its slot(s).
             lifecycle::transition_member_slots(tx, deployment_id, SlotState::Reserved).await?;
+            let stopped_predecessor = sqlx::query_scalar!(
+                "SELECT COUNT(*) FROM deployments WHERE replaced_by_deployment_id = ? AND state = 'STOPPED' FOR UPDATE",
+                deployment_id.0,
+            )
+            .fetch_one(&mut *tx)
+            .await? > 0;
+            if stopped_predecessor {
+                lifecycle::transition_deployment(
+                    tx,
+                    deployment_id,
+                    DeploymentState::Failed,
+                    &actor,
+                    Some(serde_json::json!({ "reason": "replacement rolled back" })),
+                )
+                .await?;
+                lifecycle::transition_member_slots(tx, deployment_id, SlotState::Free).await?;
+                rollback_replacement(tx, deployment_id, task.server_id, &actor).await?;
+                return Ok(());
+            }
             // Replacement chain: stopped because a successor waits →
             // remove the old container next (chain continues at REMOVE
             // success).
@@ -329,7 +628,7 @@ async fn advance_deployment(
             // The container may still be running — keep the slot(s) FAILED.
             fail_deployment(tx, deployment_id, report, &actor, false).await?;
         }
-        (TaskType::RestartContainer, success) => {
+        (TaskType::RestartContainer | TaskType::RollbackContainer, success) => {
             let to = if success {
                 DeploymentState::Running
             } else {
@@ -351,7 +650,10 @@ async fn advance_deployment(
             match d.replaced_by {
                 Some(new_id) => {
                     // Old side of a replacement: terminal REPLACED,
-                    // slot reserved for the successor, deploy it now.
+                    // The successor is already healthy and published. Keep
+                    // the physical slot RUNNING when finalizing the retained
+                    // predecessor; updating through the old row would
+                    // otherwise overwrite the successor's slot state.
                     lifecycle::transition_deployment(
                         tx,
                         deployment_id,
@@ -360,12 +662,10 @@ async fn advance_deployment(
                         Some(serde_json::json!({ "replaced_by": new_id.to_string() })),
                     )
                     .await?;
-                    lifecycle::transition_member_slots(tx, deployment_id, SlotState::Reserved)
+                    lifecycle::transition_member_slots(tx, new_id.into(), SlotState::Running)
                         .await?;
-                    let new_id: DeploymentId = new_id.into();
-                    if !enqueue_purge_volumes(tx, new_id).await? {
-                        enqueue_deploy(tx, new_id).await?;
-                    }
+                    // The successor is already healthy/published. The old
+                    // retained rollback container can now be forgotten.
                 }
                 None => {
                     lifecycle::transition_deployment(
@@ -414,9 +714,225 @@ async fn advance_deployment(
             // be left behind and the slot is safe to release.
             fail_deployment(tx, deployment_id, report, &actor, true).await?;
         }
-        (TaskType::RemoveVolume | TaskType::RefreshInventory | TaskType::UploadLogs, _) => {}
+        (
+            TaskType::RemoveVolume
+            | TaskType::RefreshInventory
+            | TaskType::UploadLogs
+            | TaskType::UpgradeAgent,
+            _,
+        ) => {}
     }
     Ok(())
+}
+
+async fn finish_replacement(
+    tx: &mut MySqlConnection,
+    successor_id: DeploymentId,
+    server_id: ServerId,
+) -> Result<(), AppError> {
+    let predecessor = sqlx::query!(
+        "SELECT id AS `id: Uuid`, state, adopted_container_id FROM deployments
+         WHERE replaced_by_deployment_id = ? FOR UPDATE",
+        successor_id.0,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(predecessor) = predecessor else {
+        return Ok(());
+    };
+    let predecessor_id: DeploymentId = predecessor.id.into();
+    let state: DeploymentState = predecessor.state.parse().map_err(AppError::internal)?;
+    if state == DeploymentState::Stopped || state == DeploymentState::Failed {
+        lifecycle::transition_deployment(
+            tx,
+            predecessor_id,
+            DeploymentState::Removing,
+            &Actor::controller(),
+            Some(serde_json::json!({ "successor": successor_id.to_string() })),
+        )
+        .await?;
+        enqueue(
+            tx,
+            server_id,
+            Some(predecessor_id),
+            TaskType::RemoveContainer,
+            &TaskPayload::Container(foundry_shared::dto::ContainerTarget {
+                deployment_id: predecessor_id,
+                container_id: predecessor.adopted_container_id,
+            }),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn rollback_replacement(
+    tx: &mut MySqlConnection,
+    successor_id: DeploymentId,
+    server_id: ServerId,
+    actor: &Actor,
+) -> Result<(), AppError> {
+    let predecessor = sqlx::query!(
+        "SELECT id AS `id: Uuid`, state, adopted_container_id FROM deployments
+         WHERE replaced_by_deployment_id = ? FOR UPDATE",
+        successor_id.0,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(predecessor) = predecessor else {
+        return Ok(());
+    };
+    let predecessor_id: DeploymentId = predecessor.id.into();
+    let state: DeploymentState = predecessor.state.parse().map_err(AppError::internal)?;
+    sqlx::query!(
+        "UPDATE deployments SET replaced_by_deployment_id = NULL, updated_at = ? WHERE id = ?",
+        chrono::Utc::now().naive_utc(),
+        predecessor_id.0,
+    )
+    .execute(&mut *tx)
+    .await?;
+    match state {
+        DeploymentState::Stopped
+            if predecessor_was_quiesced(tx, predecessor_id, successor_id).await? =>
+        {
+            lifecycle::transition_deployment(
+                tx,
+                predecessor_id,
+                DeploymentState::Restarting,
+                actor,
+                Some(serde_json::json!({ "rollback_from": successor_id.to_string() })),
+            )
+            .await?;
+            lifecycle::transition_member_slots(tx, predecessor_id, SlotState::Reserved).await?;
+            let predecessor_ports = load_port_bindings(tx, predecessor_id).await?;
+            enqueue(
+                tx,
+                server_id,
+                Some(predecessor_id),
+                TaskType::RollbackContainer,
+                &TaskPayload::Replacement(foundry_shared::dto::ReplacementTarget {
+                    container: foundry_shared::dto::ContainerTarget {
+                        deployment_id: predecessor_id,
+                        container_id: predecessor.adopted_container_id,
+                    },
+                    ports: predecessor_ports,
+                }),
+            )
+            .await?;
+        }
+        DeploymentState::Stopped => {
+            // It was already stopped before replacement began, so there is
+            // no retained live workload to restart. Preserve that state and
+            // its reservation exactly as the user left it.
+            lifecycle::transition_member_slots(tx, predecessor_id, SlotState::Reserved).await?;
+        }
+        DeploymentState::Failed => {
+            lifecycle::transition_member_slots(tx, predecessor_id, SlotState::Failed).await?;
+        }
+        DeploymentState::Running => {
+            lifecycle::transition_member_slots(tx, predecessor_id, SlotState::Running).await?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn retained_predecessor(
+    tx: &mut MySqlConnection,
+    successor_id: DeploymentId,
+) -> Result<Option<DeploymentId>, AppError> {
+    let predecessor = sqlx::query_scalar!(
+        "SELECT p.id AS `id: Uuid` FROM deployments p
+         WHERE p.replaced_by_deployment_id = ? AND p.state = 'STOPPED'
+           AND EXISTS (
+             SELECT 1 FROM deployment_events e
+             WHERE e.deployment_id = p.id AND e.from_state = 'STOPPING'
+               AND e.to_state = 'STOPPED'
+               AND JSON_UNQUOTE(JSON_EXTRACT(e.detail, '$.retained_for')) = ?
+           )
+         FOR UPDATE",
+        successor_id.0,
+        successor_id.to_string(),
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    Ok(predecessor.map(Into::into))
+}
+
+async fn predecessor_was_quiesced(
+    tx: &mut MySqlConnection,
+    predecessor_id: DeploymentId,
+    successor_id: DeploymentId,
+) -> Result<bool, AppError> {
+    let count = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM deployment_events e
+         WHERE e.deployment_id = ? AND e.from_state = 'STOPPING'
+           AND e.to_state = 'STOPPED'
+           AND JSON_UNQUOTE(JSON_EXTRACT(e.detail, '$.retained_for')) = ?",
+        predecessor_id.0,
+        successor_id.to_string(),
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    Ok(count > 0)
+}
+
+async fn fail_replacement_successor(
+    tx: &mut MySqlConnection,
+    successor_id: DeploymentId,
+    report: &TaskResultReport,
+    actor: &Actor,
+) -> Result<(), AppError> {
+    fail_deployment(tx, successor_id, report, actor, true).await?;
+    let predecessor = sqlx::query!(
+        "SELECT id AS `id: Uuid`, state FROM deployments WHERE replaced_by_deployment_id = ? FOR UPDATE",
+        successor_id.0,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some(predecessor) = predecessor {
+        let predecessor_id: DeploymentId = predecessor.id.into();
+        if predecessor.state == DeploymentState::Running.as_str() {
+            lifecycle::transition_member_slots(tx, predecessor_id, SlotState::Running).await?;
+            sqlx::query!(
+                "UPDATE deployments SET replaced_by_deployment_id = NULL, updated_at = ? WHERE id = ?",
+                chrono::Utc::now().naive_utc(),
+                predecessor_id.0,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+async fn load_port_bindings(
+    tx: &mut MySqlConnection,
+    deployment_id: DeploymentId,
+) -> Result<Vec<foundry_shared::dto::PortBinding>, AppError> {
+    sqlx::query!(
+        "SELECT container_port, host_port, protocol, kind, hostname, is_primary,
+                health_path, max_body_size_bytes, proxy_timeout_seconds
+         FROM deployment_ports WHERE deployment_id = ? ORDER BY container_port",
+        deployment_id.0,
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .map(|port| {
+        Ok(foundry_shared::dto::PortBinding {
+            container_port: port.container_port,
+            host_port: port.host_port,
+            protocol: port.protocol,
+            kind: port.kind.parse().map_err(AppError::internal)?,
+            hostname: port.hostname,
+            primary: port.is_primary != 0,
+            health_path: port.health_path,
+            max_body_size_bytes: port.max_body_size_bytes,
+            proxy_timeout_seconds: port.proxy_timeout_seconds,
+        })
+    })
+    .collect()
 }
 
 /// Mark a deployment FAILED with its error logged. `free_slot` releases
@@ -476,11 +992,12 @@ pub async fn enqueue_deploy(
         r#"SELECT d.server_id AS "server_id: Uuid", d.image_ref, d.container_name,
                   d.gpu_slot_id AS "slot_id: Uuid", gs.name AS slot_name,
                   d.gpu_group_id AS "gpu_group_id: Uuid",
-                  d.mem_limit_mb AS "mem_limit_mb?: u32",
+                  d.mem_limit_mb AS "mem_limit_mb?: u32", t.size_bytes,
                   COALESCE(gs.mig_uuid, g.gpu_uuid) AS "gpu_device_uuid!"
            FROM deployments d
            JOIN gpu_slots gs ON gs.id = d.gpu_slot_id
            JOIN gpus g ON g.id = gs.gpu_id
+           JOIN registry_tags t ON t.id = d.registry_tag_id
            WHERE d.id = ?"#,
         deployment_id.0
     )
@@ -507,7 +1024,8 @@ pub async fn enqueue_deploy(
     let slot_ids: Vec<SlotId> = members.iter().map(|m| m.slot_id.into()).collect();
 
     let ports = sqlx::query!(
-        "SELECT container_port, host_port, protocol, kind, hostname FROM deployment_ports
+        "SELECT container_port, host_port, protocol, kind, hostname, is_primary,
+                health_path, max_body_size_bytes, proxy_timeout_seconds FROM deployment_ports
          WHERE deployment_id = ?",
         deployment_id.0
     )
@@ -521,6 +1039,10 @@ pub async fn enqueue_deploy(
             protocol: r.protocol,
             kind: r.kind.parse().map_err(AppError::internal)?,
             hostname: r.hostname,
+            primary: r.is_primary != 0,
+            health_path: r.health_path,
+            max_body_size_bytes: r.max_body_size_bytes,
+            proxy_timeout_seconds: r.proxy_timeout_seconds,
         })
     })
     .collect::<Result<Vec<_>, AppError>>()?;
@@ -555,6 +1077,7 @@ pub async fn enqueue_deploy(
         volumes,
         registry_auth: None, // minted at dispatch
         mem_limit_mb: d.mem_limit_mb,
+        image_size_bytes: d.size_bytes.and_then(|size| u64::try_from(size).ok()),
     }));
     enqueue(
         tx,
@@ -564,6 +1087,104 @@ pub async fn enqueue_deploy(
         &payload,
     )
     .await
+}
+
+pub async fn enqueue_prepare(
+    tx: &mut MySqlConnection,
+    deployment_id: DeploymentId,
+) -> Result<TaskId, AppError> {
+    let task_id = enqueue_deploy(tx, deployment_id).await?;
+    sqlx::query!(
+        "UPDATE agent_tasks SET task_type = 'PREPARE_DEPLOY' WHERE id = ?",
+        task_id.0,
+    )
+    .execute(&mut *tx)
+    .await?;
+    Ok(task_id)
+}
+
+/// Retry only nginx publication for a healthy container retained after a
+/// recoverable publish failure. No image pull/container recreation occurs.
+pub async fn enqueue_publish(
+    pool: &MySqlPool,
+    deployment_id: DeploymentId,
+    user: UserId,
+    ip_address: Option<&str>,
+) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    let row = sqlx::query!(
+        "SELECT server_id AS `server_id: Uuid`, state FROM deployments WHERE id = ? FOR UPDATE",
+        deployment_id.0,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound("deployment not found"))?;
+    super::deployments::require_server_ready(&mut tx, row.server_id.into(), true).await?;
+    if row.state != DeploymentState::PublishFailed.as_str() {
+        return Err(AppError::BadRequest(
+            "deployment is not waiting for publication retry".into(),
+        ));
+    }
+    let pending = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM agent_tasks WHERE deployment_id = ? AND task_type = 'PUBLISH_VHOST' AND state IN ('QUEUED','DISPATCHED') FOR UPDATE",
+        deployment_id.0,
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if pending > 0 {
+        return Err(AppError::BadRequest(
+            "publication retry is already queued".into(),
+        ));
+    }
+    let ports = sqlx::query!(
+        "SELECT container_port, host_port, protocol, kind, hostname, is_primary,
+                health_path, max_body_size_bytes, proxy_timeout_seconds
+         FROM deployment_ports WHERE deployment_id = ?",
+        deployment_id.0,
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .map(|port| {
+        Ok(foundry_shared::dto::PortBinding {
+            container_port: port.container_port,
+            host_port: port.host_port,
+            protocol: port.protocol,
+            kind: port.kind.parse().map_err(AppError::internal)?,
+            hostname: port.hostname,
+            primary: port.is_primary != 0,
+            health_path: port.health_path,
+            max_body_size_bytes: port.max_body_size_bytes,
+            proxy_timeout_seconds: port.proxy_timeout_seconds,
+        })
+    })
+    .collect::<Result<Vec<_>, AppError>>()?;
+    enqueue(
+        &mut tx,
+        row.server_id.into(),
+        Some(deployment_id),
+        TaskType::PublishVhost,
+        &TaskPayload::Publish(foundry_shared::dto::PublishPayload {
+            deployment_id,
+            ports,
+        }),
+    )
+    .await?;
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::User,
+            actor_id: Some(user),
+            action: "DEPLOYMENT_PUBLISH_RETRIED",
+            subject_type: Some("deployment"),
+            subject_id: Some(deployment_id.0),
+            detail: None,
+            ip_address,
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 /// Queue one atomic purge task for every mount marked purge-on-redeploy.
@@ -683,6 +1304,15 @@ pub async fn enqueue_restart(
     ip_address: Option<&str>,
 ) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
+    let wants_web = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM deployment_ports
+         WHERE deployment_id = ? AND kind IN ('HTTP','HTTPS')",
+        deployment.id.0,
+    )
+    .fetch_one(&mut *tx)
+    .await?
+        > 0;
+    super::deployments::require_server_ready(&mut tx, deployment.server_id, wants_web).await?;
     lifecycle::transition_deployment(
         &mut tx,
         deployment.id,

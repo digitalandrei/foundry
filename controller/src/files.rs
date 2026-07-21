@@ -105,6 +105,7 @@ pub async fn browser(
             volume_id: volume.id,
             name: volume.name,
             path: volume.path,
+            quota_bytes: volume.quota_bytes,
         })
         .collect();
     let root_ids: Vec<String> = roots
@@ -462,6 +463,7 @@ mod tests {
 
         let chunk = FileClientMessage::UploadChunk {
             request_id: Uuid::now_v7(),
+            offset: 0,
             data: "secret bytes".into(),
         };
         assert!(mutation_detail(&chunk).is_none());

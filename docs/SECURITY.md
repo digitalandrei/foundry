@@ -90,8 +90,9 @@ reload` — no shell, no other arguments. Defense in depth around it:
   design: `NoNewPrivileges` is off (sudo needs the setuid transition)
   and `ProtectSystem` is `full` rather than `strict` (`nginx -t` writes
   logs/temp under `/var` inside the unit's namespace).
-  `ReadWritePaths` stays limited to `/etc/foundry-agent` and
-  `/etc/nginx/foundry-apps`.
+  `ReadWritePaths` stays limited to `/etc/foundry-agent`,
+  `/etc/nginx/foundry-apps`, `/storage/containers`, and the dedicated
+  `/var/log/nginx/foundry-apps` directory required by the enabled features.
 - Only `CAP_DAC_OVERRIDE` is ambient in the agent. The bounding set retains
   `CAP_SETUID`, `CAP_SETGID`, and `CAP_AUDIT_WRITE` so the setuid-root sudo
   child can change identity and initialize Ubuntu's audit plugin; those
@@ -99,6 +100,22 @@ reload` — no shell, no other arguments. Defense in depth around it:
 - The wildcard TLS certificate + key are **operator-placed** at
   `/etc/foundry-agent/tls/` on each GPU server. Private keys never
   transit the controller, the database, or the task queue.
+- Per-app nginx records contain request time, method, normalized URI path,
+  status, bytes, and request ID—not headers, cookies, bodies, or query
+  strings. Host files rotate for seven days; controller rows have the same
+  retention and are removed with the deployment.
+
+### Agent self-upgrade helper
+
+The long-running agent is not root. `UPGRADE_AGENT` only lets it create the
+fixed `/etc/foundry-agent/upgrade-request` marker. A root-owned systemd path
+unit invokes one fixed `foundry-agent --perform-upgrade` command, which uses
+the already-enrolled controller URL, downloads the published binary and its
+SHA-256 file over verified HTTPS, checks the digest, atomically renames the
+binary, and runs the fixed `--setup-apps` repair. No task payload supplies a
+URL, path, command, or arguments. A compromised controller is already in the
+agent binary trust boundary; the checksum protects corruption/cache mismatch,
+not a malicious controller.
 
 ## Container shell
 
@@ -108,7 +125,8 @@ capability and keep its controls tight:
 
 - **Authorization is owner/admin**, the same gate as stop/remove; the
   browser WebSocket carries the session cookie and is rejected before the
-  upgrade otherwise. The deployment must be RUNNING.
+  upgrade otherwise. The deployment must be RUNNING or PUBLISH_FAILED (the
+  latter is a healthy running container whose nginx route is not live).
 - **Audited**: opening a shell writes a `SHELL_OPENED` audit row (actor,
   deployment, IP).
 - **Pull-only preserved**: the controller never dials the agent; the
@@ -147,8 +165,11 @@ every boundary:
   namespace). No listener is added: the agent long-polls and dials outbound
   WSS.
 - Text reads/writes are UTF-8-only and capped at 2 MiB; arbitrary files use
-  chunked transfer. Shared-volume application locking remains the users'
-  responsibility.
+  chunked transfer. Upload IDs and partial files support reconnect/resume;
+  offsets are agent-authoritative and the final rename is atomic. Configured
+  quotas reject browser uploads that would exceed measured usage, but are
+  advisory—not filesystem quotas—so a container can still exceed them.
+  Shared-volume application locking remains the users' responsibility.
 
 ## Adopted containers
 

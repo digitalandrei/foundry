@@ -50,6 +50,7 @@ sudo systemctl restart "$SERVICE"
 
 # ── Agent binary (served to GPU servers) ────────────────────────────
 sudo install -m 755 target/release/foundry-agent "$SRV/downloads/foundry-agent"
+sha256sum target/release/foundry-agent | sed 's#target/release/##' | sudo tee "$SRV/downloads/foundry-agent.sha256" >/dev/null
 
 # ── Verify ──────────────────────────────────────────────────────────
 sleep 2

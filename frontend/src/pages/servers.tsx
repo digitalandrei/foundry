@@ -74,6 +74,7 @@ export function ServersPage() {
                 <TableHead>Hostname</TableHead>
                 <TableHead>OS</TableHead>
                 <TableHead>Agent</TableHead>
+                <TableHead>Readiness</TableHead>
                 <TableHead>Last heartbeat</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -98,6 +99,14 @@ export function ServersPage() {
                     </TableCell>
                     <TableCell className="font-mono text-xs">
                       {server.agent_version ? `v${server.agent_version}` : "not enrolled"}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {server.readiness ? (
+                        <span className={server.readiness.checks.some((check) => check.status === "FAILED") ? "text-slot-failed" : "text-slot-free"}>
+                          {server.readiness.checks.some((check) => check.status === "FAILED") ? "Needs attention" : "Ready"}
+                          {` · r${server.setup_revision ?? "?"}`}
+                        </span>
+                      ) : "Unknown"}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {server.last_heartbeat_at ? formatRelative(server.last_heartbeat_at) : "never"}

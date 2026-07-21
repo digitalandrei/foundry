@@ -514,8 +514,19 @@ reflected in the affected docs in the same commit set:
   preventing otherwise valid generated app hostnames from failing
   `nginx -t` against nginx's common 64-byte default. Affects ARCHITECTURE
   and DEPLOYMENT.
-- **2026-07-21** (0.59.0) — **Raise published-app upload ceiling.** Generated
-  nginx application vhosts now accept request bodies up to 2 GiB instead of
-  100 MiB, covering large internal media inputs while retaining the existing
-  WebSocket and 300-second proxy timeout behavior. Affects ARCHITECTURE and
-  DEPLOYMENT.
+- **2026-07-21** (0.59.0) — **Integrated operational safety and visibility
+  pass.** Hosts now report structured live Docker/storage/capability/nginx/TLS
+  readiness, setup revision r3, filesystem capacity and per-volume usage;
+  admins can run diagnostics and, after one manual bootstrap, trigger a
+  checksum-verified root-path agent upgrade/repair. Deploys re-resolve and pin
+  linux/amd64 image digests, consume general `ai.protv.foundry.apps` policy,
+  enforce controller + target-host preflight, wait for Docker HEALTHCHECK,
+  retain recoverable `PUBLISH_FAILED`, and replace safely by preparing first
+  and retaining the predecessor until its successor is healthy/published.
+  Generated nginx vhosts default to 2 GiB requests, emit bounded structured
+  per-app access logs and 24h metrics, and remove stale routes/logs on stop.
+  Storage adds measured usage, advisory quota warnings/enforcement for browser
+  upload, and reconnect-resumable uploads. Controller rolling-upgrade gates
+  keep new wire variants away from pre-0.59 agents. Affects API,
+  ARCHITECTURE, DATABASE, DEPLOYMENT, GITLAB-INTEGRATION, SECURITY,
+  UI-DESIGN, TESTING, codebase-map, and the ComfyUI template.

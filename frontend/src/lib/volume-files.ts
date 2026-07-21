@@ -11,7 +11,7 @@ export interface VolumeFileEntry {
 export type FileServerMessage =
   | { type: "listing"; request_id: string; path: string; entries: VolumeFileEntry[] }
   | { type: "text"; request_id: string; content: string }
-  | { type: "upload_ready"; request_id: string }
+  | { type: "upload_ready"; request_id: string; offset: number }
   | { type: "download_start"; request_id: string; name: string; size: number }
   | { type: "download_chunk"; request_id: string; data: string }
   | { type: "download_finish"; request_id: string }
@@ -35,15 +35,7 @@ export function formatFileSize(bytes: number): string {
 }
 
 export function agentSupportsVolumeFiles(version: string | null): boolean {
-  if (!version) return false
-  const match = version.replace(/^v/, "").match(/^(\d+)\.(\d+)\.(\d+)/)
-  if (!match) return false
-  const current = match.slice(1).map(Number)
-  const minimum = [0, 56, 0]
-  for (let index = 0; index < minimum.length; index += 1) {
-    if (current[index] !== minimum[index]) return current[index] > minimum[index]
-  }
-  return true
+  return agentVersionAtLeast(version, [0, 56, 0])
 }
 
 export function bytesToBase64(bytes: Uint8Array): string {
@@ -62,3 +54,4 @@ export function base64ToBytes(value: string): Uint8Array {
   }
   return bytes
 }
+import { agentVersionAtLeast } from "@/lib/agent-version"

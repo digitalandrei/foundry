@@ -87,6 +87,15 @@ pub async fn heartbeat(
     Ok(Json(HeartbeatResponse { adopted_containers }))
 }
 
+pub async fn app_traffic(
+    State(state): State<AppState>,
+    AuthenticatedAgent(ctx): AuthenticatedAgent,
+    Json(batch): Json<foundry_shared::dto::AppTrafficBatch>,
+) -> Result<StatusCode, AppError> {
+    crate::repos::traffic::ingest(&state.pool, ctx.server_id, &batch).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Long-poll for the next task (docs/API.md § Agent API): hold up to
 /// 25s checking the queue each second; 204 when idle. DEPLOY payloads
 /// are enriched here at dispatch — env decrypted and the registry pull
@@ -121,12 +130,14 @@ pub async fn tasks_next(
                     )
                     .await?;
                 }
-                crate::lifecycle::transition_slot(
-                    &mut tx,
-                    p.slot_id,
-                    foundry_shared::SlotState::Deploying,
-                )
-                .await?;
+                if task.task_type == foundry_shared::TaskType::DeployContainer {
+                    crate::lifecycle::transition_slot(
+                        &mut tx,
+                        p.slot_id,
+                        foundry_shared::SlotState::Deploying,
+                    )
+                    .await?;
+                }
                 tx.commit().await?;
             }
             let envelope = foundry_shared::dto::TaskEnvelope {
@@ -169,16 +180,9 @@ async fn enrich_deploy_payload(
     let instance =
         crate::repos::instances::fetch_config(&state.pool, &state.secrets, instance_id).await?;
     let access = crate::gitlab::tokens::ensure_fresh(state, &instance, &account).await?;
-    // image_ref = host/path:tag → repo path for the token scope.
-    let repo_path = p
-        .image_ref
-        .split_once('/')
-        .map(|(_, rest)| rest)
-        .unwrap_or(&p.image_ref)
-        .rsplit_once(':')
-        .map(|(path, _)| path)
-        .unwrap_or_default()
-        .to_string();
+    // image_ref is normally host/path@sha256:digest (legacy rows may still
+    // carry host/path:tag). Registry token scope needs only `path`.
+    let repo_path = registry_repository_path(&p.image_ref);
     match crate::gitlab::tokens::registry_pull_token(
         &state.http,
         &instance.base_url,
@@ -204,6 +208,19 @@ async fn enrich_deploy_payload(
         }
     }
     Ok(())
+}
+
+fn registry_repository_path(image_ref: &str) -> String {
+    let image_path = image_ref
+        .split_once('/')
+        .map(|(_, rest)| rest)
+        .unwrap_or(image_ref);
+    image_path
+        .split_once('@')
+        .map(|(path, _)| path)
+        .or_else(|| image_path.rsplit_once(':').map(|(path, _)| path))
+        .unwrap_or(image_path)
+        .to_string()
 }
 
 /// Task result: advance the deployment state machine
@@ -292,4 +309,21 @@ pub async fn inventory(
         "inventory applied"
     );
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::registry_repository_path;
+
+    #[test]
+    fn registry_scope_strips_tag_or_digest() {
+        assert_eq!(
+            registry_repository_path("registry.example:5050/team/app@sha256:abcd"),
+            "team/app"
+        );
+        assert_eq!(
+            registry_repository_path("registry.example:5050/team/app:latest"),
+            "team/app"
+        );
+    }
 }

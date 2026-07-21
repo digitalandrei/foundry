@@ -14,20 +14,29 @@ use foundry_shared::dto::{
 };
 use nvml_wrapper::Nvml;
 
-pub async fn collect(nvml: Option<&Nvml>, docker: Option<&Docker>) -> InventorySnapshot {
+pub async fn collect(
+    nvml: Option<&Nvml>,
+    docker: Option<&Docker>,
+    server_name: Option<&str>,
+) -> InventorySnapshot {
     // GPUs first: their NVML index→UUID map resolves the device refs of
     // running containers (so even non-Foundry containers map to a slot).
     let (nvidia_driver_version, gpus) = collect_gpus(nvml);
     let gpu_index: HashMap<u32, String> = gpus.iter().map(|g| (g.index, g.uuid.clone())).collect();
     let (docker_version, docker_ok, containers) = collect_docker(&gpu_index, docker).await;
     let nginx = crate::vhost::app_publishing_status();
+    let readiness = crate::host::readiness(server_name, docker_ok).await;
+    let publishing_ready = readiness.setup_revision == Some(readiness.required_setup_revision)
+        && readiness.checks_ready(&["nginx_config", "tls_certificate"]);
     InventorySnapshot {
         agent_version: env!("CARGO_PKG_VERSION").to_string(),
         docker_version,
         docker_ok,
         nvidia_driver_version,
-        app_publishing: Some(nginx == "READY"),
+        app_publishing: Some(publishing_ready),
         nginx_status: Some(nginx.to_string()),
+        readiness: Some(readiness),
+        storage: None,
         gpus,
         containers,
     }

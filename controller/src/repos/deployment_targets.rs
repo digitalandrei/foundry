@@ -150,6 +150,9 @@ pub(super) struct ServerPrecheck {
     pub app_publishing_ready: Option<bool>,
     pub nginx_status: Option<String>,
     pub docker_ok: Option<bool>,
+    pub setup_revision: Option<u32>,
+    pub readiness: Option<foundry_shared::dto::HostReadiness>,
+    pub agent_version: Option<String>,
 }
 
 pub(super) async fn fetch_server_precheck(
@@ -157,10 +160,14 @@ pub(super) async fn fetch_server_precheck(
     server_id: ServerId,
 ) -> Result<ServerPrecheck, AppError> {
     let r = sqlx::query!(
-        r#"SELECT status, name,
+        r#"SELECT s.status, s.name,
                   app_publishing_ready AS "app_publishing_ready: bool", nginx_status,
-                  docker_ok AS "docker_ok: bool"
-           FROM servers WHERE id = ?"#,
+                  docker_ok AS "docker_ok: bool",
+                  setup_revision AS "setup_revision?: u32", readiness_json,
+                  a.agent_version
+           FROM servers s
+           LEFT JOIN server_agents a ON a.server_id = s.id
+           WHERE s.id = ?"#,
         server_id.0
     )
     .fetch_optional(&mut *tx)
@@ -172,6 +179,14 @@ pub(super) async fn fetch_server_precheck(
         app_publishing_ready: r.app_publishing_ready,
         nginx_status: r.nginx_status,
         docker_ok: r.docker_ok,
+        setup_revision: r.setup_revision,
+        readiness: r
+            .readiness_json
+            .as_deref()
+            .map(serde_json::from_slice)
+            .transpose()
+            .map_err(AppError::internal)?,
+        agent_version: r.agent_version,
     })
 }
 

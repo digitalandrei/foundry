@@ -134,3 +134,18 @@ export function useDeleteServer() {
     },
   })
 }
+
+function useServerCommand(path: "diagnostics" | "upgrade-agent") {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (serverId: string) => api<void>(`/api/servers/${serverId}/${path}`, { method: "POST" }),
+    onSuccess: () => {
+      toast.success(path === "diagnostics" ? "Live diagnostics queued" : "Agent upgrade and repair queued")
+      queryClient.invalidateQueries({ queryKey: queryKeys.servers })
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Server command failed"),
+  })
+}
+
+export function useRunDiagnostics() { return useServerCommand("diagnostics") }
+export function useUpgradeAgent() { return useServerCommand("upgrade-agent") }

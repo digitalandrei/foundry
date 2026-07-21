@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT COUNT(*) FROM deployment_ports dp\n               JOIN deployments d ON d.id = dp.deployment_id\n               WHERE dp.hostname = ?\n                 AND d.id <> ?\n                 AND (d.state IN ('PENDING','VALIDATING','PREPARED','PULLING_IMAGE','CREATING_CONTAINER',\n                                  'STARTING','WAITING_HEALTH','PUBLISHING','PUBLISH_FAILED','RUNNING','STOPPING','STOPPED','RESTARTING','REMOVING')\n                      OR (d.state = 'FAILED' AND d.container_id IS NOT NULL))\n               FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "COUNT(*)",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "NOT_NULL | BINARY",
+          "max_size": 21
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b12a702f307af385b53080eeebbafee6835b5dc01eb60a971021ee2977559ad7"
+}

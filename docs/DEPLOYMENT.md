@@ -209,6 +209,20 @@ UID owns bind-mounted files), preserves `CAP_SETUID`, `CAP_SETGID`, and
 `CAP_AUDIT_WRITE` only in the unit's bounding set for the sudo-scoped nginx
 child, rewrites the systemd unit, and restarts the service.
 
+0.59.0 also installs setup-revision marker r3, per-app access-log storage +
+seven-day/100 MiB copytruncate log rotation, and root-owned
+`foundry-agent-upgrade.{path,service}` units. Once a host has 0.59.0, an admin
+can use **Upgrade & repair** in its readiness card: the unprivileged agent
+writes a fixed marker and the path unit downloads both `foundry-agent` and
+`foundry-agent.sha256`, verifies SHA-256, atomically installs, runs
+`--setup-apps`, and restarts the service. The helper accepts no arbitrary
+command or URL input.
+
+The upgrade task enum is itself new, so a host older than 0.59.0 needs this
+one manual bootstrap; the controller refuses to enqueue an unknown variant.
+New deploys/restarts are held until the host reports agent ≥0.59.0, setup r3,
+and a fresh positive readiness snapshot.
+
 The hash-bucket setting is required because
 `<app>.<server>.ai.protv.ro` can exceed nginx's common 64-byte server-name
 bucket once nginx accounts for its internal hash entry. `--setup-apps`
@@ -228,8 +242,17 @@ at `https://<name>.<server>.ai.protv.ro` (multi-port:
 `<name>-<container_port>.<server>...`). The per-server subdomain makes
 DNS and certs predictable: one wildcard per server covers every app on
 it. Generated app vhosts accept request bodies up to 2 GiB and retain the
-300-second upstream read/send timeouts; larger transfers belong in Foundry's
-persistent-volume browser rather than the application proxy.
+300-second upstream read/send timeouts by default; image application metadata
+may override either within bounded limits. Structured access logs live under
+`/var/log/nginx/foundry-apps/`, are tailed into Foundry request metrics,
+rotate daily (7 copies, active-file max 100 MiB), and are removed with the
+route. Larger transfers belong in Foundry's persistent-volume browser rather
+than the application proxy.
+
+For deployments using a domain other than `ai.protv.ro`, set
+`FOUNDRY_APPS_DOMAIN` in the agent service environment too: the live
+certificate probe checks `*.<server>.<domain>`. The generated Pro TV unit can
+use the built-in `ai.protv.ro` fallback used by this installation.
 
 Agent ops: `systemctl status|stop|restart foundry-agent`,
 `journalctl -u foundry-agent -f` (JSON logs; state-transition lines
@@ -238,12 +261,13 @@ time, e.g. `g.protv.ro:5050`); inbound 80/443 once it publishes apps.
 The published binary lives at `/srv/foundry/downloads/foundry-agent`
 (served by the vhost, updated on every controller deploy).
 
-Persistent-volume clean and purge-on-redeploy require foundry-agent 0.54.0
-or newer. The controller gates these operations using the version reported
-by heartbeat, so controller-first rolling upgrades remain safe. Upgrade each
-GPU host through the `foundry-agent --setup-apps` reinstall path above;
-ordinary deploys and volume deletion continue to work while an older agent is
-still online.
+Persistent-volume clean and purge-on-redeploy still require foundry-agent
+0.54.0 or newer. Operationally safe deploy/restart/replacement requires
+0.59.0 because its protocol adds preparation, health, publication rollback,
+diagnostics and immutable image fields. Controller-first deployment is safe:
+older agents keep heartbeating and existing workloads keep running, while new
+work is rejected with the manual bootstrap instruction rather than poisoning
+an old agent's task queue. Volume deletion remains available.
 
 ## Observability
 

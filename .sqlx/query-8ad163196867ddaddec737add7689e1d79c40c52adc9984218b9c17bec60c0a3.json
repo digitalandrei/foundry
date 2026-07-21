@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT container_port, host_port, protocol, kind, hostname FROM deployment_ports\n         WHERE deployment_id = ?",
+  "query": "SELECT container_port, host_port, protocol, kind, hostname, is_primary,\n                health_path, max_body_size_bytes, proxy_timeout_seconds FROM deployment_ports\n         WHERE deployment_id = ?",
   "describe": {
     "columns": [
       {
@@ -47,6 +47,42 @@
           "flags": "MULTIPLE_KEY",
           "max_size": 1020
         }
+      },
+      {
+        "ordinal": 5,
+        "name": "is_primary",
+        "type_info": {
+          "type": "Tiny",
+          "flags": "NOT_NULL",
+          "max_size": 1
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "health_path",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 4096
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "max_body_size_bytes",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "NOT_NULL | UNSIGNED",
+          "max_size": 20
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "proxy_timeout_seconds",
+        "type_info": {
+          "type": "Long",
+          "flags": "NOT_NULL | UNSIGNED",
+          "max_size": 10
+        }
       }
     ],
     "parameters": {
@@ -57,8 +93,12 @@
       false,
       false,
       false,
-      true
+      true,
+      false,
+      true,
+      false,
+      false
     ]
   },
-  "hash": "c98416cfccd75cd706c0db80413428e1c53a67ba8b74342c8fe14421ae2da9ed"
+  "hash": "8ad163196867ddaddec737add7689e1d79c40c52adc9984218b9c17bec60c0a3"
 }

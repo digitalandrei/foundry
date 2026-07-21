@@ -25,6 +25,16 @@ pub struct PortSpec {
     /// TCP/UDP only: pin a specific host port (must be free and inside
     /// the server pool); omitted → allocated automatically.
     pub host_port: Option<u16>,
+    /// Application metadata from `ai.protv.foundry.apps`. All fields are
+    /// optional so ordinary EXPOSE-based images stay deployable.
+    #[serde(default)]
+    pub primary: bool,
+    #[serde(default)]
+    pub health_path: Option<String>,
+    #[serde(default)]
+    pub max_body_size_bytes: Option<u64>,
+    #[serde(default)]
+    pub proxy_timeout_seconds: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,6 +102,9 @@ pub struct ServerVolume {
     pub id: ServerVolumeId,
     pub name: String,
     pub path: String,
+    pub used_bytes: Option<u64>,
+    pub quota_bytes: Option<u64>,
+    pub usage_measured_at: Option<DateTime<Utc>>,
     /// None only for an unattached pre-scope migration volume.
     pub project_id: Option<GitlabProjectId>,
     pub project_name: Option<String>,
@@ -110,6 +123,12 @@ pub struct ServerVolume {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetVolumeQuotaRequest {
+    /// `None` removes the soft quota. Values below 1 MiB are rejected.
+    pub quota_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeploymentPort {
     pub container_port: u16,
     pub host_port: u16,
@@ -117,6 +136,10 @@ pub struct DeploymentPort {
     pub kind: PortKind,
     /// HTTP/HTTPS: the published app hostname (`https://{hostname}`).
     pub hostname: Option<String>,
+    pub primary: bool,
+    pub health_path: Option<String>,
+    pub max_body_size_bytes: u64,
+    pub proxy_timeout_seconds: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,6 +147,7 @@ pub struct DeploymentSummary {
     pub id: crate::DeploymentId,
     pub name: String,
     pub image_ref: String,
+    pub image_digest: Option<String>,
     pub state: DeploymentState,
     /// Live progress while a DEPLOY task runs (`pulling: 3/7 layers …`);
     /// cleared when the task reports its result.
@@ -132,6 +156,8 @@ pub struct DeploymentSummary {
     /// telemetry sample's container metrics.
     pub container_id: Option<String>,
     pub error_message: Option<String>,
+    pub health_status: Option<String>,
+    pub health_detail: Option<String>,
     pub server_id: ServerId,
     pub server_name: String,
     /// Denormalised primary (first/only) member slot — kept for the
