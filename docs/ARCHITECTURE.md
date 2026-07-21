@@ -448,7 +448,8 @@ Division of labor (operator decision — no Cloudflare/DNS integration):
 - **Agent**: owns `/etc/nginx/foundry-apps/<deployment_id>.conf` on its
   server — written after the container starts (80→443 redirect + TLS
   proxy_pass to `127.0.0.1:<host_port>`, websocket upgrade, streaming-
-  friendly), removed with the container. Reloads via a sudoers rule
+  friendly, 2 GiB request-body ceiling), removed with the container. Reloads
+  via a sudoers rule
   scoped to `nginx -t` / `nginx -s reload`; a failing `nginx -t` rolls
   the file back. A vhost that cannot be published fails the deploy and
   tears the container down — the URL is part of the contract.

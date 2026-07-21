@@ -51,9 +51,9 @@ deployment, not a failure.
 4. Proxy config exists **only while RUNNING** — created on the
    transition into RUNNING, removed on STOPPING/REPLACED/FAILED; a
    stopped app returns the Foundry 502 page, not a stale upstream.
-5. WebSocket upgrade always on; `client_max_body_size` and
-   read-timeout configurable per deployment (defaults 100 MB / 300 s —
-   model uploads and long inference calls are the norm here).
+5. WebSocket upgrade always on; generated vhosts use a 2 GiB
+   `client_max_body_size` and 300 s read/send timeouts — large media uploads
+   and long inference calls are normal for these apps.
 6. One container per port claim — no sharing of an allocated host port
    between deployments, ever; container-to-container traffic stays on
    the Docker bridge and is out of scope for v1.

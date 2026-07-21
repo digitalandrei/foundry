@@ -19,6 +19,7 @@ pub const VHOST_DIR: &str = "/etc/nginx/foundry-apps";
 pub const TLS_CERT: &str = "/etc/foundry-agent/tls/fullchain.pem";
 pub const TLS_KEY: &str = "/etc/foundry-agent/tls/privkey.pem";
 const NGINX_BIN: &str = "/usr/sbin/nginx";
+const CLIENT_MAX_BODY_SIZE: &str = "2g";
 
 /// Smoke tests redirect the conf dir (`FOUNDRY_VHOST_DIR`) and skip the
 /// nginx test/reload (`FOUNDRY_VHOST_NO_RELOAD`).
@@ -312,7 +313,7 @@ fn render(deployment_id: &str, ports: &[&PortBinding]) -> String {
              \x20   ssl_certificate     {TLS_CERT};\n\
              \x20   ssl_certificate_key {TLS_KEY};\n\
              \n\
-             \x20   client_max_body_size 100m;\n\
+             \x20   client_max_body_size {CLIENT_MAX_BODY_SIZE};\n\
              \n\
              \x20   location / {{\n\
              \x20       proxy_pass {scheme}://127.0.0.1:{port};\n\
@@ -358,6 +359,7 @@ mod tests {
         assert!(conf.contains("proxy_pass http://127.0.0.1:20001;"));
         assert!(conf.contains("ssl_certificate     /etc/foundry-agent/tls/fullchain.pem;"));
         assert!(conf.contains("proxy_set_header Connection $foundry_connection_upgrade;"));
+        assert!(conf.contains("client_max_body_size 2g;"));
         assert!(!conf.contains("proxy_ssl_verify"));
     }
 

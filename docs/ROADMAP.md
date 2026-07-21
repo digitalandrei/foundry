@@ -514,3 +514,8 @@ reflected in the affected docs in the same commit set:
   preventing otherwise valid generated app hostnames from failing
   `nginx -t` against nginx's common 64-byte default. Affects ARCHITECTURE
   and DEPLOYMENT.
+- **2026-07-21** (0.59.0) — **Raise published-app upload ceiling.** Generated
+  nginx application vhosts now accept request bodies up to 2 GiB instead of
+  100 MiB, covering large internal media inputs while retaining the existing
+  WebSocket and 300-second proxy timeout behavior. Affects ARCHITECTURE and
+  DEPLOYMENT.

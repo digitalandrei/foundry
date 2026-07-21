@@ -227,7 +227,9 @@ GPU server, and place/renew a wildcard certificate for
 at `https://<name>.<server>.ai.protv.ro` (multi-port:
 `<name>-<container_port>.<server>...`). The per-server subdomain makes
 DNS and certs predictable: one wildcard per server covers every app on
-it.
+it. Generated app vhosts accept request bodies up to 2 GiB and retain the
+300-second upstream read/send timeouts; larger transfers belong in Foundry's
+persistent-volume browser rather than the application proxy.
 
 Agent ops: `systemctl status|stop|restart foundry-agent`,
 `journalctl -u foundry-agent -f` (JSON logs; state-transition lines
