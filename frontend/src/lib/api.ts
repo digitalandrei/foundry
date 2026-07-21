@@ -38,10 +38,11 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(resp.status, code, message, details)
   }
 
-  if (resp.status === 204) {
+  const body = await resp.text()
+  if (body.length === 0) {
     return undefined as T
   }
-  return (await resp.json()) as T
+  return JSON.parse(body) as T
 }
 
 // Centralized query-key factory (docs/FRONTEND_RULES.md).

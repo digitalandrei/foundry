@@ -537,3 +537,8 @@ reflected in the affected docs in the same commit set:
   `sudo -n nginx -t` validate host configurations that bind ports 80/443
   without weakening the agent process. Affects ARCHITECTURE, API,
   DEPLOYMENT, SECURITY, and ROADMAP.
+- **2026-07-21** (0.61.0) — **Treat successful empty API responses as
+  successful.** The frontend API client now accepts bodyless success statuses,
+  including the `202 Accepted` returned when diagnostics and agent upgrades
+  are queued, instead of reporting a false failure after the server has
+  accepted the command. Affects ROADMAP and frontend API-client tests.
