@@ -261,6 +261,11 @@ time, e.g. `g.protv.ro:5050`); inbound 80/443 once it publishes apps.
 The published binary lives at `/srv/foundry/downloads/foundry-agent`
 (served by the vhost, updated on every controller deploy).
 
+The canonical deploy builds with `SQLX_OFFLINE=true` from the committed
+`.sqlx/` metadata. This keeps release compilation independent of the live
+database, which correctly remains on the previous schema until the new
+controller starts and applies its embedded migrations.
+
 Persistent-volume clean and purge-on-redeploy still require foundry-agent
 0.54.0 or newer. Operationally safe deploy/restart/replacement requires
 0.59.0 because its protocol adds preparation, health, publication rollback,

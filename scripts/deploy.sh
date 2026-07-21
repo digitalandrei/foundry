@@ -20,7 +20,10 @@ echo "▶ deploying v$cargo_ver"
 
 # ── Build (always both) ─────────────────────────────────────────────
 echo "▶ building controller + agent (release)…"
-cargo build --release -p foundry-controller -p foundry-agent
+# Compile against the checked query metadata. Production is intentionally
+# still on the previous schema until the newly built controller starts and
+# runs its embedded migrations.
+SQLX_OFFLINE=true cargo build --release -p foundry-controller -p foundry-agent
 echo "▶ building frontend…"
 (cd frontend && npm run build)
 
