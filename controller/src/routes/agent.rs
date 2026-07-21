@@ -311,6 +311,18 @@ pub async fn inventory(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Exact persistent-root catalog for agent-side usage measurement. Agent
+/// authentication binds the response to one server; no browser-supplied path
+/// participates.
+pub async fn volumes(
+    State(state): State<AppState>,
+    AuthenticatedAgent(ctx): AuthenticatedAgent,
+) -> Result<Json<Vec<foundry_shared::dto::VolumeTarget>>, AppError> {
+    Ok(Json(
+        crate::repos::volumes::catalog(&state.pool, ctx.server_id).await?,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::registry_repository_path;

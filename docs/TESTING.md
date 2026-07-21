@@ -26,7 +26,12 @@ add or tighten one. Don't claim completion without running the relevant set.
   consistency; concurrent GitLab project/repository/tag mirror upserts;
   slot/server placement reuse across users and projects; batched fleet
   output shape; active deployment-name uniqueness per server; and
-  allowed/blocked guarded server removal.
+  allowed/blocked guarded server removal. Persistent-storage coverage also
+  verifies the logical `server / placement / deploy-name project / mount`
+  key, reserved `.foundry` path with one immutable UUID leaf, retained legacy
+  paths, and the per-server `{volume_id,path}` catalog used for accounting.
+  Replacement coverage must prove that a submitted replacement name cannot
+  differ from its predecessor.
 - HTTP-level tests with `axum`'s `tower::ServiceExt::oneshot` — auth
   required on every `/api` and `/agent` route is itself a test.
 - sqlx note: `query!` macros compile against the live dev DB
@@ -45,8 +50,9 @@ add or tighten one. Don't claim completion without running the relevant set.
 - Idempotency tests: every task type executed twice yields the same end
   state.
 - Executor regressions cover digest-only preflight, prepare-without-create,
-  retained quiesce/rollback, successful no-HEALTHCHECK startup, normal stop,
-  pull/auth failures and create conflicts. The task boundary also verifies
+  retained quiesce/rollback with idempotent stable-name release/restore,
+  successful no-HEALTHCHECK startup, cleanup after a Docker health-inspection
+  error, normal stop, pull/auth failures and create conflicts. The task boundary also verifies
   that upgrades execute without a Docker client and Docker-dependent work
   fails explicitly instead of disabling the poller; the shared Docker runtime
   is exercised across absent-socket then available-socket initialization.
@@ -58,9 +64,16 @@ add or tighten one. Don't claim completion without running the relevant set.
   outside `/storage/containers/`; purge batches run before deploy as one
   sequential task. Controller version parsing prevents PURGE_VOLUMES dispatch
   to pre-0.54 agents.
+- Storage-accounting tests use a controller catalog with both legacy and
+  `.foundry` roots and an unlisted sibling directory. They assert that only
+  listed IDs are measured, that measurement is attributed to the returned ID,
+  and that a failed catalog fetch does not replace the prior completed
+  measurement with guessed filesystem state.
 - Volume-file path tests reject absolute/traversal paths, the storage root
-  itself, and symlink components. Mutation-audit coverage verifies editor and
-  transfer content is never copied into the audit detail.
+  itself, and symlink components; root-preparation/deletion tests also reject a
+  symlinked physical-root ancestor without touching its target. Mutation-audit
+  coverage verifies editor and transfer content is never copied into the audit
+  detail.
 - Resumable upload tests assert stable partial-file identity; traffic tests
   cover nginx JSON parsing and cursor advancement only after controller ack so
   transient failures do not drop request records.
@@ -76,11 +89,15 @@ add or tighten one. Don't claim completion without running the relevant set.
   volume path/version helpers (`volume-files.test.ts`). Add tests beside the module,
   importing `{ describe, it, expect }` from `vitest`.
   Primary app URL selection and 0.59 agent feature gates are also covered.
+- Hierarchical selector tests cover matching and rendered grouping across
+  node, placement, deployment-name project, mount, and attachment terms plus
+  keyboard Arrow/Enter selection. Storage-page coverage includes hierarchy
+  filtering, disabled-action reasons, and the empty-node state.
 - **Testing Library component/DOM coverage** now includes named/focusable
   GPU interaction surfaces and Enter/Space activation under both theme
   classes, plus keyboard opening and accessible naming for both themes of the
   volume file pane. Open items remain for load-bearing pieces — deploy-dialog zod
-  validation, the type-to-confirm gate on destructive ops for adopted
+  validation and replacement-name read-only rendering, the type-to-confirm gate on destructive ops for adopted
   containers, slot-chip rendering — and visual/both-theme regression. Both
   themes are spot-checked manually until then.
 

@@ -9,6 +9,7 @@
 //! is unit-tested against an in-memory `FakeEngine`, no daemon required.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -22,8 +23,7 @@ use crate::config::AgentConfig;
 use crate::docker::{
     BindSpec, BollardEngine, ContainerSpec, DockerEngine, PortSpec, PullSink, RegistryCreds,
 };
-
-const VOLUME_ROOT: &str = "/storage/containers/";
+use crate::file_system::{existing_volume_root, prepare_volume_root};
 
 /// Best-effort live progress for DEPLOY tasks (`/agent/tasks/progress`):
 /// state changes post immediately, detail refreshes are throttled. A
@@ -227,7 +227,7 @@ async fn execute(
             (TaskType::RemoveContainer, TaskPayload::Container(t), Some(engine)) => {
                 simple(remove(engine, t).await)
             }
-            (TaskType::RemoveVolume, TaskPayload::Volume(v), _) => simple(remove_volume(v).await),
+            (TaskType::RemoveVolume, TaskPayload::Volume(v), _) => simple(remove_volume(&v).await),
             (TaskType::PurgeVolumes, TaskPayload::VolumeBatch(v), _) => {
                 simple(purge_volumes(v).await)
             }
@@ -257,6 +257,13 @@ async fn execute(
                         ),
                     ),
                 };
+                let volume_targets = match crate::host::volume_catalog(client, config).await {
+                    Ok(targets) => targets,
+                    Err(error) => {
+                        tracing::debug!(%error, "diagnostics could not refresh volume catalog");
+                        Vec::new()
+                    }
+                };
                 Ok(ExecutionSuccess {
                     container_id: None,
                     health_status: None,
@@ -269,7 +276,7 @@ async fn execute(
                         )
                         .await,
                     ),
-                    storage: crate::host::storage_usage().await,
+                    storage: crate::host::storage_usage(volume_targets).await,
                 })
             }
             (tt, _, None) if task_requires_docker(tt) => Err(ExecutionFailure::new(
@@ -485,7 +492,7 @@ fn container_spec(p: &DeployPayload) -> ContainerSpec {
 
 async fn deploy(
     engine: &dyn DockerEngine,
-    p: DeployPayload,
+    mut p: DeployPayload,
     progress: &mut ProgressReporter<'_>,
 ) -> Result<ExecutionSuccess, ExecutionFailure> {
     let deployment_id = p.deployment_id.to_string();
@@ -514,32 +521,19 @@ async fn deploy(
 
     preflight(engine, &p).await?;
 
-    // Persistent volume directories (hard-scoped). create_dir_all builds
-    // the full opaque per-volume path; the only realistic failure is
-    // the systemd sandbox (the volume root must exist, be owned by the
-    // service user, and sit in the unit's ReadWritePaths) — point there.
-    for v in &p.volumes {
-        if !v.host_path.starts_with(VOLUME_ROOT) || v.host_path.contains("..") {
-            return Err(ExecutionFailure::new(
-                "PREFLIGHT",
-                format!("refusing mount outside {VOLUME_ROOT}: {}", v.host_path),
-            ));
-        }
-        tokio::fs::create_dir_all(&v.host_path).await.map_err(|e| {
-            ExecutionFailure::new("PREFLIGHT", {
-                if e.kind() == std::io::ErrorKind::ReadOnlyFilesystem
-                    || e.kind() == std::io::ErrorKind::PermissionDenied
-                {
-                    format!(
-                    "creating {} failed: {e} — the volume root {VOLUME_ROOT} is not writable by \
-                     the agent; run `sudo foundry-agent --setup-apps` on this server",
-                    v.host_path
+    // Every component is checked with symlink_metadata before it is used or
+    // created. This keeps a controller-approved path from escaping through a
+    // hostile symlink under the persistent root.
+    for volume in &mut p.volumes {
+        let root = prepare_volume_root(Path::new(&volume.host_path))
+            .await
+            .map_err(|error| {
+                ExecutionFailure::new(
+                    "PREFLIGHT",
+                    format!("prepare volume root {} failed: {error}", volume.host_path),
                 )
-                } else {
-                    format!("creating {} failed: {e}", v.host_path)
-                }
-            })
-        })?;
+            })?;
+        volume.host_path = root.to_string_lossy().into_owned();
     }
 
     // Pull (credential stays in memory; never logged).
@@ -715,10 +709,16 @@ async fn wait_for_health(
 ) -> Result<(String, Option<String>), ExecutionFailure> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
     loop {
-        let health = engine
-            .health(id)
-            .await
-            .map_err(|error| ExecutionFailure::new("HEALTH", error.to_string()))?;
+        let health = match engine.health(id).await {
+            Ok(health) => health,
+            Err(error) => {
+                // The controller treats a HEALTH failure as a workload-free
+                // replacement failure, so never leave a successor holding
+                // the predecessor's stable Docker name.
+                let _ = engine.remove(id).await;
+                return Err(ExecutionFailure::new("HEALTH", error.to_string()));
+            }
+        };
         match health.status.as_str() {
             "none" => return Ok(("RUNNING".into(), health.detail)),
             "healthy" => return Ok(("HEALTHY".into(), health.detail)),
@@ -838,6 +838,26 @@ async fn quiesce(
         let _ = engine.start(&id).await;
         return Err(format!("could not withdraw predecessor vhost: {error}"));
     }
+    if let Some(container_name) = t.container_name.as_deref() {
+        let retained_name = retained_container_name(&t.container.deployment_id);
+        if let Err(error) = engine.rename(&id, &retained_name).await {
+            let _ = crate::vhost::apply(
+                &t.container.deployment_id.to_string(),
+                &crate::vhost::web_ports(&t.ports),
+            )
+            .await;
+            let _ = engine.start(&id).await;
+            return Err(format!(
+                "could not retain predecessor container name: {error}"
+            ));
+        }
+        tracing::info!(
+            deployment_id = %t.container.deployment_id,
+            retained_name,
+            original_name = container_name,
+            "renamed retained predecessor for replacement"
+        );
+    }
     Ok(())
 }
 
@@ -848,6 +868,15 @@ async fn rollback(
     let Some((id, state)) = resolve_target(engine, &t.container).await? else {
         return Err("rollback container is missing".into());
     };
+    // Restore the stable name even if an operator (or a previous partial
+    // rollback) already started the retained predecessor. Docker permits
+    // renaming a running container, and the operation is idempotent.
+    if let Some(container_name) = t.container_name.as_deref() {
+        engine
+            .rename(&id, container_name)
+            .await
+            .map_err(|error| format!("could not restore predecessor container name: {error}"))?;
+    }
     if state != "running" {
         engine.start(&id).await.map_err(|error| error.to_string())?;
     }
@@ -857,6 +886,10 @@ async fn rollback(
     )
     .await?;
     Ok(())
+}
+
+fn retained_container_name(deployment_id: &foundry_shared::DeploymentId) -> String {
+    format!("foundry-retained-{deployment_id}")
 }
 
 async fn restart(engine: &dyn DockerEngine, t: ContainerTarget) -> Result<(), String> {
@@ -885,15 +918,13 @@ async fn remove(engine: &dyn DockerEngine, t: ContainerTarget) -> Result<(), Str
     Ok(())
 }
 
-async fn remove_volume(v: VolumeTarget) -> Result<(), String> {
-    // Hard scope: absolute, under the volume root, no traversal.
-    if !v.path.starts_with(VOLUME_ROOT)
-        || v.path.contains("..")
-        || v.path.len() < VOLUME_ROOT.len() + 1
-    {
-        return Err(format!("refusing to remove path outside {VOLUME_ROOT}"));
-    }
-    match tokio::fs::remove_dir_all(&v.path).await {
+async fn remove_volume(v: &VolumeTarget) -> Result<(), String> {
+    // Refuse a symlink in the root itself or any intermediate component before
+    // removal. A missing directory remains an idempotent success.
+    let Some(path) = existing_volume_root(Path::new(&v.path))? else {
+        return Ok(());
+    };
+    match tokio::fs::remove_dir_all(path).await {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(format!("volume removal failed: {e}")),
@@ -902,10 +933,10 @@ async fn remove_volume(v: VolumeTarget) -> Result<(), String> {
 
 async fn purge_volumes(batch: VolumeBatchTarget) -> Result<(), String> {
     for volume in batch.volumes {
-        remove_volume(volume.clone()).await?;
-        tokio::fs::create_dir_all(&volume.path)
+        remove_volume(&volume).await?;
+        prepare_volume_root(Path::new(&volume.path))
             .await
-            .map_err(|e| format!("volume recreation failed for {}: {e}", volume.path))?;
+            .map_err(|error| format!("volume recreation failed for {}: {error}", volume.path))?;
     }
     Ok(())
 }
@@ -1101,6 +1132,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn deploy_removes_successor_when_health_query_fails() {
+        let engine = FakeEngine::new().fail_health(DockerError::Other("inspect failed".into()));
+        let client = reqwest::Client::new();
+        let config = cfg();
+        let mut progress = ProgressReporter::new(&client, &config, TaskId::new());
+
+        let error = deploy(&engine, payload(), &mut progress)
+            .await
+            .expect_err("health failure must fail deployment");
+
+        assert_eq!(error.stage, "HEALTH");
+        assert!(engine.ids().is_empty());
+        assert_eq!(engine.removed.lock().unwrap().as_slice(), ["fake1"]);
+    }
+
+    #[tokio::test]
     async fn deploy_maps_create_conflict_to_operator_message() {
         let engine = FakeEngine::new().conflict_on_create();
         let client = reqwest::Client::new();
@@ -1155,23 +1202,72 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn replacement_quiesce_retains_and_rollback_restarts_container() {
+    async fn replacement_releases_and_restores_the_stable_container_name() {
         let dep = foundry_shared::DeploymentId::new();
-        let engine = FakeEngine::new().with_managed("old", "running", &dep.to_string());
+        let stable_name = "app-1";
+        let engine =
+            FakeEngine::new().with_managed_named("old", "running", &dep.to_string(), stable_name);
         let target = foundry_shared::dto::ReplacementTarget {
             container: ContainerTarget {
                 deployment_id: dep,
                 container_id: None,
             },
             ports: vec![],
+            container_name: Some(stable_name.into()),
         };
 
         quiesce(&engine, target.clone()).await.expect("quiesce ok");
         assert!(engine.ids().contains(&"old".to_string()));
         assert_eq!(engine.list().await.unwrap()[0].state, "exited");
+        assert_eq!(
+            engine.name("old").as_deref(),
+            Some(retained_container_name(&dep).as_str())
+        );
+        // Re-delivery after an agent crash must not perform a conflicting
+        // second rename when the predecessor is already retained.
+        quiesce(&engine, target.clone())
+            .await
+            .expect("quiesce redelivery is idempotent");
+        assert_eq!(engine.renamed.lock().unwrap().len(), 1);
+
+        let client = reqwest::Client::new();
+        let config = cfg();
+        let mut progress = ProgressReporter::new(&client, &config, TaskId::new());
+        let successor = deploy(&engine, payload(), &mut progress)
+            .await
+            .expect("successor reuses stable name")
+            .container_id
+            .expect("successor id");
+        engine.remove(&successor).await.expect("remove successor");
 
         rollback(&engine, target).await.expect("rollback ok");
         assert_eq!(engine.list().await.unwrap()[0].state, "running");
+        assert_eq!(engine.name("old").as_deref(), Some(stable_name));
+    }
+
+    #[tokio::test]
+    async fn rollback_restores_the_stable_name_when_predecessor_is_already_running() {
+        let dep = foundry_shared::DeploymentId::new();
+        let stable_name = "app-1";
+        let engine = FakeEngine::new().with_managed_named(
+            "old",
+            "running",
+            &dep.to_string(),
+            &retained_container_name(&dep),
+        );
+        let target = foundry_shared::dto::ReplacementTarget {
+            container: ContainerTarget {
+                deployment_id: dep,
+                container_id: None,
+            },
+            ports: vec![],
+            container_name: Some(stable_name.into()),
+        };
+
+        rollback(&engine, target).await.expect("rollback ok");
+
+        assert_eq!(engine.list().await.unwrap()[0].state, "running");
+        assert_eq!(engine.name("old").as_deref(), Some(stable_name));
     }
 
     #[tokio::test]
@@ -1210,6 +1306,6 @@ mod tests {
         })
         .await
         .expect_err("outside path must be rejected");
-        assert!(error.contains("outside /storage/containers/"));
+        assert!(error.contains(crate::file_system::STORAGE_ROOT));
     }
 }

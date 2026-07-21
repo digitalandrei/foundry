@@ -294,8 +294,10 @@ controller starts and applies its embedded migrations.
 
 Persistent-volume clean and purge-on-redeploy still require foundry-agent
 0.54.0 or newer. Placement-scoped file sessions and operationally safe
-deploy/restart/replacement require 0.63.0 because deployment readiness now
-includes Docker's NVIDIA runtime/CDI capability. Remote upgrade deliberately
+deploy/restart require 0.63.0 because deployment readiness now includes
+Docker's NVIDIA runtime/CDI capability. Replacement requires 0.64.0 so the
+retained predecessor can idempotently release and restore the stable Docker
+name used by its successor. Remote upgrade deliberately
 keeps its 0.59.0 floor so a Docker-broken host can repair itself.
 Controller-first deployment is safe:
 older agents keep heartbeating and existing workloads keep running, while new

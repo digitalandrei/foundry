@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT d.id AS \"id: Uuid\", d.state, d.server_id AS \"server_id: Uuid\",\n                  gpu_slot_id AS \"slot_id: Uuid\",\n                  gpu_group_id AS \"gpu_group_id: Uuid\",\n                  gitlab_instance_id AS \"instance_id: Uuid\",\n                  registry_tag_id AS \"registry_tag_id: Uuid\", image_digest,\n                  adopted_container_id,\n                  d.created_by AS \"created_by: Uuid\",\n                  r.gitlab_project_id AS \"project_id: Uuid\"\n           FROM deployments d\n           LEFT JOIN registry_tags t ON t.id = d.registry_tag_id\n           LEFT JOIN registry_repositories r ON r.id = t.registry_repository_id\n           WHERE d.id = ?",
+  "query": "SELECT d.id AS \"id: Uuid\", d.state, d.server_id AS \"server_id: Uuid\", d.container_name,\n                  gpu_slot_id AS \"slot_id: Uuid\",\n                  gpu_group_id AS \"gpu_group_id: Uuid\",\n                  gitlab_instance_id AS \"instance_id: Uuid\",\n                  registry_tag_id AS \"registry_tag_id: Uuid\", image_digest,\n                  adopted_container_id,\n                  d.created_by AS \"created_by: Uuid\",\n                  r.gitlab_project_id AS \"project_id: Uuid\"\n           FROM deployments d\n           LEFT JOIN registry_tags t ON t.id = d.registry_tag_id\n           LEFT JOIN registry_repositories r ON r.id = t.registry_repository_id\n           WHERE d.id = ?",
   "describe": {
     "columns": [
       {
@@ -32,6 +32,15 @@
       },
       {
         "ordinal": 3,
+        "name": "container_name",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 1020
+        }
+      },
+      {
+        "ordinal": 4,
         "name": "slot_id: Uuid",
         "type_info": {
           "type": "String",
@@ -40,7 +49,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "gpu_group_id: Uuid",
         "type_info": {
           "type": "String",
@@ -49,7 +58,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "instance_id: Uuid",
         "type_info": {
           "type": "String",
@@ -58,7 +67,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "registry_tag_id: Uuid",
         "type_info": {
           "type": "String",
@@ -67,7 +76,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "image_digest",
         "type_info": {
           "type": "VarString",
@@ -76,7 +85,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "adopted_container_id",
         "type_info": {
           "type": "VarString",
@@ -85,7 +94,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "created_by: Uuid",
         "type_info": {
           "type": "String",
@@ -94,7 +103,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "project_id: Uuid",
         "type_info": {
           "type": "String",
@@ -110,6 +119,7 @@
       false,
       false,
       false,
+      true,
       false,
       true,
       true,
@@ -120,5 +130,5 @@
       true
     ]
   },
-  "hash": "08f030109d0c32b00b07b1659953e80ada7fc0888f363b019fb4047eac046a60"
+  "hash": "79e01171537f3cad5388263ced8999d467e95dce1428814ec35a7c71a6646ce7"
 }

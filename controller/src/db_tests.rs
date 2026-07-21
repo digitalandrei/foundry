@@ -584,7 +584,11 @@ async fn placement_volumes_reuse_across_users_and_projects(pool: MySqlPool) {
     .unwrap();
     tx.commit().await.unwrap();
     assert_eq!(creator_shared, collaborator_shared);
-    assert_eq!(creator_shared.1, "/storage/containers/shared/comfy1/models");
+    let creator_leaf = creator_shared
+        .1
+        .strip_prefix("/storage/containers/.foundry/shared/comfy1/models/")
+        .expect("new volume uses the logical hierarchy");
+    assert!(Uuid::parse_str(creator_leaf).is_ok());
 
     let mut tx = pool.begin().await.unwrap();
     let other_project = crate::repos::volumes::ensure(
@@ -600,7 +604,11 @@ async fn placement_volumes_reuse_across_users_and_projects(pool: MySqlPool) {
     .unwrap();
     tx.commit().await.unwrap();
     assert_ne!(creator_shared.0, other_project.0);
-    assert_eq!(other_project.1, "/storage/containers/shared/comfy2/models");
+    let other_leaf = other_project
+        .1
+        .strip_prefix("/storage/containers/.foundry/shared/comfy2/models/")
+        .expect("project name separates physical roots");
+    assert!(Uuid::parse_str(other_leaf).is_ok());
 
     spec.placement = VolumePlacement::Slot;
     let mut tx = pool.begin().await.unwrap();

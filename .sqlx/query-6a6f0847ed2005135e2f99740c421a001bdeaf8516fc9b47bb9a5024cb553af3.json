@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT container_name FROM deployments WHERE id = ? FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "container_name",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 1020
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "6a6f0847ed2005135e2f99740c421a001bdeaf8516fc9b47bb9a5024cb553af3"
+}

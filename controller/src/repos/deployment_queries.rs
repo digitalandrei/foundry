@@ -19,13 +19,14 @@ pub struct DeploymentRow {
     pub project_id: Option<foundry_shared::GitlabProjectId>,
     pub registry_tag_id: Option<foundry_shared::RegistryTagId>,
     pub image_digest: Option<String>,
+    pub container_name: Option<String>,
     pub created_by: UserId,
     pub adopted_container_id: Option<String>,
 }
 
 pub async fn get(pool: &MySqlPool, id: DeploymentId) -> Result<DeploymentRow, AppError> {
     let r = sqlx::query!(
-        r#"SELECT d.id AS "id: Uuid", d.state, d.server_id AS "server_id: Uuid",
+        r#"SELECT d.id AS "id: Uuid", d.state, d.server_id AS "server_id: Uuid", d.container_name,
                   gpu_slot_id AS "slot_id: Uuid",
                   gpu_group_id AS "gpu_group_id: Uuid",
                   gitlab_instance_id AS "instance_id: Uuid",
@@ -52,6 +53,7 @@ pub async fn get(pool: &MySqlPool, id: DeploymentId) -> Result<DeploymentRow, Ap
         project_id: r.project_id.map(Into::into),
         registry_tag_id: r.registry_tag_id.map(Into::into),
         image_digest: r.image_digest,
+        container_name: r.container_name,
         created_by: r.created_by.into(),
         adopted_container_id: r.adopted_container_id,
     })

@@ -128,6 +128,10 @@ pub trait DockerEngine: Send + Sync {
     async fn health(&self, id: &str) -> Result<ContainerHealth, DockerError>;
     async fn stop(&self, id: &str, timeout_secs: i32) -> Result<(), DockerError>;
     async fn restart(&self, id: &str, timeout_secs: i32) -> Result<(), DockerError>;
+    /// Rename a retained predecessor to release its stable deployment name
+    /// for a replacement successor, or restore that name during rollback.
+    /// Implementations return success when it already has `name`.
+    async fn rename(&self, id: &str, name: &str) -> Result<(), DockerError>;
     /// Force-remove a container; removing an absent container is `Ok`
     /// (teardown stays idempotent).
     async fn remove(&self, id: &str) -> Result<(), DockerError>;
@@ -564,6 +568,34 @@ impl DockerEngine for BollardEngine {
             .map_err(|e| map_err("container restart failed", e))
     }
 
+    async fn rename(&self, id: &str, name: &str) -> Result<(), DockerError> {
+        let current_name = self
+            .docker
+            .inspect_container(
+                id,
+                None::<bollard::query_parameters::InspectContainerOptions>,
+            )
+            .await
+            .map_err(|e| map_err("container rename inspect failed", e))?
+            .name;
+        if current_name
+            .as_deref()
+            .map(|current| current.trim_start_matches('/'))
+            == Some(name)
+        {
+            return Ok(());
+        }
+        self.docker
+            .rename_container(
+                id,
+                bollard::query_parameters::RenameContainerOptions {
+                    name: name.to_string(),
+                },
+            )
+            .await
+            .map_err(|e| map_err("container rename failed", e))
+    }
+
     async fn remove(&self, id: &str) -> Result<(), DockerError> {
         match self
             .docker
@@ -715,6 +747,7 @@ pub(crate) mod fake {
 
     #[derive(Clone)]
     struct FakeContainer {
+        name: String,
         state: String,
         image: String,
         labels: BTreeMap<String, String>,
@@ -727,8 +760,12 @@ pub(crate) mod fake {
         pub created: Mutex<Vec<ContainerSpec>>,
         /// Ids passed to `remove`, in order.
         pub removed: Mutex<Vec<String>>,
+        /// `(container id, new name)` calls, in order.
+        pub renamed: Mutex<Vec<(String, String)>>,
         /// If set, the next `pull` fails with this error.
         pub pull_error: Mutex<Option<DockerError>>,
+        /// If set, the next health query fails with this error.
+        pub health_error: Mutex<Option<DockerError>>,
         /// If true, `create` fails with `Conflict`.
         pub create_conflict: Mutex<bool>,
         /// If true, every call fails with `Unavailable`.
@@ -745,6 +782,16 @@ pub(crate) mod fake {
 
         /// Seed a managed container for a deployment (idempotency tests).
         pub fn with_managed(self, id: &str, state: &str, deployment_id: &str) -> Self {
+            self.with_managed_named(id, state, deployment_id, id)
+        }
+
+        pub fn with_managed_named(
+            self,
+            id: &str,
+            state: &str,
+            deployment_id: &str,
+            name: &str,
+        ) -> Self {
             let labels = BTreeMap::from([
                 ("foundry.managed".to_string(), "true".to_string()),
                 (
@@ -755,6 +802,7 @@ pub(crate) mod fake {
             self.containers.lock().unwrap().push((
                 id.to_string(),
                 FakeContainer {
+                    name: name.to_string(),
                     state: state.to_string(),
                     image: format!("img-of-{id}"),
                     labels,
@@ -763,8 +811,22 @@ pub(crate) mod fake {
             self
         }
 
+        pub fn name(&self, id: &str) -> Option<String> {
+            self.containers
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|(container_id, _)| container_id == id)
+                .map(|(_, container)| container.name.clone())
+        }
+
         pub fn fail_pull(self, e: DockerError) -> Self {
             *self.pull_error.lock().unwrap() = Some(e);
+            self
+        }
+
+        pub fn fail_health(self, e: DockerError) -> Self {
+            *self.health_error.lock().unwrap() = Some(e);
             self
         }
 
@@ -864,6 +926,15 @@ pub(crate) mod fake {
             if *self.create_conflict.lock().unwrap() {
                 return Err(DockerError::Conflict);
             }
+            if self
+                .containers
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(_, container)| container.name == spec.name)
+            {
+                return Err(DockerError::Conflict);
+            }
             self.created.lock().unwrap().push(spec.clone());
             let id = {
                 let mut n = self.next_id.lock().unwrap();
@@ -873,6 +944,7 @@ pub(crate) mod fake {
             self.containers.lock().unwrap().push((
                 id.clone(),
                 FakeContainer {
+                    name: spec.name.clone(),
                     state: "created".to_string(),
                     image: spec.image.clone(),
                     labels: spec.labels.clone(),
@@ -888,6 +960,10 @@ pub(crate) mod fake {
         }
 
         async fn health(&self, _id: &str) -> Result<ContainerHealth, DockerError> {
+            self.ensure_up()?;
+            if let Some(error) = self.health_error.lock().unwrap().take() {
+                return Err(error);
+            }
             Ok(ContainerHealth {
                 status: "none".into(),
                 detail: None,
@@ -903,6 +979,32 @@ pub(crate) mod fake {
         async fn restart(&self, id: &str, _timeout_secs: i32) -> Result<(), DockerError> {
             self.ensure_up()?;
             self.set_state(id, "running");
+            Ok(())
+        }
+
+        async fn rename(&self, id: &str, name: &str) -> Result<(), DockerError> {
+            self.ensure_up()?;
+            let mut containers = self.containers.lock().unwrap();
+            if containers
+                .iter()
+                .any(|(container_id, container)| container_id != id && container.name == name)
+            {
+                return Err(DockerError::Conflict);
+            }
+            let Some((_, container)) = containers
+                .iter_mut()
+                .find(|(container_id, _)| container_id == id)
+            else {
+                return Err(DockerError::NotFound);
+            };
+            if container.name == name {
+                return Ok(());
+            }
+            container.name = name.to_string();
+            self.renamed
+                .lock()
+                .unwrap()
+                .push((id.to_string(), name.to_string()));
             Ok(())
         }
 

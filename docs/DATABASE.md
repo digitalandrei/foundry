@@ -196,7 +196,9 @@ denormalised primary member; `deployment_slots` is authoritative for the
 full set of GPUs held.
 `container_name` is transactionally unique among active deployments on one
 server (serialized by the server allocation lock); a replacement is exempt so
-it can preserve the URL, and REMOVED/REPLACED or containerless FAILED history
+it can preserve the URL. The replacement successor receives the predecessor's
+exact name; replacement never accepts a rename, because that name is also the
+storage-project namespace. REMOVED/REPLACED or containerless FAILED history
 releases the name. This lifecycle-dependent rule is enforced in code rather
 than a permanent SQL UNIQUE key.
 
@@ -235,20 +237,36 @@ deleted later), `host_path`, `container_path`, `read_only`,
 ### `server_volumes`
 > Added in Phase 6 (operator requirement): persistent storage.
 
-Placement/deploy-scoped local volumes. New paths mirror their logical
-hierarchy: `/storage/containers/{slots/<slot-uuid>|groups/<group-uuid>|shared}/<project_name>/<mount-name>`.
-Here `project_name` is the user-given deployment name, never a GitLab project;
-legacy paths remain valid and are not moved. Columns: `id`, `server_id` FK,
-logical `name`, `placement` (SLOT/SERVER), `placement_id` (physical slot, GPU
-group, or server UUID), `project_name`, `gpu_slot_id` / `gpu_group_id` FK
-nullable, `path`, `created_by` FK users, timestamps. Canonical
+Placement/deploy-scoped local volumes. Their logical hierarchy is
+`server / {shared | slot <slot-uuid> | group <group-uuid>} / project / mount`,
+where `project_name` is the user-given deployment name (never a GitLab
+project) and `name` is the logical mount name. New physical roots are under
+the reserved `.foundry` namespace:
+`/storage/containers/.foundry/{shared|slots/<slot-uuid>|groups/<group-uuid>}/<project_name>/<name>/<id>`.
+The UUID leaf is allocated once and never changes; `path` is the authoritative
+absolute filesystem root, never reconstructed from the logical labels. Legacy
+paths remain valid and are not moved. Migration
+`20260721000004_repair_legacy_volume_namespaces.sql` repairs interim
+`project_name='legacy'` rows from their earliest attached deployment where
+safe; unresolved or conflicting rows receive a unique `_legacy-<uuid>`
+namespace for operator review. It never merges identities or moves filesystem
+data, and then makes the logical path-key columns binary-collated.
+
+Columns: `id`, `server_id` FK, logical `name`, `placement` (SLOT/SERVER),
+`placement_id` (physical slot, GPU group, or server UUID), `project_name`,
+`gpu_slot_id` / `gpu_group_id` FK nullable, `path`, `created_by` FK users,
+timestamps. `name`, `project_name`, and `path` use binary collation so the
+database key agrees with Linux path and explicit reuse semantics. Canonical
 `used_bytes`, `quota_bytes`, and `usage_measured_at` hold agent-measured
-accounting plus an advisory quota. Browser uploads enforce the quota; the
-database does not claim filesystem/container hard isolation. Canonical
-uniqueness:
+accounting plus an advisory quota. The controller's per-server catalog is the
+authority for that accounting: it returns each row's `{volume_id,path}` to the
+authenticated owning agent, which measures those paths rather than scanning
+for directories. Browser uploads enforce the quota; the database does not
+claim filesystem/container hard isolation. Canonical uniqueness is
 (`server_id`, `placement`, `placement_id`, `project_name`, `name`); path is
-also unique per server. GitLab project identity is deliberately absent. Clean retains the
-row and queues PURGE_VOLUMES; delete removes the row and queues REMOVE_VOLUME.
+also unique per server. GitLab project identity is deliberately absent. Clean
+retains the row and queues PURGE_VOLUMES; delete removes the row and queues
+REMOVE_VOLUME.
 
 ### `deployment_logs`
 > Added in Phase 7 (Logs): captured container stdout+stderr.

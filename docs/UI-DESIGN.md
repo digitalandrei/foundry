@@ -234,7 +234,9 @@ mockup — final token mapping fixed when the palette lands in Phase 8).
   placement, read-only and purge-on-redeploy controls. SLOT follows the
   physical or GPU-group slot; SERVER follows the same deploy name across that
   server. Storage keys are `placement / deploy name / mount name`, where the
-  deploy name is the name entered in this dialog. Opening it inspects the image:
+  deploy name is the name entered in this dialog. During replacement this name
+  is displayed as fixed, not editable: it preserves the deployment's app URL
+  and storage-project namespace. Opening it inspects the image:
   EXPOSE ports and persistent mounts declared by Docker `VOLUME` or the
   Foundry volume-default label are prefilled once, remain editable, and do
   not overwrite input the operator has already changed. The optional Foundry
@@ -242,9 +244,15 @@ mockup — final token mapping fixed when the palette lands in Phase 8).
   proxy timeout; the UI keeps one deterministic primary URL.
 - **Storage** (placement model 0.63.0): select a local server, then use a
   responsive dual-pane, MC-inspired browser over its SLOT and SERVER roots.
-  GitLab projects are not a storage dimension. The policy table and pane
-  selector show the deploy-name namespace for every root. Each pane selects a root
-  and navigates independently. Double-click/Enter opens directories or
+  GitLab projects are not a storage dimension. Every selector is search-first:
+  the server selector matches node name/hostname, and the root selector is
+  grouped as **Shared / Slot / Group → Project → Mount** while matching terms
+  across server, placement, project/deployment name, mount, attachment, and
+  their displayed aliases. It supports tokenized AND search plus keyboard
+  Arrow/Home/End/Enter navigation. The policy table and pane selector show the
+  same `server / placement / project / mount` breadcrumb for every root; each
+  pane selects a root and navigates independently. Double-click/Enter opens
+  directories or
   bounded UTF-8 text in a monospaced editor; toolbar actions create, rename,
   copy to the other pane, move, download, upload and type-to-confirm delete.
   Native desktop files drop into either pane/directory; dragging entries

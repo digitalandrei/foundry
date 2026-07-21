@@ -15,14 +15,8 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import type { ServerVolume } from "@/lib/types"
+import { VolumeLocationPicker } from "@/components/volume-location-picker"
+import type { ServerSummary, ServerVolume } from "@/lib/types"
 import {
   formatFileSize,
   parentVolumePath,
@@ -49,6 +43,7 @@ export type VolumePaneModel = {
 
 type Props = {
   side: "left" | "right"
+  server: Pick<ServerSummary, "name" | "hostname">
   volumes: ServerVolume[]
   model: VolumePaneModel
   connected: boolean
@@ -72,6 +67,7 @@ type Props = {
  * desktop files can be dropped into the same surface as cross-pane items. */
 export function VolumeFilePane({
   side,
+  server,
   volumes,
   model,
   connected,
@@ -118,23 +114,14 @@ export function VolumeFilePane({
       onDrop={(event) => acceptDrop(event, model.path)}
     >
       <div className="border-b bg-muted/35 p-2">
-        <Select value={model.volumeId} onValueChange={onVolume}>
-          <SelectTrigger className="h-8 font-mono text-xs" aria-label={`${side} volume`}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {volumes.map((volume) => (
-              <SelectItem key={volume.id} value={volume.id}>
-                {volume.project_name} / {volume.name} ·{" "}
-                {volume.placement === "SERVER"
-                  ? "server shared"
-                  : volume.gpu_group_id
-                    ? `group ${volume.group_name ?? "?"}`
-                    : `slot ${volume.slot_name ?? "?"}`}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <VolumeLocationPicker
+          value={model.volumeId}
+          volumes={volumes}
+          server={server}
+          onValueChange={onVolume}
+          ariaLabel={`${side} volume`}
+          className="h-8 font-mono text-xs"
+        />
         <div className="mt-2 flex items-center gap-1">
           <Button
             variant="ghost"

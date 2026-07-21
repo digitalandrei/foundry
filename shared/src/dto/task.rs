@@ -162,6 +162,11 @@ pub struct ContainerTarget {
 pub struct ReplacementTarget {
     pub container: ContainerTarget,
     pub ports: Vec<PortBinding>,
+    /// Stable deployment/container name. The predecessor is temporarily
+    /// renamed while retained so its successor can reuse this persistent
+    /// namespace; absent for tasks queued by an older controller.
+    #[serde(default)]
+    pub container_name: Option<String>,
 }
 
 /// `POST /agent/tasks/result`.

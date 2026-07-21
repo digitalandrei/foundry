@@ -152,12 +152,22 @@ The Storage browser is host-filesystem access, so its scope is explicit at
 every boundary:
 
 - The browser session requires an authenticated Foundry user. Its roots are
-  scoped by placement, user-given deploy name, and mount name on the selected
-  server; a deployment-detail session is additionally narrowed to the volume
-  IDs attached to that deployment. The deploy name is not a GitLab ACL.
+  scoped by the logical hierarchy server → shared/slot/group → user-given
+  deploy-name project → mount; a deployment-detail session is additionally
+  narrowed to the volume IDs attached to that deployment. The deploy name is
+  not a GitLab ACL.
 - The browser sends a `volume_id` and relative UTF-8 path, never a host path.
   The agent receives a controller-approved root map for its own `server_id`;
   absolute paths, `..`, root deletion, and symlink following are rejected.
+- New physical roots are controller-allocated below the reserved
+  `/storage/containers/.foundry/` namespace and end in an immutable volume
+  UUID. The controller's `{volume_id,path}` catalog is the accounting and
+  authorization authority: the agent measures only cataloged roots for its
+  authenticated server, never roots inferred by enumerating the filesystem.
+  Retained legacy paths remain cataloged explicitly. Before create, mount,
+  measurement, purge, or deletion, the agent validates every existing path
+  component with `symlink_metadata`; symlink/non-directory ancestors are
+  rejected, and destructive work uses the validated canonical root.
 - Session open and every mutation request are audited. Audit detail contains
   operation, volume IDs, paths and upload size—but never file content or
   transfer chunks.

@@ -244,6 +244,7 @@ export function VolumeBrowser({
     const current = model(side)
     return {
       side,
+      server,
       volumes,
       model: current,
       connected,

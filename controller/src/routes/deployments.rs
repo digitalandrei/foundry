@@ -273,6 +273,13 @@ pub async fn replace(
             slot_id: old.slot_id,
         },
     };
+    // Reject a namespace-changing replacement before any GitLab/registry
+    // round-trip. The repository repeats this invariant under its transaction
+    // for non-HTTP callers and concurrent lifecycle changes.
+    req.name = Some(deployments::replacement_container_name(
+        old.container_name.as_deref(),
+        req.name.as_deref(),
+    )?);
 
     let tag = mirror::tag_ref(&state.pool, req.registry_tag_id).await?;
     authorize_project(&state, user.id, tag.instance_id, tag.gitlab_project_id).await?;

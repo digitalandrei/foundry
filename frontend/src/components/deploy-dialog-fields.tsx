@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { VolumeLocationPicker } from "@/components/volume-location-picker"
 import {
   Select,
   SelectContent,
@@ -37,6 +38,7 @@ type FieldsProps = {
   discoveredVolumeCount: number
   discoverySucceeded: boolean
   availableVolumes: ServerVolume[]
+  storageServer: { name: string; hostname: string | null }
 }
 
 export function DeployDialogFields({
@@ -52,6 +54,7 @@ export function DeployDialogFields({
   discoveredVolumeCount,
   discoverySucceeded,
   availableVolumes,
+  storageServer,
 }: FieldsProps) {
   const watched = useWatch({ control: form.control })
   const memGb = watched.mem_limit_gb ?? MEM_UNLIMITED_GB
@@ -65,9 +68,16 @@ export function DeployDialogFields({
           id="dep-name"
           placeholder={`${imageName}-auto`}
           autoComplete="off"
+          readOnly={replacing}
+          aria-readonly={replacing || undefined}
+          className={replacing ? "cursor-not-allowed bg-muted text-muted-foreground" : undefined}
           {...form.register("name")}
         />
-        <FieldDescription>Optional — generated when empty.</FieldDescription>
+        <FieldDescription>
+          {replacing
+            ? "Replacement keeps this deploy name locked: persistent storage is namespaced by deploy name, then mount name."
+            : "Optional — generated when empty."}
+        </FieldDescription>
         {form.formState.errors.name ? (
           <FieldError>{form.formState.errors.name.message}</FieldError>
         ) : null}
@@ -267,8 +277,10 @@ export function DeployDialogFields({
             <div className="flex items-start gap-2">
               <Field className="flex-1">
                 <FieldLabel>Reuse</FieldLabel>
-                <Select
+                <VolumeLocationPicker
                   value={selectedId ?? "automatic"}
+                  volumes={availableVolumes}
+                  server={storageServer}
                   onValueChange={(value) => {
                     if (value === "automatic") {
                       form.setValue(`volumes.${index}.volume_id`, null, { shouldDirty: true })
@@ -282,23 +294,9 @@ export function DeployDialogFields({
                       shouldDirty: true,
                     })
                   }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="automatic">Create/reuse by policy</SelectItem>
-                    {availableVolumes.map((volume) => (
-                      <SelectItem key={volume.id} value={volume.id}>
-                        {volume.project_name} / {volume.name} · {volume.placement === "SERVER"
-                          ? "server"
-                          : volume.gpu_group_id
-                            ? `group ${volume.group_name ?? "?"}`
-                            : `slot ${volume.slot_name ?? "?"}`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  ariaLabel={`Reuse volume ${index + 1}`}
+                  includeAutomatic
+                />
               </Field>
               <RemoveRowButton onClick={() => mounts.remove(index)} />
             </div>

@@ -115,7 +115,7 @@ async fn run_agent() -> Result<(), Box<dyn Error>> {
         tasks::run_loop(&client, &config, docker.clone()),
         shell::run_loop(&client, &config, docker.clone()),
         files::run_loop(&client, &config),
-        host::storage_loop(storage_cache)
+        host::storage_loop(storage_cache, &client, &config)
     );
     tracing::info!("shut down cleanly");
     Ok(())

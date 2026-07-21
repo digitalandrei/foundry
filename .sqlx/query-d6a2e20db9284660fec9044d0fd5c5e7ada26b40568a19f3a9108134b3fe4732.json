@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT id AS `id: Uuid`, state, adopted_container_id FROM deployments WHERE replaced_by_deployment_id = ? FOR UPDATE",
+  "query": "SELECT id AS `id: Uuid`, state, adopted_container_id, container_name FROM deployments WHERE replaced_by_deployment_id = ? FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -29,6 +29,15 @@
           "flags": "",
           "max_size": 512
         }
+      },
+      {
+        "ordinal": 3,
+        "name": "container_name",
+        "type_info": {
+          "type": "VarString",
+          "flags": "",
+          "max_size": 1020
+        }
       }
     ],
     "parameters": {
@@ -37,8 +46,9 @@
     "nullable": [
       false,
       false,
+      true,
       true
     ]
   },
-  "hash": "b706e9d8739678edbed5e13f13273e69c6b8d99e728fd26325b85df0b720fcf0"
+  "hash": "d6a2e20db9284660fec9044d0fd5c5e7ada26b40568a19f3a9108134b3fe4732"
 }

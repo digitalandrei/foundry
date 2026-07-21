@@ -405,7 +405,7 @@ async fn advance_deployment(
             )
             .await?;
             let predecessor = sqlx::query!(
-                "SELECT id AS `id: Uuid`, state, adopted_container_id FROM deployments WHERE replaced_by_deployment_id = ? FOR UPDATE",
+                "SELECT id AS `id: Uuid`, state, adopted_container_id, container_name FROM deployments WHERE replaced_by_deployment_id = ? FOR UPDATE",
                 deployment_id.0,
             )
             .fetch_optional(&mut *tx)
@@ -436,6 +436,7 @@ async fn advance_deployment(
                             container_id: predecessor.adopted_container_id,
                         },
                         ports: old_ports,
+                        container_name: predecessor.container_name,
                     }),
                 )
                 .await?;
@@ -773,7 +774,7 @@ async fn rollback_replacement(
     actor: &Actor,
 ) -> Result<(), AppError> {
     let predecessor = sqlx::query!(
-        "SELECT id AS `id: Uuid`, state, adopted_container_id FROM deployments
+        "SELECT id AS `id: Uuid`, state, adopted_container_id, container_name FROM deployments
          WHERE replaced_by_deployment_id = ? FOR UPDATE",
         successor_id.0,
     )
@@ -816,6 +817,7 @@ async fn rollback_replacement(
                         container_id: predecessor.adopted_container_id,
                     },
                     ports: predecessor_ports,
+                    container_name: predecessor.container_name,
                 }),
             )
             .await?;

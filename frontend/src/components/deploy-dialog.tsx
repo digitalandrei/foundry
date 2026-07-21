@@ -22,6 +22,7 @@ import {
   useReplaceDeployment,
   useServerVolumes,
 } from "@/hooks/use-deployments"
+import { useServers } from "@/hooks/use-servers"
 import {
   MEM_UNLIMITED_GB,
   defaultPortKind,
@@ -69,6 +70,7 @@ export function DeployDialog({
   const serverId = target?.slot?.serverId ?? target?.group?.serverId ?? null
   const serverName = target?.slot?.serverName ?? target?.group?.serverName ?? ""
   const me = useMe()
+  const servers = useServers()
   const appsDomain = me.data?.apps_domain ?? null
   const discovered = useImageMetadata(target?.tag.registryTagId ?? null)
   const replacingDetail = useDeploymentDetail(target?.replaces?.id ?? null)
@@ -96,6 +98,10 @@ export function DeployDialog({
   const availableVolumes = storageProjectName
     ? (volumes.data ?? []).filter((volume) => volume.project_name === storageProjectName)
     : []
+  const storageServer = servers.data?.find((server) => server.id === serverId) ?? {
+    name: serverName,
+    hostname: null,
+  }
 
   const targetKey = target?.slot
     ? `slot:${target.slot.slotId}`
@@ -275,6 +281,7 @@ export function DeployDialog({
               discoveredVolumeCount={discovered.data?.volumes.length ?? 0}
               discoverySucceeded={discovered.isSuccess}
               availableVolumes={availableVolumes}
+              storageServer={storageServer}
             />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose} disabled={pending}>

@@ -564,3 +564,19 @@ reflected in the affected docs in the same commit set:
   and new host directories are `server / slot-or-shared / deploy-name /
   mount-name`; same-name redeployments reuse data, different deployments in
   one multi-use slot cannot collide, and legacy data remains in place.
+- **2026-07-21** (0.64.0) — **Hierarchical storage selectors and
+  controller-catalog accounting.** The logical storage hierarchy is now shown
+  consistently as `server → shared/slot/group → project (user deployment
+  name) → mount`, with search-first selectors matching every level. New
+  physical roots are reserved below `/storage/containers/.foundry/` and end in
+  an immutable volume-UUID leaf; legacy stored paths stay in place. On each
+  storage pass, an agent fetches its authenticated controller-owned
+  `{volume_id,path}` catalog and measures only that catalog, rather than
+  discovering directories from host naming conventions. A replacement cannot
+  change its predecessor's deployment name; the retained Docker container
+  temporarily releases that name and restores it on rollback. Root creation,
+  accounting and deletion reject symlinked ancestors, and the forward repair
+  migration preserves rolling-window legacy paths without merging conflicts.
+  Affects API, ARCHITECTURE, DATABASE, DEPLOYMENT, SECURITY, UI-DESIGN,
+  TESTING, codebase-map, controller/agent storage accounting, and deployment
+  replacement UI.

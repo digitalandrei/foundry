@@ -26,6 +26,8 @@ const volume: ServerVolume = {
   created_at: "2026-07-20T00:00:00Z",
 }
 
+const server = { name: "Atlas", hostname: "atlas-gpu.internal" }
+
 function model(): VolumePaneModel {
   return {
     volumeId: volume.id,
@@ -58,6 +60,7 @@ describe.each(["light", "dark"])("volume file pane (%s theme)", (theme) => {
       <div className={theme}>
         <VolumeFilePane
           side="left"
+          server={server}
           volumes={[volume]}
           model={model()}
           connected

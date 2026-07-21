@@ -1,10 +1,10 @@
 //! Placement-scoped local persistent storage.
 //!
-//! A volume belongs either to one physical GPU slot or to its whole server.
-//! GitLab projects never participate in storage identity: deploying another
-//! project into the same placement may reuse the same logical volume. Host
-//! directories use opaque IDs under `/storage/containers/volumes/`; logical
-//! names provide the folder layer in the browser.
+//! Identity is server + physical/GPU-group slot (or shared server) + the
+//! user-given deployment name + mount name. GitLab projects never participate.
+//! New physical roots live below the reserved `.foundry` tree and end in an
+//! immutable volume UUID; legacy rows retain their recorded paths. The UI
+//! presents only the stable logical hierarchy.
 
 use foundry_shared::dto::{ServerVolume, TaskPayload, VolumeBatchTarget, VolumeSpec, VolumeTarget};
 use foundry_shared::{
@@ -168,8 +168,8 @@ pub async fn ensure(
         ),
     };
     let path = format!(
-        "{VOLUME_ROOT}/{placement_path}/{project_name}/{}",
-        spec.volume_name
+        "{VOLUME_ROOT}/.foundry/{placement_path}/{project_name}/{}/{candidate_id}",
+        spec.volume_name,
     );
     let now = chrono::Utc::now().naive_utc();
     // The scope unique key makes concurrent first-use deterministic. The
@@ -237,6 +237,28 @@ pub async fn get(pool: &MySqlPool, id: ServerVolumeId) -> Result<VolumeRow, AppE
         path: r.path,
         created_by: r.created_by.into(),
     })
+}
+
+/// Exact controller-owned roots for one authenticated server agent. The
+/// agent measures this catalog instead of inferring identity from host path
+/// conventions, which also keeps every legacy root accounted for.
+pub async fn catalog(
+    pool: &MySqlPool,
+    server_id: ServerId,
+) -> Result<Vec<foundry_shared::dto::VolumeTarget>, AppError> {
+    Ok(sqlx::query!(
+        r#"SELECT id AS "id: Uuid", path
+           FROM server_volumes WHERE server_id = ? ORDER BY id"#,
+        server_id.0,
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| foundry_shared::dto::VolumeTarget {
+        volume_id: row.id.into(),
+        path: row.path,
+    })
+    .collect())
 }
 
 pub async fn set_quota(

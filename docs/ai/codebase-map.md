@@ -114,13 +114,25 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   `controller/src/lifecycle.rs`; deployments + port allocator →
   `controller/src/repos/deployments.rs`; task queue (claim/complete/
   chains, deploy-payload build) → `controller/src/repos/tasks.rs`;
-  placement/deploy-name-scoped persistent volumes → `controller/src/repos/volumes.rs`;
+  placement/deploy-name-scoped persistent volumes + the authenticated exact
+  per-server `{volume_id,path}` accounting catalog →
+  `controller/src/repos/volumes.rs`; the catalog route and agent dispatch
+  enrichment → `controller/src/routes/agent.rs`;
   deployment + volume routes → `controller/src/routes/volumes.rs`; live
   project authorization for images/deploy control → `controller/src/gitlab/access.rs`; policy-aware
   storage management UI → `frontend/src/pages/storage.tsx`; purge-task
   rolling-upgrade gate → `repos/volumes.rs::require_purge_support`; dispatch
   enrichment (env decrypt + pull-token mint) →
   `controller/src/routes/agent.rs`
+- Volume hierarchy presentation/search →
+  `frontend/src/lib/volume-locations.ts` +
+  `components/{volume-location,volume-location-picker,searchable-picker,server-picker}.tsx`;
+  new physical roots are allocated as
+  `.foundry/{shared|slots/<id>|groups/<id>}/<deploy-name>/<mount>/<volume-id>`
+  in `controller/src/repos/volumes.rs`; periodic catalog-backed usage
+  measurement → `agent/src/host.rs`; symlink-safe physical-root prepare/
+  validation shared by deploy, purge, browsing, accounting and deletion →
+  `agent/src/file_system.rs`
 - Persistent-volume files (placement protocol 0.63.0): reverse-WS session
   registry, server/deployment root selection and mutation audit → `controller/src/files.rs`;
   reverse-WS transfer loop → `agent/src/files.rs`; relative-path confinement
@@ -138,7 +150,8 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
 - Agent executors (deploy/stop/restart/remove/volume orchestration) +
   task poll loop → `agent/src/tasks.rs`, which reaches Docker only
   through the `DockerEngine` seam (trait + `BollardEngine` adapter +
-  test `FakeEngine`, plus pull-progress aggregation); the shared lazy
+  test `FakeEngine`, plus pull-progress aggregation and idempotent replacement
+  name handoff); the shared lazy
   `DockerRuntime` retries socket discovery without disabling operational
   tasks →
   `agent/src/docker.rs`; nginx vhost manager (HTTP/S app

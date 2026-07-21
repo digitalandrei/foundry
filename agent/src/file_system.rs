@@ -3,6 +3,7 @@
 //! symlinks are visible in listings but are never followed.
 
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
 use foundry_shared::dto::{FileEntry, FileEntryKind, FileSessionRequest};
@@ -10,7 +11,26 @@ use foundry_shared::ServerVolumeId;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
-const STORAGE_ROOT: &str = "/storage/containers";
+pub(crate) const STORAGE_ROOT: &str = "/storage/containers";
+
+/// Create and resolve a controller-approved volume root without following
+/// symlinks in any component below `/storage/containers`. The returned
+/// canonical path is what callers should retain for the rest of an operation.
+pub(crate) async fn prepare_volume_root(path: &Path) -> Result<PathBuf, String> {
+    validate_root_path(path)?;
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || prepare_volume_root_sync(&path))
+        .await
+        .map_err(|error| format!("prepare volume root task failed: {error}"))?
+}
+
+/// Resolve an existing root for an operation that must not create it (storage
+/// accounting and deletion). `None` means the volume has not been created on
+/// this host yet; a symlink or non-directory component is always rejected.
+pub(crate) fn existing_volume_root(path: &Path) -> Result<Option<PathBuf>, String> {
+    validate_root_path(path)?;
+    existing_volume_root_at(Path::new(STORAGE_ROOT), path)
+}
 
 pub(crate) async fn approved_roots(
     request: &FileSessionRequest,
@@ -18,37 +38,162 @@ pub(crate) async fn approved_roots(
     let mut roots = HashMap::new();
     for volume in &request.volumes {
         let path = PathBuf::from(&volume.path);
-        validate_root_path(&path)?;
-        tokio::fs::create_dir_all(&path)
-            .await
-            .map_err(|error| fs_error("prepare volume root", error))?;
-        let metadata = tokio::fs::symlink_metadata(&path)
-            .await
-            .map_err(|error| fs_error("inspect volume root", error))?;
-        if metadata.file_type().is_symlink() || !metadata.is_dir() {
-            return Err(format!(
-                "volume root {} is not a real directory",
-                path.display()
-            ));
-        }
-        let canonical = tokio::fs::canonicalize(&path)
-            .await
-            .map_err(|error| fs_error("resolve volume root", error))?;
-        validate_root_path(&canonical)?;
+        let canonical = prepare_volume_root(&path).await?;
         roots.insert(volume.volume_id, canonical);
     }
     Ok(roots)
 }
 
 fn validate_root_path(path: &Path) -> Result<(), String> {
-    let storage = Path::new(STORAGE_ROOT);
-    if !path.is_absolute() || path == storage || !path.starts_with(storage) {
+    volume_components(Path::new(STORAGE_ROOT), path).map(|_| ())
+}
+
+fn prepare_volume_root_sync(path: &Path) -> Result<PathBuf, String> {
+    prepare_volume_root_at(Path::new(STORAGE_ROOT), path)
+}
+
+fn prepare_volume_root_at(storage_root: &Path, path: &Path) -> Result<PathBuf, String> {
+    let components = volume_components(storage_root, path)?;
+    let storage_root = ensure_directory_tree(storage_root)?;
+    let canonical_storage = std::fs::canonicalize(&storage_root)
+        .map_err(|error| fs_error("resolve storage root", error))?;
+    let mut current = storage_root;
+    for component in components {
+        current.push(component);
+        ensure_directory(&current)?;
+    }
+    canonical_volume_root(&canonical_storage, &current)
+}
+
+fn existing_volume_root_at(storage_root: &Path, path: &Path) -> Result<Option<PathBuf>, String> {
+    let components = volume_components(storage_root, path)?;
+    let Some(storage_root) = existing_directory_tree(storage_root)? else {
+        return Ok(None);
+    };
+    let canonical_storage = std::fs::canonicalize(&storage_root)
+        .map_err(|error| fs_error("resolve storage root", error))?;
+    let mut current = storage_root;
+    for component in components {
+        current.push(component);
+        let Some(directory) = existing_directory(&current)? else {
+            return Ok(None);
+        };
+        current = directory;
+    }
+    canonical_volume_root(&canonical_storage, &current).map(Some)
+}
+
+fn volume_components(storage_root: &Path, path: &Path) -> Result<Vec<OsString>, String> {
+    let relative = path.strip_prefix(storage_root).map_err(|_| {
+        format!(
+            "refusing volume root outside {}: {}",
+            storage_root.display(),
+            path.display()
+        )
+    })?;
+    let components: Vec<OsString> = relative
+        .components()
+        .map(|component| match component {
+            Component::Normal(component) => Ok(component.to_os_string()),
+            _ => Err(format!(
+                "refusing volume root outside {}: {}",
+                storage_root.display(),
+                path.display()
+            )),
+        })
+        .collect::<Result<_, _>>()?;
+    if components.is_empty() {
         return Err(format!(
-            "refusing volume root outside {STORAGE_ROOT}: {}",
+            "refusing volume root outside {}: {}",
+            storage_root.display(),
+            path.display()
+        ));
+    }
+    Ok(components)
+}
+
+fn ensure_directory_tree(path: &Path) -> Result<PathBuf, String> {
+    let mut current = PathBuf::from("/");
+    for component in path.components() {
+        match component {
+            Component::RootDir => {}
+            Component::Normal(component) => {
+                current.push(component);
+                ensure_directory(&current)?;
+            }
+            _ => return Err(format!("invalid storage root: {}", path.display())),
+        }
+    }
+    Ok(current)
+}
+
+fn existing_directory_tree(path: &Path) -> Result<Option<PathBuf>, String> {
+    let mut current = PathBuf::from("/");
+    for component in path.components() {
+        match component {
+            Component::RootDir => {}
+            Component::Normal(component) => {
+                current.push(component);
+                let Some(directory) = existing_directory(&current)? else {
+                    return Ok(None);
+                };
+                current = directory;
+            }
+            _ => return Err(format!("invalid storage root: {}", path.display())),
+        }
+    }
+    Ok(Some(current))
+}
+
+fn ensure_directory(path: &Path) -> Result<(), String> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => ensure_real_directory(path, metadata),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            match std::fs::create_dir(path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(fs_error("create volume directory", error)),
+            }
+            let metadata = std::fs::symlink_metadata(path)
+                .map_err(|error| fs_error("inspect volume directory", error))?;
+            ensure_real_directory(path, metadata)
+        }
+        Err(error) => Err(fs_error("inspect volume directory", error)),
+    }
+}
+
+fn existing_directory(path: &Path) -> Result<Option<PathBuf>, String> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            ensure_real_directory(path, metadata)?;
+            Ok(Some(path.to_path_buf()))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(fs_error("inspect volume directory", error)),
+    }
+}
+
+fn ensure_real_directory(path: &Path, metadata: std::fs::Metadata) -> Result<(), String> {
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(format!(
+            "volume path {} is not a real directory",
             path.display()
         ));
     }
     Ok(())
+}
+
+fn canonical_volume_root(storage_root: &Path, path: &Path) -> Result<PathBuf, String> {
+    let canonical =
+        std::fs::canonicalize(path).map_err(|error| fs_error("resolve volume root", error))?;
+    if !canonical.starts_with(storage_root) || canonical == storage_root {
+        return Err(format!(
+            "refusing volume root outside {}: {}",
+            storage_root.display(),
+            path.display()
+        ));
+    }
+    Ok(canonical)
 }
 
 pub(crate) fn root(
@@ -271,8 +416,11 @@ pub(crate) fn fs_error(action: &str, error: std::io::Error) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_relative, resolve_existing, temporary_sibling, validate_root_path};
-    use std::path::Path;
+    use super::{
+        existing_volume_root_at, normalize_relative, prepare_volume_root_at, resolve_existing,
+        temporary_sibling, validate_root_path,
+    };
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn paths_are_relative_and_cannot_traverse() {
@@ -287,6 +435,62 @@ mod tests {
         assert!(validate_root_path(Path::new("/storage/containers/volumes/019abc")).is_ok());
         assert!(validate_root_path(Path::new("/storage/containers")).is_err());
         assert!(validate_root_path(Path::new("/etc")).is_err());
+        assert!(validate_root_path(Path::new("/storage/containers/../etc")).is_err());
+    }
+
+    #[test]
+    fn prepare_volume_root_rejects_a_symlinked_component() {
+        use std::os::unix::fs::symlink;
+
+        let sandbox = temporary_root("prepare-symlink");
+        let storage = sandbox.join("storage/containers");
+        let outside = sandbox.join("outside");
+        std::fs::create_dir_all(&storage).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        symlink(&outside, storage.join("escape")).unwrap();
+
+        let error = prepare_volume_root_at(&storage, &storage.join("escape/volume"))
+            .expect_err("a volume root cannot traverse a symlink");
+
+        assert!(error.contains("not a real directory"));
+        assert!(!outside.join("volume").exists());
+        std::fs::remove_dir_all(sandbox).unwrap();
+    }
+
+    #[test]
+    fn prepare_volume_root_creates_only_real_directories() {
+        let sandbox = temporary_root("prepare-real");
+        let storage = sandbox.join("storage/containers");
+        let target = storage.join(".foundry/slots/slot-a/name-a/volume-a");
+
+        let prepared = prepare_volume_root_at(&storage, &target).expect("root is prepared");
+
+        assert!(prepared.is_dir());
+        assert_eq!(prepared, std::fs::canonicalize(&target).unwrap());
+        std::fs::remove_dir_all(sandbox).unwrap();
+    }
+
+    #[test]
+    fn deletion_validation_refuses_a_symlinked_root_without_touching_its_target() {
+        use std::os::unix::fs::symlink;
+
+        let sandbox = temporary_root("delete-symlink");
+        let storage = sandbox.join("storage/containers");
+        let outside = sandbox.join("outside");
+        std::fs::create_dir_all(&storage).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        let sentinel = outside.join("keep.txt");
+        std::fs::write(&sentinel, b"keep").unwrap();
+        let root = storage.join("volume");
+        symlink(&outside, &root).unwrap();
+
+        let error = existing_volume_root_at(&storage, &root)
+            .expect_err("a deletion target cannot be a symlink");
+
+        assert!(error.contains("not a real directory"));
+        assert!(root.is_symlink());
+        assert!(sentinel.exists());
+        std::fs::remove_dir_all(sandbox).unwrap();
     }
 
     #[test]
@@ -313,5 +517,9 @@ mod tests {
             first.file_name().and_then(|name| name.to_str()),
             Some(expected.as_str())
         );
+    }
+
+    fn temporary_root(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("foundry-files-{label}-{}", uuid::Uuid::now_v7()))
     }
 }

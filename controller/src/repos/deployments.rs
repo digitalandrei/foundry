@@ -54,6 +54,21 @@ pub async fn create(
     // replacement excludes its own outgoing deployment from these counts.
     let target = resolve_target(&mut tx, &req.target, replaces).await?;
     let server_id = target.server_id;
+    let replacement_name = if let Some(old_id) = replaces {
+        let old_name = sqlx::query_scalar!(
+            "SELECT container_name FROM deployments WHERE id = ? FOR UPDATE",
+            old_id.0,
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(AppError::NotFound("deployment to replace not found"))?;
+        Some(replacement_container_name(
+            old_name.as_deref(),
+            req.name.as_deref(),
+        )?)
+    } else {
+        None
+    };
 
     let wants_web = req
         .ports
@@ -62,14 +77,30 @@ pub async fn create(
     // Controller-side host evidence is stage one; the agent repeats live
     // preflight immediately before touching Docker as stage two.
     let server = require_server_ready(&mut tx, server_id, wants_web).await?;
+    if replaces.is_some()
+        && !crate::agent_version::supports(
+            server.agent_version.as_deref(),
+            crate::agent_version::REPLACEMENT_MIN_AGENT_VERSION,
+        )
+    {
+        return Err(AppError::BadRequest(format!(
+            "{} reports foundry-agent {}; install 0.64.0 or newer before replacing so the retained container can release and restore its stable name",
+            server.name,
+            server.agent_version.as_deref().unwrap_or("unknown"),
+        )));
+    }
     if req.volumes.iter().any(|volume| volume.purge_on_redeploy) {
         super::volumes::require_purge_support(&mut tx, server_id).await?;
     }
 
-    // Name: sanitize or generate (primary member slot is the GPU hint).
-    let container_name = match req.name.as_deref().map(str::trim) {
-        Some(n) if !n.is_empty() => sanitize_name(n)?,
-        _ => generate_name(image_ref, &target.primary_slot_name),
+    // A replacement retains its deployment name: it is the persistent-volume
+    // namespace as well as the container name and app URL.
+    let container_name = match replacement_name {
+        Some(name) => name,
+        None => match req.name.as_deref().map(str::trim) {
+            Some(name) if !name.is_empty() => sanitize_name(name)?,
+            _ => generate_name(image_ref, &target.primary_slot_name),
+        },
     };
 
     let mut allocated = allocate_ports(&mut tx, server_id, &req.ports).await?;
@@ -548,6 +579,30 @@ fn sanitize_name(name: &str) -> Result<String, AppError> {
     Ok(name.to_string())
 }
 
+/// Replacements retain their name because volume identity includes it. This
+/// remains a repository-level check so non-HTTP callers cannot fork a
+/// persistent namespace by passing a different request name.
+pub fn replacement_container_name(
+    existing: Option<&str>,
+    requested: Option<&str>,
+) -> Result<String, AppError> {
+    let existing = existing
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "this legacy deployment has no stable name, so it cannot be replaced while preserving its persistent-volume namespace; create a new deployment instead"
+                    .into(),
+            )
+        })?;
+    match requested.map(str::trim).filter(|name| !name.is_empty()) {
+        None => Ok(existing.to_string()),
+        Some(name) if name == existing => Ok(existing.to_string()),
+        Some(_) => Err(AppError::BadRequest(format!(
+            "replacement must keep deployment name {existing:?}; that name is its persistent-volume namespace. Omit name or use {existing:?}"
+        ))),
+    }
+}
+
 /// Lowercase LDH DNS label (no leading/trailing `-`); None when nothing
 /// usable remains. Shared by the container-name and server-name slugs
 /// that build an app hostname.
@@ -829,4 +884,39 @@ pub async fn dismiss(
     .await?;
     tx.commit().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::replacement_container_name;
+    use crate::error::AppError;
+
+    #[test]
+    fn replacement_keeps_existing_name_when_request_omits_it() {
+        assert_eq!(
+            replacement_container_name(Some("model-a"), None).expect("name is retained"),
+            "model-a"
+        );
+    }
+
+    #[test]
+    fn replacement_rejects_a_different_persistent_namespace() {
+        let error = replacement_container_name(Some("model-a"), Some("model-b"))
+            .expect_err("replacement must retain its name");
+        assert!(matches!(
+            error,
+            AppError::BadRequest(message)
+                if message.contains("persistent-volume namespace") && message.contains("model-a")
+        ));
+    }
+
+    #[test]
+    fn nameless_legacy_deployment_cannot_fork_a_namespace() {
+        let error = replacement_container_name(None, None)
+            .expect_err("legacy deployment cannot provide a stable namespace");
+        assert!(matches!(
+            error,
+            AppError::BadRequest(message) if message.contains("create a new deployment")
+        ));
+    }
 }

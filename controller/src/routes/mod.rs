@@ -143,6 +143,7 @@ pub fn router(state: AppState) -> Router {
         .route("/agent/tasks/next", get(agent::tasks_next))
         .route("/agent/tasks/result", post(agent::tasks_result))
         .route("/agent/tasks/progress", post(agent::tasks_progress))
+        .route("/agent/volumes", get(agent::volumes))
         .route("/agent/shell/next", get(crate::shell::agent_next))
         .route(
             "/agent/shell/attach/{session_id}",

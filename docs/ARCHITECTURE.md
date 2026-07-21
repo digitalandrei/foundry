@@ -62,6 +62,8 @@ The agent periodically:
 - requests work (`/agent/tasks/next`)
 - uploads GPU/MIG/container inventory
 - uploads task results, status, and logs
+- fetches its controller-owned persistent-volume catalog before each periodic
+  storage accounting pass (`/agent/volumes`)
 
 Benefits: no inbound firewall rules on GPU servers, NAT-friendly, a single
 authenticated HTTPS surface, horizontally scalable (agents are independent).
@@ -263,22 +265,29 @@ slot through inventory reconciliation.
 When a user drags an image onto an **occupied** slot:
 
 1. UI shows the current deployment and a replacement confirmation dialog.
-2. User chooses Cancel or Replace.
+2. User chooses Cancel or Replace. The deployment name is carried from the
+   predecessor and is immutable for this operation: a replacement cannot
+   rename the workload, its storage-project namespace, or its app address.
 3. The controller creates a digest-pinned successor and asks the agent to
    preflight + pull it while the old workload remains live (`PREPARE_DEPLOY`).
-4. Only a successful preparation quiesces the predecessor: nginx route
-   withdrawn, container stopped but deliberately retained. The successor then
-   purges selected mounts, creates/starts, waits for Docker HEALTHCHECK, and
+4. Only a successful preparation quiesces the predecessor: nginx route is
+   withdrawn, the container is stopped but deliberately retained, and Docker
+   temporarily renames it to `foundry-retained-<deployment-id>`. This releases
+   the stable deployment/container name for the successor without changing the
+   logical storage project. The successor then purges selected mounts,
+   creates/starts under the stable name, waits for Docker HEALTHCHECK, and
    publishes nginx.
 5. Healthy + published successor → remove the retained predecessor and mark
    it REPLACED. Pull/create/start/health/publication failure → discard the
-   successor and start + republish the exact retained predecessor. A workload
-   that was already STOPPED before replacement stays stopped on failure.
+   successor, restore the retained predecessor's stable name, and start +
+   republish that exact container. A workload that was already STOPPED before
+   replacement stays stopped on failure.
 
 The creator/admin may replace with any image they can read. A different
 current GitLab member may replace only when the old and successor images
 belong to the same project; this is resolved live against GitLab, never from
-the mirror cache. Project-shared mount IDs then carry across the replacement.
+the mirror cache. The immutable predecessor name makes its logical storage
+project stable, so matching mount IDs carry across the replacement.
 
 ## Container Labels
 
@@ -357,15 +366,23 @@ one policy axis, independent of GitLab projects and images:
 - placement `SLOT` (one physical slot or deployable GPU-group slot) or
   `SERVER` (shared by every slot on that server).
 
-The canonical identity is server + placement target + user-given deployment
-name + mount name. The deployment name is the storage "project" namespace and
-has no relationship to a GitLab project. New host paths follow the hierarchy:
-`/storage/containers/slots/<slot-id>/<deploy-name>/<mount-name>`,
-`groups/<group-id>/…`, or `shared/<deploy-name>/<mount-name>`. Existing paths
-remain in place during migration. Container removal keeps the data; using the
-same deploy name and mount name deterministically reuses it. A SERVER volume
-with that key follows the deploy name across slots, while a SLOT volume remains
-attached to its physical/group target.
+The canonical **logical** identity is `server / placement target / project /
+mount`, where placement target is exactly `shared`, `slot <slot-uuid>`, or
+`group <group-uuid>`; project is the user-given deployment name and mount is
+the logical mount name. The deployment name is the storage "project"
+namespace and has no relationship to a GitLab project. It is immutable across
+a replacement, so replacement retains the same storage project.
+
+New **physical** roots are deliberately distinct from that presentation
+hierarchy. They live below the reserved
+`/storage/containers/.foundry/` root at
+`{shared|slots/<slot-uuid>|groups/<group-uuid>}/<deploy-name>/<mount-name>/<volume-uuid>`.
+The UUID leaf is allocated once, immutable, and is the actual root mounted
+into Docker; display names are never used to reconstruct or retarget it.
+Existing rows retain their stored legacy paths and are not moved. Container
+removal keeps data; a matching logical key deterministically reuses its
+recorded path. A SERVER volume with that key follows the deploy name across
+slots, while a SLOT volume remains attached to its physical/group target.
 
 Creator/admin may explicitly **clean** a detached volume (purge contents,
 retain identity) or **delete** it (purge contents and identity); both are
@@ -391,11 +408,16 @@ audited without file contents. Placement-scoped sessions require agent
 
 Since 0.59.0, browser uploads are resumable: the browser persists a stable
 upload ID, the agent keeps a partial sibling file, and `UPLOAD_READY` returns
-the committed offset after reconnect. Inventory measures each volume root
-plus filesystem total/free capacity. Creator/admin can set an advisory quota;
-the browser upload path refuses a final size beyond it. The quota is not a
-filesystem/container hard limit, so workloads may exceed it and the UI warns
-from measured usage.
+the committed offset after reconnect. For every five-minute accounting pass,
+the agent first fetches the authenticated controller catalog of `{volume_id,
+path}` entries for its own server, then measures exactly those roots. It never
+discovers volume identity by walking `/storage/containers`, so cataloged legacy
+roots and new `.foundry` roots are both accounted for while stray directories
+are not. Inventory publishes the resulting per-volume usage plus filesystem
+total/free capacity. Creator/admin can set an advisory quota; the browser
+upload path refuses a final size beyond it. The quota is not a filesystem/
+container hard limit, so workloads may exceed it and the UI warns from measured
+usage.
 
 `PURGE_VOLUMES` entered the agent wire contract in 0.54.0. The controller
 checks the target's heartbeat-reported agent version before accepting a purge
@@ -525,6 +547,8 @@ positive live Docker/NVIDIA/storage/capability checks (plus nginx/TLS for web
 apps). Stage two runs on the target immediately before mutation: Docker and
 NVIDIA-container reachability, free ports, volume roots, disk headroom and an
 exact nginx candidate test.
+Replacement additionally requires agent ≥0.64 for the idempotent retained-name
+handoff; an older agent is rejected before any replacement task is queued.
 Docker HEALTHCHECK is awaited for up to 180 seconds; images without one are
 considered ready once running.
 
@@ -557,8 +581,9 @@ socket/daemon, NVIDIA runtime/CDI discovery, persistent-root write, process capa
 checks. Deploy preflight repeats NVIDIA support and uses the explicit
 `nvidia` device-request driver when that runtime is registered, avoiding
 Docker 29's otherwise ambiguous CDI vendor auto-selection. A dedicated
-five-minute worker measures storage capacity and volume
-usage; inventory publishes its latest completed snapshot, so traversing a
+five-minute worker fetches the controller's exact persistent-root catalog for
+its authenticated server and measures its listed paths alongside filesystem
+capacity; inventory publishes its latest completed snapshot, so traversing a
 large model library can never delay heartbeats. The setup
 marker is written atomically only after `--setup-apps` has installed every
 revision-owned host artifact. Version text remains display/rolling-upgrade
@@ -621,7 +646,8 @@ Two distinct API families with distinct authentication (full contract in
   `/api/deployments`
 - **Agent API** (`/agent/...`) — agent-credential-authenticated:
   `/agent/enroll`, `/agent/heartbeat`, `/agent/inventory`,
-  `/agent/tasks/next`, `/agent/tasks/result`, `/agent/logs`
+  `/agent/tasks/next`, `/agent/tasks/result`, `/agent/logs`,
+  `/agent/volumes`
 
 ## Workspace Layout (planned)
 
