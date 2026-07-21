@@ -8,7 +8,8 @@
 Description=Foundry GPU server agent
 After=network-online.target docker.service
 Wants=network-online.target
-Requires=docker.service
+# Docker is deliberately not required: the agent reports host health and
+# executes operational tasks while the socket is absent, then reconnects.
 
 [Service]
 Type=simple

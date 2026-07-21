@@ -542,3 +542,9 @@ reflected in the affected docs in the same commit set:
   including the `202 Accepted` returned when diagnostics and agent upgrades
   are queued, instead of reporting a false failure after the server has
   accepted the command. Affects ROADMAP and frontend API-client tests.
+- **2026-07-21** (0.62.0) — **Keep agent operations alive without Docker.**
+  The task poller no longer stops when the Docker socket is absent: upgrades,
+  diagnostics and storage tasks continue, Docker-dependent tasks fail with an
+  explicit result, and one shared lazy Docker client automatically initializes
+  when the socket appears later. Affects ARCHITECTURE, API, DEPLOYMENT,
+  TESTING, codebase-map, and ROADMAP.

@@ -340,6 +340,14 @@ The controller enqueues typed tasks; the agent polls and executes:
 | `UPGRADE_AGENT` | Request the root-owned systemd path helper to checksum-verify, install and repair the agent host setup |
 | `UPLOAD_LOGS` | (Reserved task type.) Log capture ships on a periodic **push** loop, not the task queue — see Container logs below |
 
+The task poller remains active when the local Docker socket is absent.
+Docker-independent operations (`UPGRADE_AGENT`, `REFRESH_INVENTORY`, and
+persistent-volume removal/purge) still execute; Docker-dependent tasks fail
+with an explicit Docker-unavailable result instead of remaining queued. A
+single process-wide Docker handle initializes lazily and is retried while the
+socket is absent, so Docker becoming available after agent startup does not
+require restarting the agent.
+
 ### Persistent storage (amendment, Phase 6 — operator requirement)
 
 Users can mount named local persistent volumes into containers. Every volume

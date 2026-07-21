@@ -650,7 +650,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-agent"
-version = "0.61.0"
+version = "0.62.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -675,7 +675,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-controller"
-version = "0.61.0"
+version = "0.62.0"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -705,7 +705,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-shared"
-version = "0.61.0"
+version = "0.62.0"
 dependencies = [
  "chrono",
  "serde",

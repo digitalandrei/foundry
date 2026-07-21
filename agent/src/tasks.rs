@@ -96,18 +96,8 @@ impl PullSink for ProgressReporter<'_> {
 pub async fn run_loop(
     client: &reqwest::Client,
     config: &AgentConfig,
-    docker: Option<bollard::Docker>,
+    docker: crate::docker::DockerRuntime,
 ) {
-    // One Docker connection, shared with the telemetry loops (built in
-    // main). `None` only when connect_local() itself failed — rare config
-    // breakage a restart fixes — so disable the executor until then.
-    let Some(docker) = docker else {
-        tracing::error!("Docker unavailable — task executor disabled until restart");
-        crate::shutdown_signal().await;
-        return;
-    };
-    let engine = BollardEngine::new(docker);
-
     let base = config.controller_url.trim_end_matches('/');
     let next_url = format!("{base}/agent/tasks/next");
     let result_url = format!("{base}/agent/tasks/result");
@@ -120,7 +110,14 @@ pub async fn run_loop(
                 let task_id = envelope.id;
                 let task_type = envelope.task_type;
                 tracing::info!(task = %task_id, task_type = %envelope.task_type, "executing task");
-                let report = execute(&engine, client, config, envelope).await;
+                let docker_client = docker.client();
+                let engine = docker_client.map(BollardEngine::new);
+                let report = execute(
+                    engine.as_ref().map(|engine| engine as &dyn DockerEngine),
+                    client,
+                    config,
+                    envelope,
+                ).await;
                 tracing::info!(task = %task_id, success = report.success,
                     error = report.error.as_deref().unwrap_or(""), "task finished");
                 report_result(client, config, &result_url, &report).await;
@@ -196,41 +193,50 @@ async fn report_result(
 }
 
 async fn execute(
-    engine: &dyn DockerEngine,
+    engine: Option<&dyn DockerEngine>,
     client: &reqwest::Client,
     config: &AgentConfig,
     envelope: TaskEnvelope,
 ) -> TaskResultReport {
     let task_id = envelope.id;
     let outcome: Result<ExecutionSuccess, ExecutionFailure> =
-        match (envelope.task_type, envelope.payload) {
-            (TaskType::DeployContainer, TaskPayload::Deploy(p)) => {
+        match (envelope.task_type, envelope.payload, engine) {
+            (TaskType::DeployContainer, TaskPayload::Deploy(p), Some(engine)) => {
                 let mut progress = ProgressReporter::new(client, config, task_id);
                 deploy(engine, *p, &mut progress).await
             }
-            (TaskType::PrepareDeploy, TaskPayload::Deploy(p)) => {
+            (TaskType::PrepareDeploy, TaskPayload::Deploy(p), Some(engine)) => {
                 let mut progress = ProgressReporter::new(client, config, task_id);
                 prepare_deploy(engine, *p, &mut progress).await
             }
-            (TaskType::QuiesceContainer, TaskPayload::Replacement(t)) => {
+            (TaskType::QuiesceContainer, TaskPayload::Replacement(t), Some(engine)) => {
                 simple(quiesce(engine, t).await)
             }
-            (TaskType::RollbackContainer, TaskPayload::Replacement(t)) => {
+            (TaskType::RollbackContainer, TaskPayload::Replacement(t), Some(engine)) => {
                 simple(rollback(engine, t).await)
             }
-            (TaskType::PublishVhost, TaskPayload::Publish(p)) => publish(engine, p).await,
-            (TaskType::StopContainer, TaskPayload::Container(t)) => simple(stop(engine, t).await),
-            (TaskType::RestartContainer, TaskPayload::Container(t)) => {
+            (TaskType::PublishVhost, TaskPayload::Publish(p), Some(engine)) => {
+                publish(engine, p).await
+            }
+            (TaskType::StopContainer, TaskPayload::Container(t), Some(engine)) => {
+                simple(stop(engine, t).await)
+            }
+            (TaskType::RestartContainer, TaskPayload::Container(t), Some(engine)) => {
                 simple(restart(engine, t).await)
             }
-            (TaskType::RemoveContainer, TaskPayload::Container(t)) => {
+            (TaskType::RemoveContainer, TaskPayload::Container(t), Some(engine)) => {
                 simple(remove(engine, t).await)
             }
-            (TaskType::RemoveVolume, TaskPayload::Volume(v)) => simple(remove_volume(v).await),
-            (TaskType::PurgeVolumes, TaskPayload::VolumeBatch(v)) => simple(purge_volumes(v).await),
-            (TaskType::UpgradeAgent, TaskPayload::None) => Ok(empty_success()),
-            (TaskType::RefreshInventory, TaskPayload::None) => {
-                let docker_ok = engine.list().await.is_ok();
+            (TaskType::RemoveVolume, TaskPayload::Volume(v), _) => simple(remove_volume(v).await),
+            (TaskType::PurgeVolumes, TaskPayload::VolumeBatch(v), _) => {
+                simple(purge_volumes(v).await)
+            }
+            (TaskType::UpgradeAgent, TaskPayload::None, _) => Ok(empty_success()),
+            (TaskType::RefreshInventory, TaskPayload::None, engine) => {
+                let docker_ok = match engine {
+                    Some(engine) => engine.list().await.is_ok(),
+                    None => false,
+                };
                 Ok(ExecutionSuccess {
                     container_id: None,
                     health_status: None,
@@ -241,7 +247,11 @@ async fn execute(
                     storage: crate::host::storage_usage().await,
                 })
             }
-            (tt, _) => Err(ExecutionFailure::new(
+            (tt, _, None) if task_requires_docker(tt) => Err(ExecutionFailure::new(
+                "DOCKER",
+                "Docker socket is unavailable; the agent will reconnect automatically",
+            )),
+            (tt, _, _) => Err(ExecutionFailure::new(
                 "TASK",
                 format!("unsupported task/payload combination: {tt}"),
             )),
@@ -270,6 +280,20 @@ async fn execute(
             storage: None,
         },
     }
+}
+
+fn task_requires_docker(task_type: TaskType) -> bool {
+    matches!(
+        task_type,
+        TaskType::DeployContainer
+            | TaskType::PrepareDeploy
+            | TaskType::QuiesceContainer
+            | TaskType::RollbackContainer
+            | TaskType::PublishVhost
+            | TaskType::StopContainer
+            | TaskType::RestartContainer
+            | TaskType::RemoveContainer
+    )
 }
 
 #[derive(Debug)]
@@ -909,6 +933,60 @@ mod tests {
     }
 
     // --- pure spec construction ---
+
+    #[test]
+    fn operational_tasks_do_not_require_docker() {
+        for task_type in [
+            TaskType::UpgradeAgent,
+            TaskType::RefreshInventory,
+            TaskType::RemoveVolume,
+            TaskType::PurgeVolumes,
+        ] {
+            assert!(!task_requires_docker(task_type));
+        }
+        assert!(task_requires_docker(TaskType::DeployContainer));
+    }
+
+    #[tokio::test]
+    async fn upgrade_succeeds_without_a_docker_client() {
+        let task_id = TaskId::new();
+        let report = execute(
+            None,
+            &reqwest::Client::new(),
+            &cfg(),
+            TaskEnvelope {
+                id: task_id,
+                task_type: TaskType::UpgradeAgent,
+                payload: TaskPayload::None,
+            },
+        )
+        .await;
+
+        assert_eq!(report.task_id, task_id);
+        assert!(report.success);
+    }
+
+    #[tokio::test]
+    async fn docker_task_fails_clearly_without_a_docker_client() {
+        let report = execute(
+            None,
+            &reqwest::Client::new(),
+            &cfg(),
+            TaskEnvelope {
+                id: TaskId::new(),
+                task_type: TaskType::DeployContainer,
+                payload: TaskPayload::Deploy(Box::new(payload())),
+            },
+        )
+        .await;
+
+        assert!(!report.success);
+        assert_eq!(report.failure_stage.as_deref(), Some("DOCKER"));
+        assert!(report
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("agent will reconnect automatically")));
+    }
 
     #[test]
     fn spec_falls_back_to_singular_gpu_uuid() {

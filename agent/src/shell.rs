@@ -25,7 +25,7 @@ const SHELL_CMD: &str = "if command -v bash >/dev/null 2>&1; then exec bash; els
 pub async fn run_loop(
     client: &reqwest::Client,
     config: &AgentConfig,
-    docker: Option<bollard::Docker>,
+    docker: crate::docker::DockerRuntime,
 ) {
     let base = config.controller_url.trim_end_matches('/');
     let next_url = format!("{base}/agent/shell/next");
@@ -36,7 +36,7 @@ pub async fn run_loop(
                 let Some(req) = req else { continue };
                 tracing::info!(deployment = %req.deployment_id, "opening container shell");
                 let config = config.clone();
-                let docker = docker.clone();
+                let docker = docker.client();
                 tokio::spawn(async move {
                     let Some(docker) = docker else {
                         tracing::warn!("shell requested but Docker is unavailable");

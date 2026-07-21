@@ -10,6 +10,8 @@
 //! seams in logs.rs/metrics.rs/shell.rs and are deliberately not here.
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
@@ -214,13 +216,70 @@ fn map_err(context: &str, e: bollard::errors::Error) -> DockerError {
     }
 }
 
-/// Connect a bollard client over the local socket. Doesn't dial the
-/// daemon, so a single handle made at startup keeps working when the
-/// daemon is down now and comes up later; only a malformed Docker config
-/// errors. Shared across the agent's loops (no per-cycle reconnect).
+/// Connect a bollard client over the local socket. Bollard checks that the
+/// socket path exists here, so callers must retry when Docker starts after
+/// the agent. Once constructed, one handle is shared across all loops.
 pub fn connect_local() -> Result<bollard::Docker, DockerError> {
     bollard::Docker::connect_with_local_defaults()
         .map_err(|e| DockerError::Unavailable(e.to_string()))
+}
+
+/// Process-wide, lazily recovering Docker handle. The agent remains useful
+/// without Docker (heartbeats, host diagnostics, upgrades, storage tasks),
+/// and the first caller after the socket appears initializes the one shared
+/// Bollard client without requiring a service restart.
+#[derive(Clone, Default)]
+pub struct DockerRuntime {
+    inner: Arc<DockerRuntimeInner>,
+}
+
+#[derive(Default)]
+struct DockerRuntimeInner {
+    client: OnceLock<bollard::Docker>,
+    unavailable_logged: AtomicBool,
+}
+
+impl DockerRuntime {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Return the shared client, retrying initialization while the socket is
+    /// absent. Failures are logged once; recovery is logged once.
+    pub fn client(&self) -> Option<bollard::Docker> {
+        self.client_with(connect_local)
+    }
+
+    fn client_with(
+        &self,
+        connect: impl FnOnce() -> Result<bollard::Docker, DockerError>,
+    ) -> Option<bollard::Docker> {
+        if let Some(client) = self.inner.client.get() {
+            return Some(client.clone());
+        }
+
+        match connect() {
+            Ok(client) => {
+                if self.inner.client.set(client).is_ok() {
+                    if self.inner.unavailable_logged.swap(false, Ordering::Relaxed) {
+                        tracing::info!("Docker socket became available — Docker features enabled");
+                    } else {
+                        tracing::info!("docker: client ready (shared across loops)");
+                    }
+                }
+                self.inner.client.get().cloned()
+            }
+            Err(error) => {
+                if !self.inner.unavailable_logged.swap(true, Ordering::Relaxed) {
+                    tracing::warn!(
+                        %error,
+                        "Docker socket unavailable — operational tasks remain active; retrying automatically"
+                    );
+                }
+                None
+            }
+        }
+    }
 }
 
 /// The production adapter: wraps the one shared bollard connection.
@@ -534,6 +593,37 @@ mod tests {
             "denied: requested access to the resource"
         ));
         assert!(!looks_unauthorized("manifest unknown"));
+    }
+
+    #[test]
+    fn docker_runtime_retries_after_the_socket_appears() {
+        let runtime = DockerRuntime::new();
+        assert!(runtime
+            .client_with(|| Err(DockerError::Unavailable("socket absent".into())))
+            .is_none());
+
+        let dir = std::env::temp_dir().join(format!("foundry-docker-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir(&dir).unwrap();
+        let socket = dir.join("docker.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let socket_path = socket.to_string_lossy().into_owned();
+
+        assert!(runtime
+            .client_with(|| {
+                bollard::Docker::connect_with_socket(
+                    &socket_path,
+                    120,
+                    bollard::API_DEFAULT_VERSION,
+                )
+                .map_err(|error| DockerError::Unavailable(error.to_string()))
+            })
+            .is_some());
+        assert!(runtime
+            .client_with(|| panic!("initialized runtime must reuse its Docker client"))
+            .is_some());
+
+        drop(listener);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
 

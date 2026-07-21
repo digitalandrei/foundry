@@ -138,7 +138,9 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
 - Agent executors (deploy/stop/restart/remove/volume orchestration) +
   task poll loop → `agent/src/tasks.rs`, which reaches Docker only
   through the `DockerEngine` seam (trait + `BollardEngine` adapter +
-  test `FakeEngine`, plus pull-progress aggregation) →
+  test `FakeEngine`, plus pull-progress aggregation); the shared lazy
+  `DockerRuntime` retries socket discovery without disabling operational
+  tasks →
   `agent/src/docker.rs`; nginx vhost manager (HTTP/S app
   publishing: render/apply/remove, sudo-scoped reload, rollback) →
   `agent/src/vhost.rs`; host setup for it (`--setup-apps`: include +

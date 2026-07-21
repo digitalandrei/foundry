@@ -46,9 +46,14 @@ add or tighten one. Don't claim completion without running the relevant set.
   state.
 - Executor regressions cover digest-only preflight, prepare-without-create,
   retained quiesce/rollback, successful no-HEALTHCHECK startup, normal stop,
-  pull/auth failures and create conflicts. Host rendering tests cover nginx
-  JSON log policy, logrotate and capability bounds; health/publication failure
-  branches remain behind the same fake-Docker/vhost seams.
+  pull/auth failures and create conflicts. The task boundary also verifies
+  that upgrades execute without a Docker client and Docker-dependent work
+  fails explicitly instead of disabling the poller; the shared Docker runtime
+  is exercised across absent-socket then available-socket initialization.
+  Host rendering tests cover nginx JSON log policy, logrotate, capability
+  bounds, and Docker remaining an ordered-but-optional systemd dependency;
+  health/publication failure branches remain behind the same fake-Docker/vhost
+  seams.
 - Persistent-directory executors hard-reject every remove/purge target
   outside `/storage/containers/`; purge batches run before deploy as one
   sequential task. Controller version parsing prevents PURGE_VOLUMES dispatch

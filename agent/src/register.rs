@@ -635,6 +635,17 @@ mod tests {
     }
 
     #[test]
+    fn docker_is_not_a_systemd_hard_dependency() {
+        let generated = render_unit("SupplementaryGroups=docker\n");
+        let packaged = include_str!("../../deployment/systemd/foundry-agent.service");
+
+        for unit in [generated.as_str(), packaged] {
+            assert!(unit.contains("After=network-online.target docker.service\n"));
+            assert!(!unit.contains("Requires=docker.service"));
+        }
+    }
+
+    #[test]
     fn nginx_bootstrap_supports_long_app_hostnames() {
         let bootstrap = render_nginx_bootstrap();
 

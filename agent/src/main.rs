@@ -101,23 +101,11 @@ async fn run_agent() -> Result<(), Box<dyn Error>> {
         .timeout(Duration::from_secs(30))
         .build()?;
 
-    // One Docker client for the whole process — the task executor and the
-    // inventory/metrics/logs/shell loops share it instead of reconnecting
-    // every cycle (the per-cycle reconnect was the FD-churn shape behind
-    // the NVML single-handle fix). connect_local() doesn't dial, so a
-    // daemon that's down now (or comes up later) is handled per request;
-    // only a malformed Docker config yields None, disabling Docker
-    // features until a restart.
-    let docker = match docker::connect_local() {
-        Ok(d) => {
-            tracing::info!("docker: client ready (shared across loops)");
-            Some(d)
-        }
-        Err(err) => {
-            tracing::warn!(%err, "docker config unusable — container telemetry, tasks, and shell disabled until restart");
-            None
-        }
-    };
+    // One lazy Docker client for the whole process. If the socket is absent
+    // at startup, non-Docker operations stay live and later calls attach to
+    // Docker automatically once it appears.
+    let docker = docker::DockerRuntime::new();
+    let _ = docker.client();
     let storage_cache: host::StorageCache = std::sync::Arc::new(tokio::sync::RwLock::new(None));
 
     // Heartbeat/inventory/metrics and the task loop run concurrently;
@@ -139,7 +127,7 @@ async fn run_agent() -> Result<(), Box<dyn Error>> {
 async fn heartbeat_loop(
     client: &reqwest::Client,
     config: &config::AgentConfig,
-    docker: Option<bollard::Docker>,
+    docker: docker::DockerRuntime,
     storage_cache: host::StorageCache,
 ) {
     let base = config.controller_url.trim_end_matches('/');
@@ -212,7 +200,8 @@ async fn heartbeat_loop(
                 }
             }
             _ = metrics_interval.tick() => {
-                let sample = collector.collect(nvml.as_ref(), docker.as_ref()).await;
+                let docker_client = docker.client();
+                let sample = collector.collect(nvml.as_ref(), docker_client.as_ref()).await;
                 let result = client
                     .post(&metrics_url)
                     .header("x-foundry-agent-id", &config.agent_id)
@@ -227,7 +216,8 @@ async fn heartbeat_loop(
                 }
             }
             _ = logs_interval.tick() => {
-                let chunks = log_collector.collect(&adopted, docker.as_ref()).await;
+                let docker_client = docker.client();
+                let chunks = log_collector.collect(&adopted, docker_client.as_ref()).await;
                 if !chunks.is_empty() {
                     let result = client
                         .post(&logs_url)
@@ -244,7 +234,8 @@ async fn heartbeat_loop(
                 }
             }
             _ = inventory_interval.tick() => {
-                let mut snapshot = inventory::collect(nvml.as_ref(), docker.as_ref(), config.server_name.as_deref()).await;
+                let docker_client = docker.client();
+                let mut snapshot = inventory::collect(nvml.as_ref(), docker_client.as_ref(), config.server_name.as_deref()).await;
                 snapshot.storage = storage_cache.read().await.clone();
                 tracing::debug!(
                     gpus = snapshot.gpus.len(),
