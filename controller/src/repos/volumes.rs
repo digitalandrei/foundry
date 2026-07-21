@@ -6,11 +6,13 @@
 //! immutable volume UUID; legacy rows retain their recorded paths. The UI
 //! presents only the stable logical hierarchy.
 
-use foundry_shared::dto::{ServerVolume, TaskPayload, VolumeBatchTarget, VolumeSpec, VolumeTarget};
-use foundry_shared::{
-    GpuGroupId, ServerId, ServerVolumeId, SlotId, TaskType, UserId, VolumePlacement,
+use foundry_shared::dto::{
+    ServerVolume, TaskPayload, VolumeAttachment, VolumeBatchTarget, VolumeSpec, VolumeTarget,
 };
-use sqlx::{MySqlConnection, MySqlPool, Row};
+use foundry_shared::{
+    DeploymentId, GpuGroupId, ServerId, ServerVolumeId, SlotId, TaskType, UserId, VolumePlacement,
+};
+use sqlx::{mysql::MySqlRow, MySqlConnection, MySqlPool, Row};
 use uuid::Uuid;
 
 use crate::error::AppError;
@@ -18,6 +20,7 @@ use crate::error::AppError;
 pub const VOLUME_ROOT: &str = "/storage/containers";
 const PURGE_MIN_AGENT_VERSION: (u32, u32, u32) = (0, 54, 0);
 const FILES_MIN_AGENT_VERSION: (u32, u32, u32) = (0, 63, 0);
+const RECENT_ATTACHMENT_HISTORY_PER_VOLUME: i64 = 4;
 
 fn parse_version(version: &str) -> Option<(u32, u32, u32)> {
     let version = version.trim().trim_start_matches('v');
@@ -95,20 +98,81 @@ pub fn validate_volume_name(name: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn validate_container_path(path: &str) -> Result<(), AppError> {
+/// Normalize a Docker container bind destination. Docker's compact bind
+/// syntax uses `:` as a separator, so allowing it in the destination would
+/// make a valid-looking API request reach the agent as an ambiguous bind.
+pub fn normalize_container_path(path: &str) -> Result<String, AppError> {
     let path = path.trim();
-    if !path.starts_with('/') || path.len() > 255 || path.contains("..") {
+    if !path.starts_with('/')
+        || path.len() > 255
+        || path.contains(':')
+        || path.chars().any(|character| character.is_control())
+    {
         return Err(AppError::BadRequest(format!(
-            "mount path {path:?} must be an absolute path without traversal"
+            "mount path {path:?} must be a safe absolute Docker destination"
         )));
     }
-    Ok(())
+    let mut components = Vec::new();
+    for component in path.split('/').skip(1) {
+        if component.is_empty() {
+            continue;
+        }
+        if matches!(component, "." | "..") {
+            return Err(AppError::BadRequest(format!(
+                "mount path {path:?} must not contain . or .. components"
+            )));
+        }
+        components.push(component);
+    }
+    Ok(match components.is_empty() {
+        true => "/".to_string(),
+        false => format!("/{}", components.join("/")),
+    })
+}
+
+pub fn validate_container_path(path: &str) -> Result<(), AppError> {
+    normalize_container_path(path).map(|_| ())
+}
+
+/// A resolved root always carries the source volume's logical identity. The
+/// destination path belongs to a deployment mapping, never to this root.
+#[derive(Debug)]
+pub struct ResolvedVolume {
+    pub id: ServerVolumeId,
+    pub path: String,
+    pub name: String,
+    pub project_name: String,
+    pub placement: VolumePlacement,
+}
+
+/// Existing roots may be reused only where their host directory can be seen
+/// by the selected Docker target. Request placement is deliberately not an
+/// authority: it must match the selected row, and this helper checks the
+/// row's physical placement against the locked target.
+pub(crate) fn explicit_volume_compatible(
+    source_server_id: Uuid,
+    source_placement: VolumePlacement,
+    source_placement_id: Uuid,
+    target_server_id: ServerId,
+    target_slot_id: SlotId,
+    target_group_id: Option<GpuGroupId>,
+) -> bool {
+    if source_server_id != target_server_id.0 {
+        return false;
+    }
+    match source_placement {
+        VolumePlacement::Server => source_placement_id == target_server_id.0,
+        VolumePlacement::Slot => {
+            source_placement_id == target_group_id.map_or(target_slot_id.0, |group| group.0)
+        }
+    }
 }
 
 /// Resolve an explicit volume or create/reuse the canonical volume for the
 /// requested placement and logical name. The selected
 /// row is locked inside the deployment transaction, serialising against
 /// destructive actions.
+#[allow(clippy::too_many_arguments)]
 pub async fn ensure(
     tx: &mut MySqlConnection,
     server_id: ServerId,
@@ -117,15 +181,16 @@ pub async fn ensure(
     project_name: &str,
     spec: &VolumeSpec,
     created_by: UserId,
-) -> Result<(ServerVolumeId, String), AppError> {
+    replaces: Option<DeploymentId>,
+) -> Result<ResolvedVolume, AppError> {
     validate_volume_name(&spec.volume_name)?;
     validate_volume_name(project_name)?;
 
     if let Some(volume_id) = spec.volume_id {
         let row = sqlx::query!(
             r#"SELECT server_id AS "server_id: Uuid",
-                      name, path, placement, placement_id AS "placement_id: Uuid", project_name,
-                      gpu_slot_id AS "slot_id: Uuid"
+                      name AS "name: String", path AS "path: String", placement,
+                      placement_id AS "placement_id: Uuid", project_name AS "project_name: String"
                FROM server_volumes WHERE id = ? FOR UPDATE"#,
             volume_id.0
         )
@@ -133,22 +198,56 @@ pub async fn ensure(
         .await?
         .ok_or(AppError::NotFound("volume not found"))?;
         let placement: VolumePlacement = row.placement.parse().map_err(AppError::internal)?;
-        let accessible = row.server_id == server_id.0
-            && row.name == spec.volume_name
-            && row.project_name == project_name
-            && placement == spec.placement
-            && (row.placement_id
-                == match placement {
-                    VolumePlacement::Slot => group_id.map_or(slot_id.0, |id| id.0),
-                    VolumePlacement::Server => server_id.0,
-                }
-                || (placement == VolumePlacement::Slot
-                    && group_id.is_some()
-                    && row.slot_id == Some(slot_id.0)));
-        if !accessible {
+        if row.name != spec.volume_name || placement != spec.placement {
+            return Err(AppError::BadRequest(
+                "selected volume no longer matches the requested mount name or placement".into(),
+            ));
+        }
+        let directly_compatible = explicit_volume_compatible(
+            row.server_id,
+            placement,
+            row.placement_id,
+            server_id,
+            slot_id,
+            group_id,
+        );
+        // Migration 00002 intentionally retained a mixed-use group root on
+        // its original physical slot. Only a replacement may carry that
+        // legacy root forward, and only after proving the predecessor already
+        // mounted this exact volume. New group deployments remain exact.
+        let legacy_replacement_root = match (replaces, group_id) {
+            (Some(predecessor_id), Some(target_group_id))
+                if !directly_compatible
+                    && row.server_id == server_id.0
+                    && placement == VolumePlacement::Slot =>
+            {
+                sqlx::query_scalar!(
+                    r#"SELECT COUNT(*)
+                       FROM deployment_volumes dv
+                       JOIN deployments d ON d.id = dv.deployment_id
+                       WHERE dv.deployment_id = ? AND dv.server_volume_id = ?
+                         AND d.server_id = ? AND d.gpu_group_id = ?"#,
+                    predecessor_id.0,
+                    volume_id.0,
+                    server_id.0,
+                    target_group_id.0,
+                )
+                .fetch_one(&mut *tx)
+                .await?
+                    > 0
+            }
+            _ => false,
+        };
+        if !directly_compatible && !legacy_replacement_root {
             return Err(AppError::Forbidden);
         }
-        return Ok((volume_id, row.path));
+        return Ok(ResolvedVolume {
+            id: volume_id,
+            path: row.path,
+            name: row.name,
+            project_name: row.project_name,
+            placement,
+        });
     }
 
     let (placement_id, gpu_slot_id, gpu_group_id) = match spec.placement {
@@ -198,7 +297,8 @@ pub async fn ensure(
     .await?;
 
     let row = sqlx::query!(
-        r#"SELECT id AS "id: Uuid", path
+        r#"SELECT id AS "id: Uuid", path AS "path: String", name AS "name: String",
+                  project_name AS "project_name: String", placement
            FROM server_volumes
            WHERE server_id = ? AND placement = ? AND placement_id = ?
              AND project_name = ? AND name = ?
@@ -211,7 +311,55 @@ pub async fn ensure(
     )
     .fetch_one(&mut *tx)
     .await?;
-    Ok((row.id.into(), row.path))
+    Ok(ResolvedVolume {
+        id: row.id.into(),
+        path: row.path,
+        name: row.name,
+        project_name: row.project_name,
+        placement: row.placement.parse().map_err(AppError::internal)?,
+    })
+}
+
+/// A new purge-on-redeploy mapping cannot point at a root shared with an
+/// unrelated live deployment. Non-purging mappings remain allowed even when
+/// another attachment can purge the root: that shared-storage coordination is
+/// deliberate and shown to the operator. The volume row is locked by `ensure`
+/// before this check and before the caller inserts its mapping, serialising
+/// concurrent selections. The successor and its direct predecessor are one
+/// replacement operation, so they are intentionally exempt from each other.
+pub async fn require_safe_purge_mapping(
+    tx: &mut MySqlConnection,
+    volume_id: ServerVolumeId,
+    deployment_id: DeploymentId,
+    predecessor_id: Option<DeploymentId>,
+    requests_purge: bool,
+) -> Result<(), AppError> {
+    let predecessor = predecessor_id.map(|id| id.0);
+    let row = sqlx::query(
+        r#"SELECT COUNT(*) AS foreign_mounts
+           FROM deployment_volumes dv
+           JOIN deployments d ON d.id = dv.deployment_id
+           WHERE dv.server_volume_id = ?
+             AND d.id <> ?
+             AND (? IS NULL OR d.id <> ?)
+             AND d.state IN ('PENDING','VALIDATING','PREPARED','PULLING_IMAGE','CREATING_CONTAINER',
+                             'STARTING','WAITING_HEALTH','PUBLISHING','PUBLISH_FAILED','RUNNING','STOPPING','STOPPED','RESTARTING',
+                             'REMOVING','FAILED')
+           FOR UPDATE"#,
+    )
+    .bind(volume_id.0)
+    .bind(deployment_id.0)
+    .bind(predecessor)
+    .bind(predecessor)
+    .fetch_one(&mut *tx)
+    .await?;
+    let foreign_mounts: i64 = row.try_get("foreign_mounts").map_err(AppError::internal)?;
+    if requests_purge && foreign_mounts > 0 {
+        return Err(AppError::BadRequest(
+            "purge_on_redeploy is unsafe because the selected volume is referenced by another active or retained deployment".into(),
+        ));
+    }
+    Ok(())
 }
 
 pub struct VolumeRow {
@@ -223,7 +371,7 @@ pub struct VolumeRow {
 
 pub async fn get(pool: &MySqlPool, id: ServerVolumeId) -> Result<VolumeRow, AppError> {
     let r = sqlx::query!(
-        r#"SELECT server_id AS "server_id: Uuid", name, path,
+        r#"SELECT server_id AS "server_id: Uuid", name AS "name: String", path AS "path: String",
                   created_by AS "created_by: Uuid"
            FROM server_volumes WHERE id = ?"#,
         id.0
@@ -247,7 +395,7 @@ pub async fn catalog(
     server_id: ServerId,
 ) -> Result<Vec<foundry_shared::dto::VolumeTarget>, AppError> {
     Ok(sqlx::query!(
-        r#"SELECT id AS "id: Uuid", path
+        r#"SELECT id AS "id: Uuid", path AS "path: String"
            FROM server_volumes WHERE server_id = ? ORDER BY id"#,
         server_id.0,
     )
@@ -313,6 +461,31 @@ pub async fn set_quota(
     Ok(())
 }
 
+fn attachment_from_row(
+    row: &MySqlRow,
+) -> Result<(ServerVolumeId, String, VolumeAttachment), AppError> {
+    let volume_id: Uuid = row
+        .try_get("server_volume_id")
+        .map_err(AppError::internal)?;
+    let deployment_id: Uuid = row.try_get("deployment_id").map_err(AppError::internal)?;
+    let deployment_name: String = row.try_get("deployment_name").map_err(AppError::internal)?;
+    let state: String = row.try_get("state").map_err(AppError::internal)?;
+    Ok((
+        volume_id.into(),
+        deployment_name.clone(),
+        VolumeAttachment {
+            deployment_id: deployment_id.into(),
+            deployment_name,
+            state: state.parse().map_err(AppError::internal)?,
+            container_path: row.try_get("container_path").map_err(AppError::internal)?,
+            read_only: row.try_get("read_only").map_err(AppError::internal)?,
+            purge_on_redeploy: row
+                .try_get("purge_on_redeploy")
+                .map_err(AppError::internal)?,
+        },
+    ))
+}
+
 /// Placement volumes on one server. A target placement id (physical slot or
 /// GPU-group slot) narrows SLOT volumes while keeping every SERVER volume;
 /// no target lists every placement (Storage).
@@ -324,10 +497,10 @@ pub async fn list(
     is_admin: bool,
 ) -> Result<Vec<ServerVolume>, AppError> {
     let rows = sqlx::query!(
-        r#"SELECT v.id AS "id: Uuid", v.name, v.path, v.created_at,
+        r#"SELECT v.id AS "id: Uuid", v.name AS "name: String", v.path AS "path: String", v.created_at,
                   v.used_bytes AS "used_bytes?: u64", v.quota_bytes AS "quota_bytes?: u64",
                   v.usage_measured_at,
-                  v.project_name, v.placement,
+                  v.project_name AS "project_name: String", v.placement,
                   v.gpu_slot_id AS "slot_id: Uuid", gs.name AS "slot_name?",
                   v.gpu_group_id AS "gpu_group_id: Uuid", gg.name AS "group_name?",
                   v.created_by AS "created_by: Uuid",
@@ -346,32 +519,69 @@ pub async fn list(
     .fetch_all(pool)
     .await?;
 
-    let mut attachments: std::collections::HashMap<ServerVolumeId, Vec<String>> =
+    let mut attached_to: std::collections::HashMap<ServerVolumeId, Vec<String>> =
+        std::collections::HashMap::new();
+    let mut attachments: std::collections::HashMap<ServerVolumeId, Vec<VolumeAttachment>> =
         std::collections::HashMap::new();
     for attached in sqlx::query(
-        r#"SELECT DISTINCT dv.server_volume_id, d.container_name
+        r#"SELECT dv.server_volume_id, d.id AS deployment_id,
+                  COALESCE(d.container_name, CONCAT('deployment-', LOWER(HEX(d.id)))) AS deployment_name,
+                  d.state, dv.container_path, dv.read_only, dv.purge_on_redeploy
            FROM deployment_volumes dv
            JOIN deployments d ON d.id = dv.deployment_id
            JOIN server_volumes v ON v.id = dv.server_volume_id
            WHERE v.server_id = ?
-             AND d.container_name IS NOT NULL
+             AND (? IS NULL OR v.placement = 'SERVER' OR v.placement_id = ?)
              AND d.state IN ('PENDING','VALIDATING','PREPARED','PULLING_IMAGE','CREATING_CONTAINER',
                              'STARTING','WAITING_HEALTH','PUBLISHING','PUBLISH_FAILED','RUNNING','STOPPING','STOPPED','RESTARTING',
                              'REMOVING','FAILED')
-           ORDER BY dv.server_volume_id, d.container_name"#,
+           ORDER BY dv.server_volume_id, d.updated_at DESC, dv.container_path"#,
     )
     .bind(server_id.0)
+    .bind(target_placement_id)
+    .bind(target_placement_id)
     .fetch_all(pool)
     .await?
     {
-        let volume_id: Uuid = attached
-            .try_get("server_volume_id")
-            .map_err(AppError::internal)?;
-        attachments.entry(volume_id.into()).or_default().push(
-            attached
-                .try_get("container_name")
-                .map_err(AppError::internal)?,
-        );
+        let (volume_id, deployment_name, attachment) = attachment_from_row(&attached)?;
+        let names = attached_to.entry(volume_id).or_default();
+        if !names.contains(&deployment_name) {
+            names.push(deployment_name);
+        }
+        attachments.entry(volume_id).or_default().push(attachment);
+    }
+    for historical in sqlx::query(
+        r#"SELECT server_volume_id, deployment_id, deployment_name, state,
+                  container_path, read_only, purge_on_redeploy
+           FROM (
+               SELECT dv.server_volume_id, d.id AS deployment_id,
+                      COALESCE(d.container_name, CONCAT('deployment-', LOWER(HEX(d.id)))) AS deployment_name,
+                      d.state, dv.container_path, dv.read_only, dv.purge_on_redeploy,
+                      ROW_NUMBER() OVER (
+                          PARTITION BY dv.server_volume_id
+                          ORDER BY d.updated_at DESC, d.created_at DESC, dv.created_at DESC
+                      ) AS history_rank
+               FROM deployment_volumes dv
+               JOIN deployments d ON d.id = dv.deployment_id
+               JOIN server_volumes v ON v.id = dv.server_volume_id
+               WHERE v.server_id = ?
+                 AND (? IS NULL OR v.placement = 'SERVER' OR v.placement_id = ?)
+                 AND d.state NOT IN ('PENDING','VALIDATING','PREPARED','PULLING_IMAGE','CREATING_CONTAINER',
+                                     'STARTING','WAITING_HEALTH','PUBLISHING','PUBLISH_FAILED','RUNNING','STOPPING','STOPPED','RESTARTING',
+                                     'REMOVING','FAILED')
+           ) history
+           WHERE history_rank <= ?
+           ORDER BY server_volume_id, history_rank"#,
+    )
+    .bind(server_id.0)
+    .bind(target_placement_id)
+    .bind(target_placement_id)
+    .bind(RECENT_ATTACHMENT_HISTORY_PER_VOLUME)
+    .fetch_all(pool)
+    .await?
+    {
+        let (volume_id, _, attachment) = attachment_from_row(&historical)?;
+        attachments.entry(volume_id).or_default().push(attachment);
     }
 
     rows.into_iter()
@@ -392,7 +602,8 @@ pub async fn list(
                 group_name: r.group_name,
                 created_by_name: r.created_by_name,
                 can_manage: is_admin || r.created_by == requester.0,
-                attached_to: attachments.remove(&id).unwrap_or_default(),
+                attached_to: attached_to.remove(&id).unwrap_or_default(),
+                attachments: attachments.remove(&id).unwrap_or_default(),
                 created_at: r.created_at.and_utc(),
             })
         })
@@ -424,7 +635,7 @@ async fn lock_and_require_detached(
     .await?;
     if attached > 0 {
         return Err(AppError::BadRequest(
-            "volume is mounted by an active deployment".into(),
+            "volume is referenced by an active or retained deployment".into(),
         ));
     }
     Ok(())
@@ -527,7 +738,8 @@ pub async fn clean_guarded(
 
 #[cfg(test)]
 mod tests {
-    use super::parse_version;
+    use super::{explicit_volume_compatible, normalize_container_path, parse_version};
+    use foundry_shared::{GpuGroupId, ServerId, SlotId, VolumePlacement};
 
     #[test]
     fn agent_versions_compare_without_accepting_malformed_values() {
@@ -536,5 +748,93 @@ mod tests {
         assert_eq!(parse_version("0.53.9"), Some((0, 53, 9)));
         assert_eq!(parse_version("0.54"), None);
         assert_eq!(parse_version("unknown"), None);
+    }
+
+    #[test]
+    fn container_destinations_are_normalized_without_ambiguous_bind_syntax() {
+        assert_eq!(
+            normalize_container_path(" /data//workflows/ ").expect("valid path"),
+            "/data/workflows"
+        );
+        assert_eq!(
+            normalize_container_path("/").expect("root is absolute"),
+            "/"
+        );
+        assert!(normalize_container_path("relative").is_err());
+        assert!(normalize_container_path("/data:broken").is_err());
+        assert!(normalize_container_path("/data/../other").is_err());
+        assert!(normalize_container_path("/data/./other").is_err());
+        assert!(normalize_container_path("/data\u{0000}other").is_err());
+        assert_eq!(
+            normalize_container_path("/data/..cache").expect("only exact dot parts reject"),
+            "/data/..cache"
+        );
+    }
+
+    #[test]
+    fn explicit_roots_require_their_actual_server_and_physical_placement() {
+        let server = ServerId::new();
+        let other_server = ServerId::new();
+        let slot = SlotId::new();
+        let other_slot = SlotId::new();
+        let group = GpuGroupId::new();
+        let other_group = GpuGroupId::new();
+
+        assert!(explicit_volume_compatible(
+            server.0,
+            VolumePlacement::Server,
+            server.0,
+            server,
+            slot,
+            None,
+        ));
+        assert!(!explicit_volume_compatible(
+            other_server.0,
+            VolumePlacement::Server,
+            other_server.0,
+            server,
+            slot,
+            None,
+        ));
+        assert!(explicit_volume_compatible(
+            server.0,
+            VolumePlacement::Slot,
+            slot.0,
+            server,
+            slot,
+            None,
+        ));
+        assert!(!explicit_volume_compatible(
+            server.0,
+            VolumePlacement::Slot,
+            other_slot.0,
+            server,
+            slot,
+            None,
+        ));
+        assert!(explicit_volume_compatible(
+            server.0,
+            VolumePlacement::Slot,
+            group.0,
+            server,
+            slot,
+            Some(group),
+        ));
+        assert!(!explicit_volume_compatible(
+            server.0,
+            VolumePlacement::Slot,
+            other_group.0,
+            server,
+            slot,
+            Some(group),
+        ));
+        assert!(!explicit_volume_compatible(
+            server.0,
+            VolumePlacement::Slot,
+            slot.0,
+            server,
+            slot,
+            Some(group),
+        ));
     }
 }

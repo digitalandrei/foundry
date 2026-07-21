@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT sv.id AS \"volume_id: Uuid\", sv.name AS \"volume_name?\",\n                  sv.placement AS \"placement?\",\n                  dv.host_path, dv.container_path,\n                  dv.read_only AS \"read_only: bool\",\n                  dv.purge_on_redeploy AS \"purge_on_redeploy: bool\"\n           FROM deployment_volumes dv\n           LEFT JOIN server_volumes sv ON sv.id = dv.server_volume_id\n           WHERE dv.deployment_id = ?\n           ORDER BY dv.container_path",
+  "query": "SELECT sv.id AS \"volume_id: Uuid\", sv.name AS \"volume_name?: String\",\n                  sv.placement AS \"placement?\",\n                  dv.host_path, dv.container_path,\n                  dv.read_only AS \"read_only: bool\",\n                  dv.purge_on_redeploy AS \"purge_on_redeploy: bool\"\n           FROM deployment_volumes dv\n           LEFT JOIN server_volumes sv ON sv.id = dv.server_volume_id\n           WHERE dv.deployment_id = ?\n           ORDER BY dv.container_path",
   "describe": {
     "columns": [
       {
@@ -14,10 +14,10 @@
       },
       {
         "ordinal": 1,
-        "name": "volume_name?",
+        "name": "volume_name?: String",
         "type_info": {
           "type": "VarString",
-          "flags": "NO_DEFAULT_VALUE",
+          "flags": "BINARY | NO_DEFAULT_VALUE",
           "max_size": 252
         }
       },
@@ -80,5 +80,5 @@
       false
     ]
   },
-  "hash": "e1bc909ad89c6fd1a5e65d1151811d2664acbe7b6d0b6dbb04d72aa54dcb6056"
+  "hash": "921716190081f8551ffd4e20e421b1d72fe949a7745dded597596390269ad82b"
 }

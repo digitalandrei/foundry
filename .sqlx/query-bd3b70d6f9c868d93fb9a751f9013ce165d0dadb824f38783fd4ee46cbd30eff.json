@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT server_id AS \"server_id: Uuid\", name, path,\n                  created_by AS \"created_by: Uuid\"\n           FROM server_volumes WHERE id = ?",
+  "query": "SELECT server_id AS \"server_id: Uuid\", name AS \"name: String\", path AS \"path: String\",\n                  created_by AS \"created_by: Uuid\"\n           FROM server_volumes WHERE id = ?",
   "describe": {
     "columns": [
       {
@@ -14,19 +14,19 @@
       },
       {
         "ordinal": 1,
-        "name": "name",
+        "name": "name: String",
         "type_info": {
           "type": "VarString",
-          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "flags": "NOT_NULL | BINARY | NO_DEFAULT_VALUE",
           "max_size": 252
         }
       },
       {
         "ordinal": 2,
-        "name": "path",
+        "name": "path: String",
         "type_info": {
           "type": "VarString",
-          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "flags": "NOT_NULL | BINARY | NO_DEFAULT_VALUE",
           "max_size": 1020
         }
       },
@@ -50,5 +50,5 @@
       false
     ]
   },
-  "hash": "9d653a20b3c83e87bb1a07477e1122326282767238a4dde90a873386a702f70e"
+  "hash": "bd3b70d6f9c868d93fb9a751f9013ce165d0dadb824f38783fd4ee46cbd30eff"
 }

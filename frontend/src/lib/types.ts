@@ -449,8 +449,20 @@ export interface ServerVolume {
   group_name: string | null
   created_by_name: string
   can_manage: boolean
+  /** Detailed active/retained and recent bind mappings when supplied by newer
+   * controllers. `attached_to` remains the compatibility fallback during rollout. */
+  attachments?: ServerVolumeAttachment[]
   attached_to: string[]
   created_at: string
+}
+
+export interface ServerVolumeAttachment {
+  deployment_id: string
+  deployment_name: string
+  state: import("./states").DeploymentState
+  container_path: string
+  read_only: boolean
+  purge_on_redeploy: boolean
 }
 
 export interface AppTrafficRecord {

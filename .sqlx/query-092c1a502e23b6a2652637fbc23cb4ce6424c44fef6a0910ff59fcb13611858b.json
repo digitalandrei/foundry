@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT v.id AS \"id: Uuid\", v.name, v.path, v.created_at,\n                  v.used_bytes AS \"used_bytes?: u64\", v.quota_bytes AS \"quota_bytes?: u64\",\n                  v.usage_measured_at,\n                  v.project_name, v.placement,\n                  v.gpu_slot_id AS \"slot_id: Uuid\", gs.name AS \"slot_name?\",\n                  v.gpu_group_id AS \"gpu_group_id: Uuid\", gg.name AS \"group_name?\",\n                  v.created_by AS \"created_by: Uuid\",\n                  u.display_name AS created_by_name\n           FROM server_volumes v\n           JOIN users u ON u.id = v.created_by\n           LEFT JOIN gpu_slots gs ON gs.id = v.gpu_slot_id\n           LEFT JOIN gpu_groups gg ON gg.id = v.gpu_group_id\n           WHERE v.server_id = ?\n             AND (? IS NULL OR v.placement = 'SERVER' OR v.placement_id = ?)\n           ORDER BY v.project_name, v.name, v.placement",
+  "query": "SELECT v.id AS \"id: Uuid\", v.name AS \"name: String\", v.path AS \"path: String\", v.created_at,\n                  v.used_bytes AS \"used_bytes?: u64\", v.quota_bytes AS \"quota_bytes?: u64\",\n                  v.usage_measured_at,\n                  v.project_name AS \"project_name: String\", v.placement,\n                  v.gpu_slot_id AS \"slot_id: Uuid\", gs.name AS \"slot_name?\",\n                  v.gpu_group_id AS \"gpu_group_id: Uuid\", gg.name AS \"group_name?\",\n                  v.created_by AS \"created_by: Uuid\",\n                  u.display_name AS created_by_name\n           FROM server_volumes v\n           JOIN users u ON u.id = v.created_by\n           LEFT JOIN gpu_slots gs ON gs.id = v.gpu_slot_id\n           LEFT JOIN gpu_groups gg ON gg.id = v.gpu_group_id\n           WHERE v.server_id = ?\n             AND (? IS NULL OR v.placement = 'SERVER' OR v.placement_id = ?)\n           ORDER BY v.project_name, v.name, v.placement",
   "describe": {
     "columns": [
       {
@@ -14,19 +14,19 @@
       },
       {
         "ordinal": 1,
-        "name": "name",
+        "name": "name: String",
         "type_info": {
           "type": "VarString",
-          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "flags": "NOT_NULL | BINARY | NO_DEFAULT_VALUE",
           "max_size": 252
         }
       },
       {
         "ordinal": 2,
-        "name": "path",
+        "name": "path: String",
         "type_info": {
           "type": "VarString",
-          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "flags": "NOT_NULL | BINARY | NO_DEFAULT_VALUE",
           "max_size": 1020
         }
       },
@@ -68,10 +68,10 @@
       },
       {
         "ordinal": 7,
-        "name": "project_name",
+        "name": "project_name: String",
         "type_info": {
           "type": "VarString",
-          "flags": "NOT_NULL",
+          "flags": "NOT_NULL | BINARY | NO_DEFAULT_VALUE",
           "max_size": 252
         }
       },
@@ -160,5 +160,5 @@
       false
     ]
   },
-  "hash": "d500949ab389c5efca7ebcdefa2f0f0cb5fa604f1503eb7ec29189d486b9dbad"
+  "hash": "092c1a502e23b6a2652637fbc23cb4ce6424c44fef6a0910ff59fcb13611858b"
 }

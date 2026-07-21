@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT COUNT(*)\n                       FROM deployment_volumes dv\n                       JOIN deployments d ON d.id = dv.deployment_id\n                       WHERE dv.deployment_id = ? AND dv.server_volume_id = ?\n                         AND d.server_id = ? AND d.gpu_group_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "COUNT(*)",
+        "type_info": {
+          "type": "LongLong",
+          "flags": "NOT_NULL | BINARY",
+          "max_size": 21
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "cb3318ff53e4a17c079878ae18bd77a3643804bb61967aa5cdbd8343d5834db4"
+}

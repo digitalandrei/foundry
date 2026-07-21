@@ -384,6 +384,62 @@ removal keeps data; a matching logical key deterministically reuses its
 recorded path. A SERVER volume with that key follows the deploy name across
 slots, while a SLOT volume remains attached to its physical/group target.
 
+### Deploy-time mount mapping (0.65.0)
+
+The persistent-storage portion of the deploy dialog is a list of **Docker
+bind mappings**, not merely a list of volume names. Each row has one of two
+explicit source modes:
+
+- **Automatic** uses the current deployment name as `project_name`, plus the
+  row's logical mount name and selected SLOT/SERVER placement. It creates or
+  deterministically reuses that canonical logical root. This is the default
+  for image-declared mount rows.
+- **Existing root** selects a `server_volumes` identity. It may select any
+  previous user-given deployment-name project, but only a physically
+  compatible root: the selected target's exact SLOT (or exact GPU-group)
+  placement and every SERVER root on that same server. It must never offer a
+  root from another server, a different physical slot, or a different group.
+  Choosing one is a reference, never a clone, move, rename, re-namespace, or
+  placement change of the source root.
+
+The sole migration exception is not a selectable compatibility rule: a GPU
+group replacement may carry forward a retained legacy slot-root only when its
+own predecessor already mounted that exact root. It preserves an old binding
+during a rolling migration; a new deploy or a remap cannot select that root
+for the group.
+
+For an existing-root row the source is the controller-recorded
+`server_volumes.path`, passed to Docker as a `bind` mount; the operator may
+choose an independent absolute container destination and read-only/read-write
+mode. Docker permits the same host directory to be bound into multiple
+containers and destinations, so Foundry permits it as an explicit shared-data
+choice. Container destinations are validated and unique within one deployment;
+the browser never supplies a host path. Automatic and existing rows share the
+same destination/RO/RW validation.
+
+The controller is authoritative at create and replacement time: it resolves
+the selected source ID under the target's server and rejects a source whose
+placement is incompatible, regardless of what a stale or crafted client
+submitted. The redundant requested logical name and placement must match the
+selected row as an integrity check, but the source's `project_name` need not
+match the new deployment name. A deployment binding records the selected root
+ID, authoritative host path, container destination, RO/RW, and purge policy,
+making the exact Docker mapping inspectable after launch. The normal storage
+policy remains deliberate: every signed-in operator may browse and mount
+compatible roots; only the creator or an admin may clean, delete, or change a
+root's quota.
+
+Replacements start from the predecessor's exact bindings (source identity,
+destination, RO/RW, and purge policy) and keep its immutable deployment name.
+An operator may deliberately remap a binding before replacement; automatic
+rows still resolve in the predecessor's project namespace. The dialog warns
+when a root has active or retained attachments. Non-purging reuse remains an
+explicit workload-level coordination choice, while the controller rejects a
+new purge-on-redeploy mapping if an unrelated active or retained deployment
+still references that root. Selection, remapping, purge policy, and resulting
+attachment mappings are audited by volume ID and deployment ID without
+recording file contents.
+
 Creator/admin may explicitly **clean** a detached volume (purge contents,
 retain identity) or **delete** it (purge contents and identity); both are
 refused while an active deployment references it and are audited. Each
@@ -536,8 +592,16 @@ The deploy dialog pre-fills ports and persistent mounts from image metadata
 § `metadata`). Standard Docker `VOLUME` paths get deterministic suggested
 names; the optional `ai.protv.foundry.volumes` JSON label supplies explicit
 `VolumeSpec` defaults (including placement and purge policy) for
-templates that must avoid anonymous Docker volumes. Rows remain editable.
-Discovery is best-effort metadata, never a deployment gate.
+templates that must avoid anonymous Docker volumes. Each prefilled row begins
+in Automatic mode, but its source picker searches all compatible target-local
+and server-shared roots across prior deploy-name projects. An existing source
+can then be mapped to any valid absolute container destination with its own
+RO/RW choice; that destination is independent of the source's logical mount
+name. The
+dialog exposes the full `server → placement → project → mount` hierarchy,
+creator, measured usage/quota, active and recent attachment mappings, and an
+explicit active/retained-sharing and purge warning before the operator commits. Rows remain
+editable. Discovery is best-effort metadata, never a deployment gate.
 
 Deployment execution itself is not best-effort: create/replace re-fetches the
 selected linux/amd64 manifest and persists `repo@sha256:<digest>`. A legacy

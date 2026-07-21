@@ -95,9 +95,10 @@ export function DeployDialog({
   const { isDirty } = useFormState({ control: form.control })
   const requestedName = useWatch({ control: form.control, name: "name" })
   const storageProjectName = (target?.replaces?.name ?? requestedName ?? "").trim()
-  const availableVolumes = storageProjectName
-    ? (volumes.data ?? []).filter((volume) => volume.project_name === storageProjectName)
-    : []
+  // The target-scoped API already limits this set to roots Docker can bind on
+  // this slot/group or shared on this server. Keep every project visible: an
+  // explicit root ID intentionally reuses that source's own namespace.
+  const availableVolumes = volumes.data ?? []
   const storageServer = servers.data?.find((server) => server.id === serverId) ?? {
     name: serverName,
     hostname: null,
@@ -108,7 +109,9 @@ export function DeployDialog({
     : target?.group
       ? `group:${target.group.id}`
       : null
-  const prefillKey = target ? `${targetKey}:${target.tag.registryTagId}` : null
+  const prefillKey = target
+    ? `${targetKey}:${target.tag.registryTagId}:${target.replaces?.id ?? "new"}`
+    : null
   const prefilled = useRef<string | null>(null)
 
   // Fresh target → reset and prefill once. A cancelled dialog never leaks
@@ -130,7 +133,11 @@ export function DeployDialog({
       prefilled.current = prefillKey
       return
     }
-    if (discovered.isPending || (target?.replaces && replacingDetail.isPending)) return
+    // Replacements are never allowed to fall back to image defaults while the
+    // predecessor record is loading or unavailable: its exact bindings are
+    // the safe starting point. Image discovery remains best-effort once that
+    // record is known.
+    if (discovered.isPending || (target?.replaces && !replacingDetail.data)) return
     const discoveredVolumes = discovered.data?.volumes ?? []
     if (target?.replaces) {
       const retainedVolumes = (replacingDetail.data?.mounts ?? [])
@@ -151,7 +158,10 @@ export function DeployDialog({
           host_port: "",
         })),
         env: [],
-        volumes: retainedVolumes.length > 0 ? retainedVolumes : discoveredVolumes,
+        // Zero predecessor mounts is itself authoritative. Falling back to
+        // image declarations here would silently add storage during a
+        // replacement instead of starting from the exact old bindings.
+        volumes: retainedVolumes,
         mem_limit_gb: MEM_UNLIMITED_GB,
       })
       prefilled.current = prefillKey
@@ -184,7 +194,6 @@ export function DeployDialog({
     target,
     discovered.isPending,
     discovered.data,
-    replacingDetail.isPending,
     replacingDetail.data,
     appsDomain,
     isDirty,
@@ -193,6 +202,8 @@ export function DeployDialog({
 
   if (!target) return null
   const pending = create.isPending || replace.isPending
+  const replacementLoading = target.replaces !== null && !replacingDetail.data && replacingDetail.isPending
+  const replacementFailed = target.replaces !== null && !replacingDetail.data && replacingDetail.isError
   const imageSize = target.tag.sizeBytes ?? discovered.data?.size_bytes
   const serverSlug =
     serverName
@@ -236,7 +247,7 @@ export function DeployDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
             {target.replaces ? "Replace deployment" : "Deploy"} {target.tag.imageName}
@@ -261,11 +272,26 @@ export function DeployDialog({
           </div>
         ) : null}
 
-        {discovered.isPending ? (
-          <div className="flex flex-col items-center gap-2 py-10 text-sm text-muted-foreground">
-            <Loader2Icon className="size-5 animate-spin" aria-hidden />
-            Inspecting image metadata…
+        {replacementLoading ? (
+          <DialogLoading message="Loading the deployment configuration to preserve its persistent mount mappings…" />
+        ) : replacementFailed ? (
+          <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm" role="alert">
+            <p className="font-medium">Could not load the deployment being replaced.</p>
+            <p className="mt-1 text-muted-foreground">
+              Foundry will not replace it without first loading its exact persistent mount mappings.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-3"
+              onClick={() => void replacingDetail.refetch()}
+            >
+              Retry loading configuration
+            </Button>
           </div>
+        ) : discovered.isPending ? (
+          <DialogLoading message="Inspecting image metadata…" />
         ) : (
           <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
             <DeployDialogFields
@@ -278,10 +304,18 @@ export function DeployDialog({
               appsDomain={appsDomain}
               serverSlug={serverSlug}
               discoveredPorts={discovered.data?.ports}
-              discoveredVolumeCount={discovered.data?.volumes.length ?? 0}
+              discoveredVolumeCount={
+                target.replaces ? 0 : (discovered.data?.volumes.length ?? 0)
+              }
               discoverySucceeded={discovered.isSuccess}
               availableVolumes={availableVolumes}
               storageServer={storageServer}
+              storageProjectName={storageProjectName}
+              availableVolumesLoading={volumes.isPending}
+              availableVolumesError={
+                volumes.error instanceof Error ? volumes.error.message : volumes.isError ? "Request failed" : null
+              }
+              replacementDeploymentId={target.replaces?.id ?? null}
             />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
@@ -299,5 +333,14 @@ export function DeployDialog({
         )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+function DialogLoading({ message }: { message: string }) {
+  return (
+    <div className="flex flex-col items-center gap-2 py-10 text-sm text-muted-foreground" role="status">
+      <Loader2Icon className="size-5 animate-spin" aria-hidden />
+      {message}
+    </div>
   )
 }

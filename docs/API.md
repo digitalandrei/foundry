@@ -50,14 +50,14 @@ user's GitLab account on the instance that owns the resource.
 | `GET /api/deployments` | Deployments with ports/state/uptime (REMOVED filtered out; latest 200); HTTP/S ports carry hostname + primary/app policy; summaries include immutable `image_digest`, Docker `health_status`/detail, live progress, and container id | ✅ live |
 | `GET /api/deployments/{id}` | Detail for the slot page: summary (flattened) + `mounts` (volume id/name, host/container path, ro, SLOT/SERVER placement, purge-on-redeploy) + `env` **names** (`is_secret` flagged — values never returned). The page embeds a file browser narrowed to these mounts | ✅ live |
 | `GET /api/metrics/latest` | Newest telemetry sample per server — live GPU/container labels on the dashboard grid | ✅ live |
-| `POST /api/deployments` | Create from drag-drop. The controller re-reads registry metadata, pins the selected linux/amd64 manifest as `repo@sha256:…`, applies image-declared app policy and editable volume policy, locks target/name/ports, and requires agent ≥0.63 + setup r4 + fresh positive host checks (Docker, NVIDIA container runtime/CDI, storage/capabilities and nginx/TLS for web apps). The agent repeats the GPU, Docker, disk, port, volume and nginx-candidate preflight before mutation | ✅ live (GPU gate 0.63.0) |
-| `POST /api/deployments/{id}/replace` | Safe replacement: preflight + pull immutable successor while the running predecessor remains live; quiesce and retain the exact old container; purge selected mounts; create/start; wait for Docker HEALTHCHECK; publish; only then remove old. The request target is forced to the predecessor target; the only accepted deployment name is the predecessor name (omission inherits it; a different name is rejected), preserving the storage-project namespace and app address. The retained Docker container is temporarily renamed by deployment UUID to release that stable name, then restored before rollback. Startup/health/publication failure removes the successor and restores the predecessor. A predecessor already stopped remains stopped. Requires agent ≥0.64.0; ordinary deploys retain the 0.63 GPU-readiness gate | ✅ live (stable-name handoff 0.64.0) |
+| `POST /api/deployments` | Create from drag-drop. The controller re-reads registry metadata, pins the selected linux/amd64 manifest as `repo@sha256:…`, applies image-declared app policy and editable volume policy, locks target/name/ports, and requires agent ≥0.63 + setup r4 + fresh positive host checks (Docker, NVIDIA container runtime/CDI, storage/capabilities and nginx/TLS for web apps). A mount row either omits `volume_id` for automatic current-deploy-name creation/reuse or names an existing compatible root; the controller resolves its path and placement, never trusting a client host path. The agent repeats the GPU, Docker, disk, port, volume and nginx-candidate preflight before mutation | ✅ live (intelligent mount mapping 0.65.0) |
+| `POST /api/deployments/{id}/replace` | Safe replacement: preflight + pull immutable successor while the running predecessor remains live; quiesce and retain the exact old container; purge selected mounts; create/start; wait for Docker HEALTHCHECK; publish; only then remove old. The request target is forced to the predecessor target; the only accepted deployment name is the predecessor name (omission inherits it; a different name is rejected), preserving the storage-project namespace and app address. The form starts with the predecessor's exact mount bindings; an operator may deliberately remap a compatible source, target path, RO/RW, or purge policy. The retained Docker container is temporarily renamed by deployment UUID to release that stable name, then restored before rollback. Startup/health/publication failure removes the successor and restores the predecessor. A predecessor already stopped remains stopped. Requires agent ≥0.64.0; ordinary deploys retain the 0.63 GPU-readiness gate | ✅ live (stable-name handoff; intelligent mount mapping 0.65.0) |
 | `POST /api/deployments/{id}/stop` · `/restart` | Lifecycle actions. Stop removes the public route, container and reclaimable image; volumes survive. Restart is a digest-pinned redeploy, runs stage-one readiness again, and purges marked mounts. A legacy tag-only deployment is pinned once before its first restart | ✅ live |
 | `POST /api/deployments/{id}/retry-publish` | Retry only nginx publication for a healthy container retained in `PUBLISH_FAILED`; no image pull or container recreation — owner/admin | ✅ live (0.59.0) |
 | `GET /api/deployments/{id}/access-logs` · `/request-metrics` | Last 500 structured app requests and 24h totals/errors/bytes/average/p95/status counts. Org-visible like deployment logs; seven-day retention | ✅ live (0.59.0) |
 | `POST /api/deployments/{id}/dismiss` | Clear a FAILED deployment (→ REMOVED) and free its stuck slot — controller-side, no agent; owner/admin | ✅ live |
 | `DELETE /api/deployments/{id}` | Remove a stopped/failed deployment (container removed; volumes survive) | ✅ live |
-| `GET /api/servers/{id}/volumes?slot_id=…` | Server-local storage keyed by the logical hierarchy server → shared/slot/group → user-given deployment-name project (`project_name`) → mount name, with creator, management rights and attachments. `slot_id` returns that slot plus SERVER roots; `gpu_group_id` addresses a group slot; omitting both lists every placement. `project_name` is not a GitLab project; the returned `path` is an opaque physical root under `.foundry` for new rows or a retained legacy path | ✅ live (placement scope 0.63.0) |
+| `GET /api/servers/{id}/volumes?slot_id=…` | Server-local storage keyed by the logical hierarchy server → shared/slot/group → user-given deployment-name project (`project_name`) → mount name, with creator, management rights, usage/quota, and active/retained plus recent attachments. A target-scoped `slot_id` returns **every** root for that exact slot plus all SERVER roots, across all prior deploy-name projects; `gpu_group_id` applies the same rule to that exact group. It never returns another slot/group or another server. Omitting the target lists every placement for Storage. `project_name` is not a GitLab project; `path` is an opaque controller-recorded physical root under `.foundry` for new rows or a retained legacy path | ✅ live (intelligent mount mapping 0.65.0) |
 | `POST /api/volumes/{id}/clean` | Queue an irreversible contents purge while retaining the volume identity — creator/admin; refused while mounted or while the server reports foundry-agent <0.54.0 | ✅ live (rolling-upgrade gate 0.55.0) |
 | `PATCH /api/volumes/{id}/quota` | Set/remove an advisory local quota (`{quota_bytes:null|N}`; ≥1 MiB and not below measured usage) — creator/admin. Browser uploads enforce it; containers can still exceed it | ✅ live (0.59.0) |
 | `DELETE /api/volumes/{id}` | Delete volume identity + data — creator/admin; refused while mounted | ✅ live |
@@ -72,6 +72,42 @@ user's GitLab account on the instance that owns the resource.
 | `GET /api/audit` | Audit log, newest-first → `{entries[], next_cursor}`. Cursor `?before=<id>`, `?limit=` (1–200, default 50), `?action=` exact-match filter; `actor_name` resolved server-side. Admin sees all; a non-admin sees only rows they are the actor of | ✅ live |
 | `POST /api/enrollment-tokens` | Generate server enrollment token — admin | Phase 4 |
 | `POST /api/servers/{id}/rotate-token` | Rotate an agent credential — admin | Phase 4 |
+
+### Deploy-time persistent mount mapping (0.65.0)
+
+`CreateDeploymentRequest.volumes[]` is a list of Docker bind mappings. Each
+row has an absolute, normalized `container_path`, a per-mapping `read_only`
+flag, and a per-mapping `purge_on_redeploy` flag; container destinations must
+be unique in a request. The request never accepts a host filesystem path.
+
+- With no `volume_id`, `volume_name` and `placement` select **Automatic**
+  canonical creation/reuse under the current deployment name's project
+  namespace.
+- With `volume_id`, the ID is an **Existing root** source. The controller
+  locks that row and mounts its recorded path at the supplied container
+  destination. The redundant request `volume_name` and `placement` must match
+  the selected row, rejecting stale/tampered form state; they cannot retarget
+  the ID. The source's `project_name` is deliberately not required to match
+  the new deployment name. `read_only` remains a property of that particular
+  Docker bind, not of the source volume.
+- Compatibility is target-relative and server-local: a single-slot target may
+  use only its exact SLOT roots plus that server's SERVER roots; a GPU-group
+  target may use only its exact group roots plus that server's SERVER roots.
+  Any other server, slot, or group is a 4xx rejection. Candidate discovery is
+  helpful UI, not authorization. The one migration-only exception carries an
+  already-bound legacy slot root through that same GPU-group replacement; it is
+  never offered as a new candidate or remap.
+
+The target-scoped volume response provides its full logical breadcrumb,
+creator, measured usage and quota, management capability, active/retained
+mappings and recent mappings. An attachment mapping includes deployment identity/name and
+state, container destination, RO/RW, and purge policy; it never exposes file
+contents or repeats the host path. The compact `attached_to` name list remains
+suitable for older consumers, while the richer mapping data drives the deploy
+warning. A new purge-on-redeploy mapping is rejected while an unrelated active
+or retained deployment references the same root. Volume selection/remapping is
+included in the deployment's transaction and audit detail by volume and
+deployment ID.
 
 Auth/OAuth endpoints (session bootstrap, not under `/api`) — ✅ live:
 

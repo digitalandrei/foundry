@@ -566,6 +566,7 @@ async fn placement_volumes_reuse_across_users_and_projects(pool: MySqlPool) {
         "comfy1",
         &spec,
         fixture.admin,
+        None,
     )
     .await
     .unwrap();
@@ -579,13 +580,14 @@ async fn placement_volumes_reuse_across_users_and_projects(pool: MySqlPool) {
         "comfy1",
         &spec,
         collaborator,
+        None,
     )
     .await
     .unwrap();
     tx.commit().await.unwrap();
-    assert_eq!(creator_shared, collaborator_shared);
+    assert_eq!(creator_shared.id, collaborator_shared.id);
     let creator_leaf = creator_shared
-        .1
+        .path
         .strip_prefix("/storage/containers/.foundry/shared/comfy1/models/")
         .expect("new volume uses the logical hierarchy");
     assert!(Uuid::parse_str(creator_leaf).is_ok());
@@ -599,13 +601,14 @@ async fn placement_volumes_reuse_across_users_and_projects(pool: MySqlPool) {
         "comfy2",
         &spec,
         collaborator,
+        None,
     )
     .await
     .unwrap();
     tx.commit().await.unwrap();
-    assert_ne!(creator_shared.0, other_project.0);
+    assert_ne!(creator_shared.id, other_project.id);
     let other_leaf = other_project
-        .1
+        .path
         .strip_prefix("/storage/containers/.foundry/shared/comfy2/models/")
         .expect("project name separates physical roots");
     assert!(Uuid::parse_str(other_leaf).is_ok());
@@ -620,11 +623,12 @@ async fn placement_volumes_reuse_across_users_and_projects(pool: MySqlPool) {
         "comfy1",
         &spec,
         fixture.admin,
+        None,
     )
     .await
     .unwrap();
     tx.commit().await.unwrap();
-    assert_ne!(creator_shared.0, slot_volume.0);
+    assert_ne!(creator_shared.id, slot_volume.id);
 
     let second_gpu = Uuid::now_v7();
     let second_slot = SlotId::new();
@@ -665,11 +669,12 @@ async fn placement_volumes_reuse_across_users_and_projects(pool: MySqlPool) {
         "comfy1",
         &spec,
         collaborator,
+        None,
     )
     .await
     .unwrap();
     tx.commit().await.unwrap();
-    assert_eq!(creator_shared, server_volume_from_second_slot);
+    assert_eq!(creator_shared.id, server_volume_from_second_slot.id);
 
     spec.placement = VolumePlacement::Slot;
     let mut tx = pool.begin().await.unwrap();
@@ -681,17 +686,297 @@ async fn placement_volumes_reuse_across_users_and_projects(pool: MySqlPool) {
         "comfy1",
         &spec,
         collaborator,
+        None,
     )
     .await
     .unwrap();
     tx.commit().await.unwrap();
-    assert_ne!(slot_volume.0, other_slot_volume.0);
+    assert_ne!(slot_volume.id, other_slot_volume.id);
+
+    let explicit_shared = VolumeSpec {
+        volume_id: Some(creator_shared.id),
+        volume_name: "models".into(),
+        container_path: "/any-destination".into(),
+        read_only: true,
+        placement: VolumePlacement::Server,
+        purge_on_redeploy: false,
+    };
+    let mut tx = pool.begin().await.unwrap();
+    let cross_project_shared = crate::repos::volumes::ensure(
+        &mut tx,
+        fixture.server_id,
+        second_slot,
+        None,
+        "another-deployment-name",
+        &explicit_shared,
+        collaborator,
+        None,
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(cross_project_shared.id, creator_shared.id);
+
+    let mismatched_placement = VolumeSpec {
+        placement: VolumePlacement::Slot,
+        ..explicit_shared.clone()
+    };
+    let mut tx = pool.begin().await.unwrap();
+    let error = crate::repos::volumes::ensure(
+        &mut tx,
+        fixture.server_id,
+        second_slot,
+        None,
+        "another-deployment-name",
+        &mismatched_placement,
+        collaborator,
+        None,
+    )
+    .await
+    .expect_err("a selected volume's placement remains authoritative");
+    tx.rollback().await.unwrap();
+    assert!(matches!(error, AppError::BadRequest(message) if message.contains("placement")));
+
+    let mismatched_name = VolumeSpec {
+        volume_name: "settings".into(),
+        ..explicit_shared
+    };
+    let mut tx = pool.begin().await.unwrap();
+    let error = crate::repos::volumes::ensure(
+        &mut tx,
+        fixture.server_id,
+        second_slot,
+        None,
+        "another-deployment-name",
+        &mismatched_name,
+        collaborator,
+        None,
+    )
+    .await
+    .expect_err("a selected volume's source name remains authoritative");
+    tx.rollback().await.unwrap();
+    assert!(matches!(error, AppError::BadRequest(message) if message.contains("mount name")));
+
+    let explicit_slot = VolumeSpec {
+        volume_id: Some(slot_volume.id),
+        volume_name: "models".into(),
+        container_path: "/another-destination".into(),
+        read_only: false,
+        placement: VolumePlacement::Slot,
+        purge_on_redeploy: false,
+    };
+    let mut tx = pool.begin().await.unwrap();
+    let same_slot = crate::repos::volumes::ensure(
+        &mut tx,
+        fixture.server_id,
+        fixture.slot_id,
+        None,
+        "another-deployment-name",
+        &explicit_slot,
+        collaborator,
+        None,
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(same_slot.id, slot_volume.id);
+
+    let mut tx = pool.begin().await.unwrap();
+    let error = crate::repos::volumes::ensure(
+        &mut tx,
+        fixture.server_id,
+        second_slot,
+        None,
+        "another-deployment-name",
+        &explicit_slot,
+        collaborator,
+        None,
+    )
+    .await
+    .expect_err("a slot root cannot be selected for another physical slot");
+    tx.rollback().await.unwrap();
+    assert!(matches!(error, AppError::Forbidden));
 
     let visible = crate::repos::volumes::list(&pool, fixture.server_id, None, collaborator, false)
         .await
         .unwrap();
-    assert!(visible.iter().any(|volume| volume.id == creator_shared.0));
-    assert!(visible.iter().any(|volume| volume.id == slot_volume.0));
+    assert!(visible.iter().any(|volume| volume.id == creator_shared.id));
+    assert!(visible.iter().any(|volume| volume.id == slot_volume.id));
+
+    let first_target = crate::repos::volumes::list(
+        &pool,
+        fixture.server_id,
+        Some(fixture.slot_id.0),
+        collaborator,
+        false,
+    )
+    .await
+    .unwrap();
+    assert!(first_target
+        .iter()
+        .any(|volume| volume.id == creator_shared.id));
+    assert!(first_target
+        .iter()
+        .any(|volume| volume.id == slot_volume.id));
+    assert!(first_target
+        .iter()
+        .all(|volume| volume.id != other_slot_volume.id));
+
+    let second_target = crate::repos::volumes::list(
+        &pool,
+        fixture.server_id,
+        Some(second_slot.0),
+        collaborator,
+        false,
+    )
+    .await
+    .unwrap();
+    assert!(second_target
+        .iter()
+        .any(|volume| volume.id == creator_shared.id));
+    assert!(second_target
+        .iter()
+        .any(|volume| volume.id == other_slot_volume.id));
+    assert!(second_target
+        .iter()
+        .all(|volume| volume.id != slot_volume.id));
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+#[ignore = "requires privileged disposable MariaDB; CI runs ignored tests"]
+async fn shared_volume_mapping_blocks_unsafe_purge_and_reports_attachments(pool: MySqlPool) {
+    let fixture = insert_runtime_fixture(&pool).await;
+    sqlx::query("UPDATE gpu_slots SET max_occupants = 2 WHERE id = ?")
+        .bind(fixture.slot_id.0)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let mut source = deployment_request(&fixture);
+    source.name = Some("source".into());
+    source.volumes = vec![VolumeSpec {
+        volume_id: None,
+        volume_name: "models".into(),
+        container_path: "/models".into(),
+        read_only: false,
+        placement: VolumePlacement::Server,
+        purge_on_redeploy: false,
+    }];
+    crate::repos::deployments::create(
+        &pool,
+        &state(pool.clone()).secrets,
+        &source,
+        "registry.test/team/model:v1",
+        fixture.instance_id,
+        fixture.admin,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let source_volume = crate::repos::volumes::list(
+        &pool,
+        fixture.server_id,
+        Some(fixture.slot_id.0),
+        fixture.admin,
+        true,
+    )
+    .await
+    .unwrap()
+    .into_iter()
+    .find(|volume| volume.project_name == "source" && volume.name == "models")
+    .expect("source volume exists");
+
+    let mut unsafe_consumer = deployment_request(&fixture);
+    unsafe_consumer.name = Some("unsafe-consumer".into());
+    unsafe_consumer.volumes = vec![VolumeSpec {
+        volume_id: Some(source_volume.id),
+        volume_name: "models".into(),
+        container_path: "/reuse".into(),
+        read_only: true,
+        placement: VolumePlacement::Server,
+        purge_on_redeploy: true,
+    }];
+    let error = crate::repos::deployments::create(
+        &pool,
+        &state(pool.clone()).secrets,
+        &unsafe_consumer,
+        "registry.test/team/model:v1",
+        fixture.instance_id,
+        fixture.admin,
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect_err("an active shared root cannot be marked for purge");
+    assert!(
+        matches!(error, AppError::BadRequest(message) if message.contains("purge_on_redeploy"))
+    );
+
+    let mut consumer = unsafe_consumer;
+    consumer.name = Some("consumer".into());
+    consumer.volumes[0].purge_on_redeploy = false;
+    let consumer_deployment = crate::repos::deployments::create(
+        &pool,
+        &state(pool.clone()).secrets,
+        &consumer,
+        "registry.test/team/model:v1",
+        fixture.instance_id,
+        fixture.admin,
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("a shared root remains mountable without purge");
+
+    let audit_detail: Vec<u8> = sqlx::query_scalar(
+        "SELECT detail FROM audit_logs WHERE action = 'DEPLOYMENT_CREATED' AND subject_id = ? ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(consumer_deployment.id.0)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let audit: serde_json::Value = serde_json::from_slice(&audit_detail).unwrap();
+    let mapping = &audit["mounts"][0];
+    assert_eq!(mapping["selection"], "existing");
+    assert_eq!(mapping["volume_id"], source_volume.id.to_string());
+    assert_eq!(mapping["source"]["project_name"], "source");
+    assert_eq!(mapping["container_path"], "/reuse");
+    assert_eq!(mapping["read_only"], true);
+    assert!(mapping.get("host_path").is_none());
+
+    let listed = crate::repos::volumes::list(
+        &pool,
+        fixture.server_id,
+        Some(fixture.slot_id.0),
+        fixture.admin,
+        true,
+    )
+    .await
+    .unwrap();
+    let mapped = listed
+        .iter()
+        .find(|volume| volume.id == source_volume.id)
+        .expect("shared volume remains listed");
+    let mut attached_to = mapped.attached_to.clone();
+    attached_to.sort();
+    assert_eq!(attached_to, vec!["consumer", "source"]);
+    assert_eq!(mapped.attachments.len(), 2);
+    assert!(mapped.attachments.iter().any(|attachment| {
+        attachment.deployment_name == "source"
+            && attachment.container_path == "/models"
+            && !attachment.read_only
+            && !attachment.purge_on_redeploy
+    }));
+    assert!(mapped.attachments.iter().any(|attachment| {
+        attachment.deployment_name == "consumer"
+            && attachment.container_path == "/reuse"
+            && attachment.read_only
+            && !attachment.purge_on_redeploy
+    }));
 }
 
 #[sqlx::test(migrator = "crate::MIGRATOR")]

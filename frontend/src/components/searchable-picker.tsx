@@ -11,6 +11,9 @@ export type SearchablePickerOption = {
   value: string
   /** Plain text used by the trigger and accessibility tree. */
   label: string
+  /** Extra result context announced to assistive technology while the compact
+   * trigger continues to use `label` alone. */
+  description?: string
   /** Additional terms such as hostname, placement, project, and mount. */
   searchText?: string
   /** First hierarchy level. Adjacent equal groups share one heading. */
@@ -193,7 +196,9 @@ export function SearchablePicker({
                       <span className="min-w-0 flex-1">
                         {option.content ? (
                           <>
-                            <span className="sr-only">{option.label}</span>
+                            <span className="sr-only">
+                              {option.label}{option.description ? `. ${option.description}` : ""}
+                            </span>
                             <span aria-hidden>{option.content}</span>
                           </>
                         ) : option.label}

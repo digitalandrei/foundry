@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { VolumeLocationPicker } from "@/components/volume-location-picker"
+import { PersistentMountRow } from "@/components/persistent-mount-row"
 import {
   Select,
   SelectContent,
@@ -23,7 +23,7 @@ import {
   MEM_UNLIMITED_GB,
   type DeploymentFormValues,
 } from "@/lib/deployment-form"
-import type { ExposedPort, PortKind, ServerVolume, VolumePlacement } from "@/lib/types"
+import type { ExposedPort, PortKind, ServerVolume } from "@/lib/types"
 
 type FieldsProps = {
   form: UseFormReturn<DeploymentFormValues>
@@ -39,6 +39,10 @@ type FieldsProps = {
   discoverySucceeded: boolean
   availableVolumes: ServerVolume[]
   storageServer: { name: string; hostname: string | null }
+  storageProjectName: string
+  availableVolumesLoading: boolean
+  availableVolumesError: string | null
+  replacementDeploymentId: string | null
 }
 
 export function DeployDialogFields({
@@ -55,6 +59,10 @@ export function DeployDialogFields({
   discoverySucceeded,
   availableVolumes,
   storageServer,
+  storageProjectName,
+  availableVolumesLoading,
+  availableVolumesError,
+  replacementDeploymentId,
 }: FieldsProps) {
   const watched = useWatch({ control: form.control })
   const memGb = watched.mem_limit_gb ?? MEM_UNLIMITED_GB
@@ -257,7 +265,7 @@ export function DeployDialogFields({
       <Separator />
       <SectionHeader
         title="Persistent storage"
-        hint={`${discoveredVolumeCount ? `${discoveredVolumeCount} mount${discoveredVolumeCount === 1 ? "" : "s"} prefilled from the image. ` : ""}Storage is keyed by deploy name, then mount name. Slot volumes follow this target; server volumes follow that deploy name across its slots. Purge removes contents before restart or replacement.`}
+        hint={`${discoveredVolumeCount ? `${discoveredVolumeCount} mount${discoveredVolumeCount === 1 ? "" : "s"} prefilled from the image. ` : ""}Each row is an explicit storage-source → container-destination mapping. Choose an existing compatible slot/group or shared root from any deployment project on this server, or let Foundry create/reuse this deployment’s own root.`}
         onAdd={() =>
           mounts.append({
             volume_id: null,
@@ -271,106 +279,31 @@ export function DeployDialogFields({
       />
       {mounts.fields.map((field, index) => {
         const selectedId = watched.volumes?.[index]?.volume_id ?? null
-        const nameRegistration = form.register(`volumes.${index}.volume_name`)
+        const mount = watched.volumes?.[index] ?? {
+          volume_id: null,
+          volume_name: "",
+          container_path: "/data",
+          read_only: false,
+          placement: "SLOT" as const,
+          purge_on_redeploy: false,
+        }
         return (
-          <div key={field.id} className="space-y-3 rounded-md border p-3">
-            <div className="flex items-start gap-2">
-              <Field className="flex-1">
-                <FieldLabel>Reuse</FieldLabel>
-                <VolumeLocationPicker
-                  value={selectedId ?? "automatic"}
-                  volumes={availableVolumes}
-                  server={storageServer}
-                  onValueChange={(value) => {
-                    if (value === "automatic") {
-                      form.setValue(`volumes.${index}.volume_id`, null, { shouldDirty: true })
-                      return
-                    }
-                    const volume = availableVolumes.find((candidate) => candidate.id === value)
-                    if (!volume) return
-                    form.setValue(`volumes.${index}.volume_id`, volume.id, { shouldDirty: true })
-                    form.setValue(`volumes.${index}.volume_name`, volume.name, { shouldDirty: true })
-                    form.setValue(`volumes.${index}.placement`, volume.placement, {
-                      shouldDirty: true,
-                    })
-                  }}
-                  ariaLabel={`Reuse volume ${index + 1}`}
-                  includeAutomatic
-                />
-              </Field>
-              <RemoveRowButton onClick={() => mounts.remove(index)} />
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Field>
-                <FieldLabel htmlFor={`volume-name-${index}`}>Volume name</FieldLabel>
-                <Input
-                  id={`volume-name-${index}`}
-                  placeholder="volume name"
-                  autoComplete="off"
-                  {...nameRegistration}
-                  onChange={(event) => {
-                    nameRegistration.onChange(event)
-                    form.setValue(`volumes.${index}.volume_id`, null)
-                  }}
-                />
-                {form.formState.errors.volumes?.[index]?.volume_name ? (
-                  <FieldError>invalid name</FieldError>
-                ) : null}
-              </Field>
-              <Field>
-                <FieldLabel htmlFor={`volume-path-${index}`}>Container path</FieldLabel>
-                <Input
-                  id={`volume-path-${index}`}
-                  placeholder="/data"
-                  autoComplete="off"
-                  {...form.register(`volumes.${index}.container_path`)}
-                />
-                {form.formState.errors.volumes?.[index]?.container_path ? (
-                  <FieldError>absolute path</FieldError>
-                ) : null}
-              </Field>
-              <Field>
-                <FieldLabel>Placement</FieldLabel>
-                <Select
-                  value={watched.volumes?.[index]?.placement ?? "SLOT"}
-                  onValueChange={(value) => {
-                    form.setValue(
-                      `volumes.${index}.placement`,
-                      value as VolumePlacement,
-                      { shouldDirty: true },
-                    )
-                    form.setValue(`volumes.${index}.volume_id`, null)
-                  }}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="SLOT">This slot</SelectItem>
-                    <SelectItem value="SERVER">Any slot on server</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-            </div>
-            <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-              <label className="flex items-center gap-1.5">
-                <Checkbox
-                  checked={watched.volumes?.[index]?.read_only ?? false}
-                  onCheckedChange={(value) =>
-                    form.setValue(`volumes.${index}.read_only`, value === true)
-                  }
-                />
-                Read-only mount
-              </label>
-              <label className="flex items-center gap-1.5">
-                <Checkbox
-                  checked={watched.volumes?.[index]?.purge_on_redeploy ?? false}
-                  onCheckedChange={(value) =>
-                    form.setValue(`volumes.${index}.purge_on_redeploy`, value === true)
-                  }
-                />
-                Purge on redeploy
-              </label>
-            </div>
-          </div>
+          <PersistentMountRow
+            key={field.id}
+            index={index}
+            fieldId={field.id}
+            form={form}
+            mounts={mounts}
+            mount={mount}
+            selectedId={selectedId}
+            selectedVolume={availableVolumes.find((volume) => volume.id === selectedId) ?? null}
+            availableVolumes={availableVolumes}
+            storageServer={storageServer}
+            projectName={storageProjectName}
+            loading={availableVolumesLoading}
+            error={availableVolumesError}
+            replacementDeploymentId={replacementDeploymentId}
+          />
         )
       })}
     </>

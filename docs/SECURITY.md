@@ -159,6 +159,21 @@ every boundary:
 - The browser sends a `volume_id` and relative UTF-8 path, never a host path.
   The agent receives a controller-approved root map for its own `server_id`;
   absolute paths, `..`, root deletion, and symlink following are rejected.
+- Deploy-time reuse has the same trust boundary. A client may name an existing
+  `volume_id` and an absolute **container** destination, but never a host
+  source path. The controller locks and resolves the stored root, then accepts
+  it only when it is on the selected server and is either the target's exact
+  SLOT/GPU-group root or a SERVER root. A crafted request cannot mount another
+  server, another slot, or another group merely because the user learned its
+  ID. Its redundant request name/placement must match the selected row, while
+  its deployment-name project is intentionally allowed to differ. Docker
+  receives the controller-selected source as a bind mount; RO/RW is
+  deliberately per binding rather than a mutation of the source root.
+- Every signed-in operator may browse or explicitly mount a compatible root,
+  including a root created under another user-given deployment-name project.
+  That is operational sharing, not a GitLab-project ACL. Creator/admin-only
+  management still applies to clean, delete, and quota changes; clean/delete
+  remain blocked while mounted.
 - New physical roots are controller-allocated below the reserved
   `/storage/containers/.foundry/` namespace and end in an immutable volume
   UUID. The controller's `{volume_id,path}` catalog is the accounting and
@@ -170,7 +185,10 @@ every boundary:
   rejected, and destructive work uses the validated canonical root.
 - Session open and every mutation request are audited. Audit detail contains
   operation, volume IDs, paths and upload size—but never file content or
-  transfer chunks.
+  transfer chunks. Deployment and replacement audits likewise record
+  automatic-vs-existing source selection, source volume ID, container
+  destination, RO/RW, and purge policy, but never file content or an
+  untrusted client host path.
 - Container files may be owned by arbitrary numeric UIDs. The agent unit
   receives `CAP_DAC_OVERRIDE`; its intended writable storage root remains
   `/storage/containers` and approved-root checks are the authority

@@ -32,6 +32,21 @@ add or tighten one. Don't claim completion without running the relevant set.
   paths, and the per-server `{volume_id,path}` catalog used for accounting.
   Replacement coverage must prove that a submitted replacement name cannot
   differ from its predecessor.
+- **0.65.0 intelligent-mount mapping acceptance coverage** must prove both
+  source modes: an Automatic row creates/reuses only the current deployment
+  name + mount + placement key, while an Existing-root row records the chosen
+  source ID/path unchanged and may use a different absolute container
+  destination and RO/RW mode. It must cover every compatibility boundary:
+  exact-slot + same-server shared accepted; exact-group + same-server shared
+  accepted; different slot, different group, and different server rejected
+  even with a valid volume UUID. It must also cover duplicate/non-absolute
+  destinations, source-ID locking against clean/delete, matching redundant
+  source name/placement with deliberately cross-project reuse, replacement
+  defaults, attachment-history query shape, and audit detail that contains
+  IDs/mapping metadata but never file content or a client-supplied host path.
+  A migration regression also preserves an already-bound legacy slot root only
+  through replacement of that same GPU-group deployment, never as a new
+  selectable group root.
 - HTTP-level tests with `axum`'s `tower::ServiceExt::oneshot` — auth
   required on every `/api` and `/agent` route is itself a test.
 - sqlx note: `query!` macros compile against the live dev DB
@@ -64,6 +79,12 @@ add or tighten one. Don't claim completion without running the relevant set.
   outside `/storage/containers/`; purge batches run before deploy as one
   sequential task. Controller version parsing prevents PURGE_VOLUMES dispatch
   to pre-0.54 agents.
+- **0.65.0 intelligent-mount mapping executor coverage** must assert that the
+  agent receives only controller-resolved source paths and emits Docker bind
+  mounts with the requested container target and independent RO/RW flag. It
+  must show that reusing one source at multiple destinations does not mutate,
+  move, or re-namespace the underlying root, and that a purge warning is a
+  controller/UI concern rather than an agent-side implicit source mutation.
 - Storage-accounting tests use a controller catalog with both legacy and
   `.foundry` roots and an unlisted sibling directory. They assert that only
   listed IDs are measured, that measurement is attributed to the returned ID,
@@ -93,6 +114,13 @@ add or tighten one. Don't claim completion without running the relevant set.
   node, placement, deployment-name project, mount, and attachment terms plus
   keyboard Arrow/Enter selection. Storage-page coverage includes hierarchy
   filtering, disabled-action reasons, and the empty-node state.
+- **0.65.0 intelligent-mount mapping DOM coverage** must exercise drag and
+  tap entry paths into the same detailed mount card: automatic current-project
+  creation/reuse; search and selection of a prior-project exact-target or
+  shared root; absence of incompatible roots; owner/usage/quota/active-recent
+  mapping display; editable unique absolute container destination; independent
+  RO/RW; active/retained-sharing and purge warnings; and replacement prefill. Cover keyboard
+  selection and both light/dark theme classes.
 - **Testing Library component/DOM coverage** now includes named/focusable
   GPU interaction surfaces and Enter/Space activation under both theme
   classes, plus keyboard opening and accessible naming for both themes of the

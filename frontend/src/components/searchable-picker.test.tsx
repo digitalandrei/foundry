@@ -30,6 +30,16 @@ const volumes: ServerVolume[] = [
     created_by_name: "Andrei",
     can_manage: true,
     attached_to: ["inference-api-7f"],
+    attachments: [
+      {
+        deployment_id: "deployment-inference",
+        deployment_name: "inference-api-7f",
+        state: "RUNNING",
+        container_path: "/data/models",
+        read_only: true,
+        purge_on_redeploy: true,
+      },
+    ],
     created_at: "2026-07-21T00:00:00Z",
   },
   {
@@ -92,6 +102,8 @@ describe("searchable picker", () => {
 
     expect(searchablePickerMatches(option, "atlas-gpu shared inference models")).toBe(true)
     expect(searchablePickerMatches(option, "inference-api-7f")).toBe(true)
+    expect(searchablePickerMatches(option, "data models running read only purge")).toBe(true)
+    expect(searchablePickerMatches(option, "owner andrei")).toBe(true)
     expect(searchablePickerMatches(option, "atlas-gpu cache")).toBe(false)
   })
 
@@ -114,6 +126,30 @@ describe("searchable picker", () => {
       expect(screen.getByText("Atlas / Shared")).toBeInTheDocument()
       expect(screen.getByText("Project inference-api")).toBeInTheDocument()
       expect(screen.getByText("Mount models")).toBeInTheDocument()
+      expect(screen.getByRole("combobox", { name: "Persistent root" })).toHaveTextContent(
+        "Atlas / Shared / Project inference-api / Mount models",
+      )
+    })
+
+    it("announces detailed source safety context without making the trigger noisy", () => {
+      render(
+        <div className={theme}>
+          <VolumeLocationPicker
+            value={volumes[0].id}
+            volumes={volumes}
+            server={server}
+            onValueChange={vi.fn()}
+            ariaLabel="Persistent root"
+            showDetails
+          />
+        </div>,
+      )
+
+      fireEvent.click(screen.getByRole("combobox", { name: "Persistent root" }))
+
+      expect(
+        screen.getByRole("option", { name: /active or retained binding.*owner andrei/i }),
+      ).toBeVisible()
       expect(screen.getByRole("combobox", { name: "Persistent root" })).toHaveTextContent(
         "Atlas / Shared / Project inference-api / Mount models",
       )

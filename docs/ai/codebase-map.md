@@ -29,8 +29,10 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   `shared/src/states.rs` — single source of truth; DB columns store
   these exact strings; mirrored by `frontend/src/lib/states.ts`
 - ID newtypes (UUIDv7) → `shared/src/ids.rs`
-- Shared DTOs (error, health, instance, me, project, registry) →
-  `shared/src/dto/` (operational readiness/traffic in `operations.rs`);
+- Shared DTOs (error, health, instance, me, project, registry, deployment
+  bind mappings and volume attachment metadata) → `shared/src/dto/`
+  (operational readiness/traffic in `operations.rs`; deploy/storage contract
+  in `deployment.rs`);
   frontend mirror → `frontend/src/lib/types.ts`
 - Controller config / app state → `controller/src/config.rs`, `state.rs`
 - Secrets-at-rest + token hashing → `controller/src/crypto.rs`
@@ -115,7 +117,8 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   `controller/src/repos/deployments.rs`; task queue (claim/complete/
   chains, deploy-payload build) → `controller/src/repos/tasks.rs`;
   placement/deploy-name-scoped persistent volumes + the authenticated exact
-  per-server `{volume_id,path}` accounting catalog →
+  per-server `{volume_id,path}` accounting catalog + locked automatic/existing
+  root resolution (exact target-local or same-server shared compatibility) →
   `controller/src/repos/volumes.rs`; the catalog route and agent dispatch
   enrichment → `controller/src/routes/agent.rs`;
   deployment + volume routes → `controller/src/routes/volumes.rs`; live
@@ -167,7 +170,9 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
   request observability → `components/app-traffic-panel.tsx`;
   deploy/replace dialog →
   `components/deploy-dialog.tsx`, with typed field sections in
-  `components/deploy-dialog-fields.tsx` and schema/defaults in
+  `components/deploy-dialog-fields.tsx`, per-row automatic/existing Docker
+  bind-source mapping in `components/persistent-mount-row.tsx`, and
+  schema/defaults in
   `lib/deployment-form.ts`; tap/drag sources in
   `containers-panel.tsx`, drop targets + live slot chips + per-server
   Docker/nginx status badges in `server-grid.tsx`; tap-to-deploy slot

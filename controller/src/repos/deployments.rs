@@ -3,7 +3,8 @@
 //! concerns live in the sibling `deployment_*` modules.
 
 use foundry_shared::dto::{
-    CreateDeploymentRequest, DeploymentPort, EnvSpec, PortSpec, MEM_LIMIT_MAX_MB, MEM_LIMIT_MIN_MB,
+    CreateDeploymentRequest, DeploymentPort, EnvSpec, PortSpec, VolumeSpec, MEM_LIMIT_MAX_MB,
+    MEM_LIMIT_MIN_MB,
 };
 use foundry_shared::{DeploymentId, DeploymentState, PortKind, ServerId, SlotState, UserId};
 use sqlx::{MySqlConnection, MySqlPool};
@@ -21,6 +22,7 @@ use super::deployment_targets::{fetch_server_precheck, nginx_status_hint, resolv
 /// never hand out even if requested.
 pub const PORT_POOL: std::ops::RangeInclusive<u16> = 20000..=29999;
 const RESERVED_HOST_PORTS: &[u16] = &[22];
+const MAX_DEPLOYMENT_VOLUMES: usize = 16;
 
 #[derive(Debug)]
 pub struct NewDeployment {
@@ -44,6 +46,7 @@ pub async fn create(
     ip_address: Option<&str>,
 ) -> Result<NewDeployment, AppError> {
     validate_ports(&req.ports, apps_domain)?;
+    let normalized_volume_paths = normalized_volume_paths(&req.volumes)?;
     let now = chrono::Utc::now().naive_utc();
     let mut tx = pool.begin().await?;
 
@@ -182,17 +185,10 @@ pub async fn create(
     }
     // Persistent volumes: resolve explicit IDs or canonical
     // slot/server placement names and bind them.
+    let mut audit_mounts = Vec::with_capacity(req.volumes.len());
     if !req.volumes.is_empty() {
-        let mut seen_paths = std::collections::HashSet::new();
-        for v in &req.volumes {
-            let container_path = v.container_path.trim();
-            super::volumes::validate_container_path(container_path)?;
-            if !seen_paths.insert(container_path.to_string()) {
-                return Err(AppError::BadRequest(format!(
-                    "duplicate mount path {container_path}"
-                )));
-            }
-            let (volume_id, host_path) = super::volumes::ensure(
+        for (v, container_path) in req.volumes.iter().zip(&normalized_volume_paths) {
+            let volume = super::volumes::ensure(
                 &mut tx,
                 server_id,
                 target.primary_slot_id,
@@ -200,6 +196,15 @@ pub async fn create(
                 &container_name,
                 v,
                 created_by,
+                replaces,
+            )
+            .await?;
+            super::volumes::require_safe_purge_mapping(
+                &mut tx,
+                volume.id,
+                id,
+                replaces,
+                v.purge_on_redeploy,
             )
             .await?;
             sqlx::query!(
@@ -209,8 +214,8 @@ pub async fn create(
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
                 Uuid::now_v7(),
                 id.0,
-                volume_id.0,
-                host_path,
+                volume.id.0,
+                &volume.path,
                 container_path,
                 v.read_only,
                 v.purge_on_redeploy,
@@ -218,6 +223,18 @@ pub async fn create(
             )
             .execute(&mut *tx)
             .await?;
+            audit_mounts.push(serde_json::json!({
+                "selection": if v.volume_id.is_some() { "existing" } else { "automatic" },
+                "volume_id": volume.id.to_string(),
+                "source": {
+                    "project_name": volume.project_name,
+                    "mount_name": volume.name,
+                    "placement": volume.placement.as_str(),
+                },
+                "container_path": container_path,
+                "read_only": v.read_only,
+                "purge_on_redeploy": v.purge_on_redeploy,
+            }));
         }
     }
 
@@ -309,6 +326,7 @@ pub async fn create(
             serde_json::json!({
                 "replaced_by": id.to_string(),
                 "image_ref": image_ref,
+                "mounts": audit_mounts,
             }),
         ),
         None => (
@@ -318,6 +336,7 @@ pub async fn create(
                 "image_ref": image_ref,
                 "name": container_name,
                 "target": serde_json::to_value(&req.target).ok(),
+                "mounts": audit_mounts,
             }),
         ),
     };
@@ -475,6 +494,30 @@ async fn require_unique_active_name(
         )));
     }
     Ok(())
+}
+
+/// Bound and canonicalize every requested mount before any deployment row is
+/// written. The image metadata endpoint also caps declarations at 16, but a
+/// hand-crafted create request must not bypass that limit.
+fn normalized_volume_paths(volumes: &[VolumeSpec]) -> Result<Vec<String>, AppError> {
+    if volumes.len() > MAX_DEPLOYMENT_VOLUMES {
+        return Err(AppError::BadRequest(format!(
+            "too many persistent mounts (max {MAX_DEPLOYMENT_VOLUMES})"
+        )));
+    }
+    let mut seen = std::collections::HashSet::with_capacity(volumes.len());
+    volumes
+        .iter()
+        .map(|volume| {
+            super::volumes::validate_volume_name(&volume.volume_name)?;
+            super::volumes::validate_container_path(&volume.container_path)?;
+            let path = super::volumes::normalize_container_path(&volume.container_path)?;
+            if !seen.insert(path.clone()) {
+                return Err(AppError::BadRequest(format!("duplicate mount path {path}")));
+            }
+            Ok(path)
+        })
+        .collect()
 }
 
 fn validate_ports(specs: &[PortSpec], apps_domain: Option<&str>) -> Result<(), AppError> {
@@ -888,8 +931,21 @@ pub async fn dismiss(
 
 #[cfg(test)]
 mod tests {
-    use super::replacement_container_name;
+    use super::{normalized_volume_paths, replacement_container_name};
     use crate::error::AppError;
+    use foundry_shared::dto::VolumeSpec;
+    use foundry_shared::VolumePlacement;
+
+    fn volume(path: &str) -> VolumeSpec {
+        VolumeSpec {
+            volume_id: None,
+            volume_name: "models".into(),
+            container_path: path.into(),
+            read_only: false,
+            placement: VolumePlacement::Server,
+            purge_on_redeploy: false,
+        }
+    }
 
     #[test]
     fn replacement_keeps_existing_name_when_request_omits_it() {
@@ -918,5 +974,19 @@ mod tests {
             error,
             AppError::BadRequest(message) if message.contains("create a new deployment")
         ));
+    }
+
+    #[test]
+    fn mount_requests_are_bounded_and_destinations_are_unique_after_normalization() {
+        let duplicate = normalized_volume_paths(&[volume("/data/"), volume("/data")])
+            .expect_err("equivalent Docker destinations cannot be mapped twice");
+        assert!(
+            matches!(duplicate, AppError::BadRequest(message) if message.contains("duplicate"))
+        );
+
+        let too_many = vec![volume("/models"); super::MAX_DEPLOYMENT_VOLUMES + 1];
+        let error = normalized_volume_paths(&too_many)
+            .expect_err("hand-crafted deployment requests cannot exceed the mount cap");
+        assert!(matches!(error, AppError::BadRequest(message) if message.contains("max 16")));
     }
 }

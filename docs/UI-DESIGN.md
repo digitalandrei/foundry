@@ -229,14 +229,34 @@ mockup — final token mapping fixed when the palette lands in Phase 8).
   tooltip); failed rows show the error in a tooltip. Detail view with
   lifecycle timeline (`deployment_events`) and logs comes with
   Phase 7/8. The deploy dialog (drag-drop) collects name, multi-port
-  rows (TCP/UDP now), env rows with secret toggle, and persistent
-  volume mounts with an explicit existing-volume picker, SLOT/SERVER
-  placement, read-only and purge-on-redeploy controls. SLOT follows the
-  physical or GPU-group slot; SERVER follows the same deploy name across that
-  server. Storage keys are `placement / deploy name / mount name`, where the
-  deploy name is the name entered in this dialog. During replacement this name
-  is displayed as fixed, not editable: it preserves the deployment's app URL
-  and storage-project namespace. Opening it inspects the image:
+  rows (TCP/UDP now), env rows with secret toggle, and **persistent-storage
+  source → container-destination mappings**. Each mount card starts in
+  **Automatic root** mode (current deploy-name project + logical mount +
+  SLOT/SERVER placement) and has a searchable **Existing root** alternative.
+  The picker exposes every physically compatible root, not only the current
+  project: `server → exact Slot/Group or Shared → Project → Mount`. A slot
+  target sees that exact slot plus all shared roots; a group sees that exact
+  group plus all shared roots. It never offers another slot/group/server.
+  Each picker result displays and announces its owner, measured usage/quota,
+  and an active/retained-reference summary; after selection, its source card
+  lists active/retained and recent mapping details. Selecting it preserves its
+  source identity and shows it as a Docker bind source; the operator can map
+  it to any unique absolute container destination and choose RO/RW
+  independently. A sharing warning is informative for non-purging reuse. A
+  new purge-on-redeploy mapping is rejected while an unrelated active or
+  retained deployment still references the root; an existing purge policy is
+  called out because a later redeploy can clear shared files. During a
+  replacement, the editable form and submit action remain unavailable until
+  Foundry has loaded the predecessor's exact bindings; a load failure presents
+  an explicit retry state rather than falling back to image defaults.
+  Automatic placement controls remain available only in Automatic mode. SLOT
+  follows the physical or GPU-group slot; SERVER follows the same deploy name
+  across that server. Storage keys are `placement / deploy name / mount name`,
+  where the deploy name is the name entered in this dialog. During replacement
+  this name is displayed as fixed, not editable: it preserves the deployment's
+  app URL and storage-project namespace. Replacement begins with its
+  predecessor's exact mapping cards, then permits intentional compatible
+  source/mapping changes. Opening the dialog inspects the image:
   EXPOSE ports and persistent mounts declared by Docker `VOLUME` or the
   Foundry volume-default label are prefilled once, remain editable, and do
   not overwrite input the operator has already changed. The optional Foundry

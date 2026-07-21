@@ -277,15 +277,17 @@ fn declared_volumes(
                 if out.len() == MAX_DECLARED_VOLUMES {
                     break;
                 }
-                let path = volume.container_path.trim().to_string();
-                if crate::repos::volumes::validate_volume_name(&volume.volume_name).is_ok()
-                    && crate::repos::volumes::validate_container_path(&path).is_ok()
-                    && paths.insert(path.clone())
+                if let Ok(path) =
+                    crate::repos::volumes::normalize_container_path(&volume.container_path)
                 {
-                    out.push(VolumeSpec {
-                        container_path: path,
-                        ..volume
-                    });
+                    if crate::repos::volumes::validate_volume_name(&volume.volume_name).is_ok()
+                        && paths.insert(path.clone())
+                    {
+                        out.push(VolumeSpec {
+                            container_path: path,
+                            ..volume
+                        });
+                    }
                 }
             }
         }
@@ -297,18 +299,17 @@ fn declared_volumes(
         if out.len() == MAX_DECLARED_VOLUMES {
             break;
         }
-        let path = path.trim().to_string();
-        if crate::repos::volumes::validate_container_path(&path).is_ok()
-            && paths.insert(path.clone())
-        {
-            out.push(VolumeSpec {
-                volume_id: None,
-                volume_name: suggested_volume_name(repo_path, &path),
-                container_path: path,
-                read_only: false,
-                placement: foundry_shared::VolumePlacement::default(),
-                purge_on_redeploy: false,
-            });
+        if let Ok(path) = crate::repos::volumes::normalize_container_path(&path) {
+            if paths.insert(path.clone()) {
+                out.push(VolumeSpec {
+                    volume_id: None,
+                    volume_name: suggested_volume_name(repo_path, &path),
+                    container_path: path,
+                    read_only: false,
+                    placement: foundry_shared::VolumePlacement::default(),
+                    purge_on_redeploy: false,
+                });
+            }
         }
     }
     out

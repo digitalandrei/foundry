@@ -32,6 +32,13 @@ export function volumeLocation(
   const mount = `Mount ${volume.name}`
   const breadcrumb = `${server.name} / ${placement} / ${project} / ${mount}`
   const aliases = volume.placement === "SERVER" ? "server shared global" : "slot local"
+  const attachmentTerms = (volume.attachments ?? []).flatMap((attachment) => [
+    attachment.deployment_name,
+    attachment.container_path,
+    attachment.state,
+    attachment.read_only ? "read only ro" : "read write rw",
+    attachment.purge_on_redeploy ? "purge purges redeploy" : "",
+  ])
   return {
     placement,
     project,
@@ -46,7 +53,11 @@ export function volumeLocation(
       volume.project_name,
       "mount volume",
       volume.name,
+      "owner",
+      volume.created_by_name,
+      "usage quota",
       ...volume.attached_to,
+      ...attachmentTerms,
     ]
       .filter(Boolean)
       .join(" "),

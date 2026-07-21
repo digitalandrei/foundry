@@ -580,3 +580,24 @@ reflected in the affected docs in the same commit set:
   Affects API, ARCHITECTURE, DATABASE, DEPLOYMENT, SECURITY, UI-DESIGN,
   TESTING, codebase-map, controller/agent storage accounting, and deployment
   replacement UI.
+- **2026-07-21** (0.65.0) — **Intelligent deploy-time persistent
+  mount mapping.** A mount row becomes an explicit storage-source → Docker
+  bind-destination mapping. Automatic mode keeps canonical creation/reuse
+  under the current user-given deploy-name project; Existing-root mode searches
+  every physically compatible root across prior deploy-name projects: the
+  exact selected slot/group plus all shared roots on that server. Existing
+  sources retain their identity, physical path, and placement, while their
+  container destination and RO/RW are independently chosen per deployment.
+  The controller locks and authorizes the source again, rejecting all other
+  server/slot/group roots. The richer modal will show hierarchy, owner,
+  usage/quota, active/recent attachment mappings, and sharing/purge warnings;
+  non-purging reuse remains deliberate, while new purge mappings are rejected
+  when unrelated active or retained deployments still reference the root.
+  Replacements begin from their predecessor's exact bindings. All signed-in
+  operators may mount/browse compatible roots;
+  creator/admin management rights remain unchanged. The implementation must
+  audit mappings, use Docker bind mounts, and cover compatibility boundaries,
+  lifecycle defaults, and accessible dark/light UI. Affects API,
+  ARCHITECTURE, DATABASE, SECURITY, UI-DESIGN, TESTING, codebase-map, shared
+  deployment DTOs, controller volume/deployment repositories, and deploy
+  dialog components.

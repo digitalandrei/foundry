@@ -233,6 +233,16 @@ Volume mounts. Columns: `id`, `deployment_id` FK, `server_volume_id`
 FK null (the persistent volume backing it; NULLed if the volume is
 deleted later), `host_path`, `container_path`, `read_only`,
 `purge_on_redeploy` (agent purges the directory before restart/replacement).
+It is the durable record of one Docker **bind mapping**: `host_path` is the
+controller-resolved path snapshot for `server_volume_id`, while
+`container_path`, `read_only`, and `purge_on_redeploy` are independently
+chosen per deployment. The source volume's identity, physical path, logical
+project/mount, creator, and placement are never rewritten by a mapping.
+`container_path` is absolute and unique per deployment, enforced by the
+controller before this row is inserted. Active/retained mappings are rows
+joined to lifecycle states that still hold the binding; recent mappings are historical rows/deployments,
+which let the deploy dialog show sharing and purge context without inferring it
+from the filesystem.
 
 ### `server_volumes`
 > Added in Phase 6 (operator requirement): persistent storage.
@@ -266,7 +276,14 @@ claim filesystem/container hard isolation. Canonical uniqueness is
 (`server_id`, `placement`, `placement_id`, `project_name`, `name`); path is
 also unique per server. GitLab project identity is deliberately absent. Clean
 retains the row and queues PURGE_VOLUMES; delete removes the row and queues
-REMOVE_VOLUME.
+REMOVE_VOLUME. Deploy-time explicit reuse may reference a root under any
+`project_name`, but only when its `server_id` and placement identity are
+compatible with the locked deployment target: exact slot or exact GPU group
+for SLOT roots, or the same server for SERVER roots. This is a lookup rule,
+not an identity rewrite; the existing `project_name`, `placement_id`, and
+`path` remain unchanged. A migration-only exception can carry an already-bound
+legacy slot root through replacement of that same GPU-group deployment; it is
+not a selectable root for new group deployments or remaps.
 
 ### `deployment_logs`
 > Added in Phase 7 (Logs): captured container stdout+stderr.

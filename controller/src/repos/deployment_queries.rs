@@ -224,7 +224,7 @@ pub async fn detail(
         .next()
         .ok_or(AppError::NotFound("deployment not found"))?;
     let mounts = sqlx::query!(
-        r#"SELECT sv.id AS "volume_id: Uuid", sv.name AS "volume_name?",
+        r#"SELECT sv.id AS "volume_id: Uuid", sv.name AS "volume_name?: String",
                   sv.placement AS "placement?",
                   dv.host_path, dv.container_path,
                   dv.read_only AS "read_only: bool",

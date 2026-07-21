@@ -47,7 +47,9 @@ pub struct EnvSpec {
 
 /// Persistent storage mount. `volume_id` explicitly reuses an existing
 /// placement volume; otherwise Foundry creates or reuses the canonical
-/// slot-or-server/name volume. Volumes outlive deployments and projects.
+/// slot-or-server/name volume. An explicit source may come from another
+/// deployment-name project, but its name and placement still identify the
+/// selected root. Volumes outlive deployments and projects.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VolumeSpec {
     #[serde(default)]
@@ -114,10 +116,28 @@ pub struct ServerVolume {
     /// The creator or an administrator may clean, delete, or change quota.
     /// All signed-in operators may browse and mount placement volumes.
     pub can_manage: bool,
-    /// Names of active deployments currently mounting it (empty →
-    /// deletable).
+    /// Names of active or retained deployments referencing it (empty →
+    /// deletable under the controller lifecycle guard).
     pub attached_to: Vec<String>,
+    /// Active/retained mappings plus a small recent history. Each attachment
+    /// carries logical mapping context and does not duplicate the volume's
+    /// host path.
+    #[serde(default)]
+    pub attachments: Vec<VolumeAttachment>,
     pub created_at: DateTime<Utc>,
+}
+
+/// One logical deployment-to-volume mapping shown when selecting a reusable
+/// volume. Active/retained mappings are always included; historical mappings
+/// are bounded by the controller.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VolumeAttachment {
+    pub deployment_id: crate::DeploymentId,
+    pub deployment_name: String,
+    pub state: DeploymentState,
+    pub container_path: String,
+    pub read_only: bool,
+    pub purge_on_redeploy: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

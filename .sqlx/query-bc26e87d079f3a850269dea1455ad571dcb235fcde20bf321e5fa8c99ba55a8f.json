@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT id AS \"id: Uuid\", path\n           FROM server_volumes\n           WHERE server_id = ? AND placement = ? AND placement_id = ?\n             AND project_name = ? AND name = ?\n           FOR UPDATE",
+  "query": "SELECT id AS \"id: Uuid\", path AS \"path: String\"\n           FROM server_volumes WHERE server_id = ? ORDER BY id",
   "describe": {
     "columns": [
       {
@@ -14,21 +14,21 @@
       },
       {
         "ordinal": 1,
-        "name": "path",
+        "name": "path: String",
         "type_info": {
           "type": "VarString",
-          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "flags": "NOT_NULL | BINARY | NO_DEFAULT_VALUE",
           "max_size": 1020
         }
       }
     ],
     "parameters": {
-      "Right": 5
+      "Right": 1
     },
     "nullable": [
       false,
       false
     ]
   },
-  "hash": "02c9360bdfdd2d3d39cd0caa57c0a4c8531d36acc373ce1fc1e7bd954bc6f90c"
+  "hash": "bc26e87d079f3a850269dea1455ad571dcb235fcde20bf321e5fa8c99ba55a8f"
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT server_id AS \"server_id: Uuid\",\n                      name, path, placement, placement_id AS \"placement_id: Uuid\", project_name,\n                      gpu_slot_id AS \"slot_id: Uuid\"\n               FROM server_volumes WHERE id = ? FOR UPDATE",
+  "query": "SELECT server_id AS \"server_id: Uuid\",\n                      name AS \"name: String\", path AS \"path: String\", placement,\n                      placement_id AS \"placement_id: Uuid\", project_name AS \"project_name: String\"\n               FROM server_volumes WHERE id = ? FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -14,19 +14,19 @@
       },
       {
         "ordinal": 1,
-        "name": "name",
+        "name": "name: String",
         "type_info": {
           "type": "VarString",
-          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "flags": "NOT_NULL | BINARY | NO_DEFAULT_VALUE",
           "max_size": 252
         }
       },
       {
         "ordinal": 2,
-        "name": "path",
+        "name": "path: String",
         "type_info": {
           "type": "VarString",
-          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "flags": "NOT_NULL | BINARY | NO_DEFAULT_VALUE",
           "max_size": 1020
         }
       },
@@ -50,20 +50,11 @@
       },
       {
         "ordinal": 5,
-        "name": "project_name",
+        "name": "project_name: String",
         "type_info": {
           "type": "VarString",
-          "flags": "NOT_NULL",
+          "flags": "NOT_NULL | BINARY | NO_DEFAULT_VALUE",
           "max_size": 252
-        }
-      },
-      {
-        "ordinal": 6,
-        "name": "slot_id: Uuid",
-        "type_info": {
-          "type": "String",
-          "flags": "MULTIPLE_KEY | BINARY",
-          "max_size": 16
         }
       }
     ],
@@ -76,9 +67,8 @@
       false,
       false,
       false,
-      false,
-      true
+      false
     ]
   },
-  "hash": "ea07b983038bfb46feade0047e07e0d6ce8cabfb2254057c4847a8f6a6777e1f"
+  "hash": "dfa9983eed09f4395794edb820a0f33caef0ad312a1c19c5d7b156427466b7a2"
 }
