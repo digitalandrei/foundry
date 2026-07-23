@@ -129,6 +129,27 @@ into a newly created empty `foundry` database using
 then start the controller and verify `/health`. Never restore over a running
 controller or directly into the only copy of the database.
 
+### Rollback (previous release)
+
+`scripts/deploy.sh` retains exactly one previous generation before
+replacing live artifacts: `/srv/foundry/foundry-controller.prev`, the
+`/srv/foundry/frontend.prev` SPA tree, the served
+`downloads/foundry-agent.prev` (+ `.sha256`), and the displaced version
+in `/srv/foundry/.prev-version`. **`scripts/rollback.sh`** restores all
+three, restarts the controller, and verifies `/health` reports the
+retained version.
+
+Limits, stated plainly:
+
+- One generation only — a second deploy overwrites the rollback target.
+- Migrations are forward-only. If the deploy being rolled back applied
+  new migrations, restore the pre-migration backup first (the restore
+  procedure above); the previous binary refuses to start against a
+  schema newer than its embedded migration set.
+- Enrolled agents that already self-upgraded to the bad version are
+  rolled back by triggering remote upgrade again after the controller
+  rollback (they fetch whatever `downloads/foundry-agent` now serves).
+
 Equivalent manual steps (only when debugging the script) — note the
 **clean** before copying the SPA, which the old flow lacked and which
 let stale bundles pile up:
@@ -306,8 +327,10 @@ an old agent's task queue. Volume deletion remains available.
 
 ## Observability
 
-- `GET /health` — liveness. Prometheus `/metrics` is still planned; it is not
-  registered and Nginx returns 404 for that path.
+- `GET /health` — liveness. Prometheus `GET /metrics` (0.66.0) serves the
+  core gauge set (servers/slots/deployments/tasks by state, DB up, GitLab
+  mirror age) on `127.0.0.1:8400/metrics` for local scrapers; Nginx keeps
+  returning 404 for the path externally (`docs/SECURITY.md`).
 - Structured JSON logs in journald for both services.
 - **Container logs** (Phase 7, 0.19.0): agents push incremental
   stdout+stderr to `/agent/logs` every 10s; the controller keeps a

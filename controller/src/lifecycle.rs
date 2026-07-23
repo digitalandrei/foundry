@@ -77,6 +77,7 @@ pub fn is_legal(from: D, to: D) -> bool {
     DEPLOYMENT_TRANSITIONS.contains(&(from, to))
 }
 
+#[derive(Clone)]
 pub struct Actor {
     pub actor_type: ActorType,
     pub user_id: Option<UserId>,

@@ -350,6 +350,19 @@ The controller enqueues typed tasks; the agent polls and executes:
 | `UPGRADE_AGENT` | Request the root-owned systemd path helper to checksum-verify, install and repair the agent host setup |
 | `UPLOAD_LOGS` | (Reserved task type.) Log capture ships on a periodic **push** loop, not the task queue — see Container logs below |
 
+**Dispatch, loss, and give-up** (0.66.0): a claimed task is `DISPATCHED`
+with `attempts` incremented; a `DISPATCHED` task with no result after
+300s is considered lost (agent crash mid-execution; executors are
+idempotent) and is re-claimable. Re-dispatch is bounded at **5
+attempts**: at the ceiling `claim_next` skips the task and a sweeper
+(60s) abandons it — terminal `FAILED` task state, a synthetic
+failure result row, and the deployment driven through the same
+failure mapping an agent-reported failure takes (slot semantics,
+replacement chains), with actor `CONTROLLER` and a `TASK_ABANDONED`
+audit record. A result that lands concurrently wins; a duplicate agent
+report after abandonment is an idempotent no-op. This bounds the queue —
+without it a repeatedly-crashing executor would re-dispatch forever.
+
 The task poller remains active when the local Docker socket is absent.
 Docker-independent operations (`UPGRADE_AGENT`, `REFRESH_INVENTORY`, and
 persistent-volume removal/purge) still execute; Docker-dependent tasks fail

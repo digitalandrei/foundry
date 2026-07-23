@@ -1,0 +1,54 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT task_type, deployment_id AS \"deployment_id: Uuid\",\n                  server_id AS \"server_id: Uuid\", attempts\n           FROM agent_tasks\n           WHERE id = ? AND state = 'DISPATCHED' AND dispatched_at < ? AND attempts >= ?\n           FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_type",
+        "type_info": {
+          "type": "VarString",
+          "flags": "NOT_NULL | NO_DEFAULT_VALUE",
+          "max_size": 128
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "deployment_id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "MULTIPLE_KEY | BINARY",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "server_id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | MULTIPLE_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "attempts",
+        "type_info": {
+          "type": "Long",
+          "flags": "NOT_NULL",
+          "max_size": 11
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "3f8cfdf8a0601ddb066101fa9ea3ca4b01bf4052d9f45f328ab644cc4796030c"
+}

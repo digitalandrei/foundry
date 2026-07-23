@@ -14,7 +14,7 @@ doc-drift hook nudges when watched code paths change without a docs change).
 | `frontend/` | React + TS + Vite + shadcn SPA | live: shell, theming, 11 pages |
 | `migrations/` | sqlx MySQL migrations (embedded into controller, run at startup) | live: 29-table schema |
 | `deployment/` | production systemd, nginx, and MariaDB backup artifacts | controller/nginx live; backup installed by next canonical deploy |
-| `scripts/` | verification, deploy, and atomic local-backup automation | live |
+| `scripts/` | verification, deploy, rollback, and atomic local-backup automation | live |
 | `docs/` | knowledge base (you are here) | live |
 | `.claude/` | agents, skills, hooks, settings | live |
 
@@ -58,6 +58,8 @@ Dev environment: `/opt/foundry/.env` (gitignored, mode 600) holds
 - Agent auth extractor → `controller/src/auth/agent.rs`; agent routes →
   `controller/src/routes/{servers,agent}.rs`
 - Routes (one module per resource) → `controller/src/routes/{health,me,instances,projects,registry}.rs`
+- Prometheus text exposition (local-scrape only; nginx 404s it
+  externally) → `controller/src/routes/prometheus.rs`
 - Bootstrap CLI (`instance add`) → `controller/src/cli.rs`
 - Embedded migrations → `controller/src/main.rs` (`MIGRATOR`) reading
   `migrations/*.sql`; disposable MariaDB repository/HTTP integration tests →

@@ -199,6 +199,12 @@ Agent protocol invariants:
 ## Observability Endpoints
 
 - `GET /health` — liveness (no auth)
-- `GET /metrics` — **planned, not implemented**. Nginx explicitly returns
-  404 so no future implementation is public by accident; current telemetry is
-  the authenticated `/api/metrics/*` surface.
+- `GET /metrics` — Prometheus text exposition, ✅ live (0.66.0). No auth;
+  Nginx still returns 404 externally — scrapers hit `127.0.0.1:8400/metrics`
+  on the host. Families: `foundry_build_info{version}`,
+  `foundry_database_up`, `foundry_servers{status}`, `foundry_slots{state}`,
+  `foundry_deployments{state}`, `foundry_agent_tasks{state}` (QUEUED +
+  DISPATCHED = queue depth), and `foundry_gitlab_mirror_age_seconds{instance}`
+  (-1 = never synced) as the GitLab API-health proxy. Aggregate counts only —
+  no names, images, or identifiers. Operator-facing telemetry remains the
+  authenticated `/api/metrics/*` surface.

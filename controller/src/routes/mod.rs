@@ -9,6 +9,7 @@ mod health;
 mod instances;
 mod me;
 mod projects;
+mod prometheus;
 mod registry;
 mod servers;
 mod volumes;
@@ -22,6 +23,8 @@ use crate::state::AppState;
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health::health))
+        // Local-scrape only: nginx returns 404 for /metrics externally.
+        .route("/metrics", get(prometheus::metrics))
         // OAuth flow (docs/GITLAB-INTEGRATION.md § OAuth)
         .route("/auth/login/{instance_id}", get(auth::routes::login))
         .route("/auth/callback", get(auth::routes::callback))

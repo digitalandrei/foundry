@@ -375,6 +375,45 @@ async fn health_router_reports_migrated_database(pool: MySqlPool) {
 
 #[sqlx::test(migrator = "crate::MIGRATOR")]
 #[ignore = "requires privileged disposable MariaDB; CI runs ignored tests"]
+async fn metrics_endpoint_exposes_core_gauge_families(pool: MySqlPool) {
+    let fixture = insert_runtime_fixture(&pool).await;
+    crate::repos::deployments::create(
+        &pool,
+        &state(pool.clone()).secrets,
+        &deployment_request(&fixture),
+        "registry.test/team/model:v1",
+        fixture.instance_id,
+        fixture.admin,
+        None,
+        None,
+        Some("127.0.0.1"),
+    )
+    .await
+    .unwrap();
+
+    let app = crate::routes::router(state(pool));
+    let response = app
+        .oneshot(Request::get("/metrics").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    assert!(text.contains(&format!(
+        "foundry_build_info{{version=\"{}\"}} 1",
+        env!("CARGO_PKG_VERSION")
+    )));
+    assert!(text.contains("foundry_database_up 1"));
+    assert!(text.contains("foundry_slots{state=\"RESERVED\"} 1"));
+    assert!(text.contains("foundry_deployments{state=\"VALIDATING\"} 1"));
+    assert!(text.contains("foundry_agent_tasks{state=\"QUEUED\"} 1"));
+    assert!(text.contains("foundry_gitlab_mirror_age_seconds{instance="));
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+#[ignore = "requires privileged disposable MariaDB; CI runs ignored tests"]
 async fn deployment_command_commits_reservation_task_event_and_audit(pool: MySqlPool) {
     let fixture = insert_runtime_fixture(&pool).await;
     let created = crate::repos::deployments::create(
@@ -427,6 +466,112 @@ async fn deployment_command_commits_reservation_task_event_and_audit(pool: MySql
     let servers = crate::repos::servers::list(&pool).await.unwrap();
     assert_eq!(deployments[0].slot_ids, vec![fixture.slot_id]);
     assert_eq!(servers[0].gpus[0].slots[0].id, fixture.slot_id);
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+#[ignore = "requires privileged disposable MariaDB; CI runs ignored tests"]
+async fn exhausted_task_is_abandoned_and_fails_the_deployment(pool: MySqlPool) {
+    let fixture = insert_runtime_fixture(&pool).await;
+    let created = crate::repos::deployments::create(
+        &pool,
+        &state(pool.clone()).secrets,
+        &deployment_request(&fixture),
+        "registry.test/team/model:v1",
+        fixture.instance_id,
+        fixture.admin,
+        None,
+        None,
+        Some("127.0.0.1"),
+    )
+    .await
+    .unwrap();
+
+    // Claim up to the ceiling; each claim goes stale with no result.
+    let mut task_id = None;
+    for attempt in 1..=5 {
+        let claimed = crate::repos::tasks::claim_next(&pool, fixture.server_id)
+            .await
+            .unwrap();
+        let claimed = claimed.unwrap_or_else(|| panic!("attempt {attempt} should re-dispatch"));
+        task_id = Some(claimed.id);
+        sqlx::query("UPDATE agent_tasks SET dispatched_at = ? WHERE id = ?")
+            .bind((chrono::Utc::now() - chrono::Duration::seconds(400)).naive_utc())
+            .bind(claimed.id.0)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let task_id = task_id.unwrap();
+
+    // Attempt 6 must not re-dispatch: the ceiling is reached.
+    assert!(crate::repos::tasks::claim_next(&pool, fixture.server_id)
+        .await
+        .unwrap()
+        .is_none());
+
+    let abandoned = crate::repos::tasks::abandon_exhausted(&pool).await.unwrap();
+    assert_eq!(abandoned, 1);
+
+    let (task_state, deployment_state, error_message): (String, String, Option<String>) =
+        sqlx::query_as(
+            "SELECT t.state, d.state, d.error_message FROM agent_tasks t \
+             JOIN deployments d ON d.id = t.deployment_id WHERE t.id = ?",
+        )
+        .bind(task_id.0)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        (task_state.as_str(), deployment_state.as_str()),
+        ("FAILED", "FAILED")
+    );
+    assert!(error_message.unwrap().contains("abandoned by controller"));
+
+    // Deploy failure frees the slot (executor guarantees no leftover container).
+    let slot_state: String = sqlx::query_scalar("SELECT state FROM gpu_slots WHERE id = ?")
+        .bind(fixture.slot_id.0)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(slot_state, "FREE");
+
+    let (result_count, audit_count): (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT COUNT(*) FROM agent_task_results WHERE agent_task_id = ? AND success = 0), \
+                (SELECT COUNT(*) FROM audit_logs WHERE subject_id = ? AND action = 'TASK_ABANDONED')",
+    )
+    .bind(task_id.0)
+    .bind(task_id.0)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((result_count, audit_count), (1, 1));
+
+    // A sweep with nothing eligible is a no-op, and a late agent report
+    // after abandonment is an idempotent no-op (deployment stays FAILED).
+    assert_eq!(
+        crate::repos::tasks::abandon_exhausted(&pool).await.unwrap(),
+        0
+    );
+    let late = foundry_shared::dto::TaskResultReport {
+        task_id,
+        success: true,
+        container_id: Some("late-container".into()),
+        error: None,
+        failure_stage: None,
+        health_status: None,
+        health_detail: None,
+        readiness: None,
+        storage: None,
+    };
+    crate::repos::tasks::complete(&pool, fixture.server_id, &late)
+        .await
+        .unwrap();
+    let deployment_state: String = sqlx::query_scalar("SELECT state FROM deployments WHERE id = ?")
+        .bind(created.id.0)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(deployment_state, "FAILED");
 }
 
 #[sqlx::test(migrator = "crate::MIGRATOR")]

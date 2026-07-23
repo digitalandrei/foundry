@@ -1,6 +1,6 @@
 {
   "db_name": "MySQL",
-  "query": "SELECT id AS \"id: Uuid\", task_type, payload\n           FROM agent_tasks\n           WHERE server_id = ?\n             AND (state = 'QUEUED' OR (state = 'DISPATCHED' AND dispatched_at < ?))\n           ORDER BY created_at\n           LIMIT 1\n           FOR UPDATE SKIP LOCKED",
+  "query": "SELECT id AS \"id: Uuid\", task_type, payload\n           FROM agent_tasks\n           WHERE server_id = ?\n             AND (state = 'QUEUED'\n                  OR (state = 'DISPATCHED' AND dispatched_at < ? AND attempts < ?))\n           ORDER BY created_at\n           LIMIT 1\n           FOR UPDATE SKIP LOCKED",
   "describe": {
     "columns": [
       {
@@ -32,7 +32,7 @@
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 3
     },
     "nullable": [
       false,
@@ -40,5 +40,5 @@
       false
     ]
   },
-  "hash": "ead1d5b3500a4f7fe5c4c1d9f38af0e9e839c39b1c1b230297fee4a5b62719f7"
+  "hash": "cdde56558b76b051ba5708afae2ac76c2948112f7d3adfd0626b8d6b8a9a85aa"
 }

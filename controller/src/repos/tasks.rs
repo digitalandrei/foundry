@@ -17,6 +17,12 @@ use crate::lifecycle::{self, Actor};
 /// and re-queued (agent crash mid-execution; executors are idempotent).
 const REDISPATCH_AFTER_SECS: i64 = 300;
 
+/// Dispatch ceiling: after this many claims with no result the task is
+/// abandoned (terminal FAILED) instead of re-dispatched forever — an
+/// agent that keeps claiming but never completes would otherwise retry
+/// every REDISPATCH_AFTER_SECS indefinitely.
+const MAX_DISPATCH_ATTEMPTS: i64 = 5;
+
 pub async fn enqueue(
     tx: &mut MySqlConnection,
     server_id: ServerId,
@@ -130,12 +136,14 @@ pub async fn claim_next(
         r#"SELECT id AS "id: Uuid", task_type, payload
            FROM agent_tasks
            WHERE server_id = ?
-             AND (state = 'QUEUED' OR (state = 'DISPATCHED' AND dispatched_at < ?))
+             AND (state = 'QUEUED'
+                  OR (state = 'DISPATCHED' AND dispatched_at < ? AND attempts < ?))
            ORDER BY created_at
            LIMIT 1
            FOR UPDATE SKIP LOCKED"#,
         server_id.0,
         stale,
+        MAX_DISPATCH_ATTEMPTS,
     )
     .fetch_optional(&mut *tx)
     .await?;
@@ -363,9 +371,139 @@ pub async fn complete(
             }
         }
     }
-    advance_deployment(&mut tx, &task, report).await?;
+    advance_deployment(&mut tx, &task, report, &Actor::agent()).await?;
     tx.commit().await?;
     Ok(task.deployment_id)
+}
+
+/// Periodically abandon tasks that exhausted their dispatch attempts.
+pub fn spawn_abandon_sweeper(pool: MySqlPool) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            match abandon_exhausted(&pool).await {
+                Ok(0) => {}
+                Ok(count) => {
+                    tracing::warn!(count, "tasks abandoned after max dispatch attempts")
+                }
+                Err(err) => tracing::warn!(?err, "abandon sweep failed"),
+            }
+        }
+    });
+}
+
+/// Find every DISPATCHED task that went stale on its final allowed
+/// attempt and give up on each. One transaction per task so a single
+/// poisoned row cannot wedge the whole sweep.
+pub async fn abandon_exhausted(pool: &MySqlPool) -> Result<u64, AppError> {
+    let stale = (chrono::Utc::now() - chrono::Duration::seconds(REDISPATCH_AFTER_SECS)).naive_utc();
+    let ids = sqlx::query_scalar!(
+        r#"SELECT id AS "id: Uuid" FROM agent_tasks
+           WHERE state = 'DISPATCHED' AND dispatched_at < ? AND attempts >= ?"#,
+        stale,
+        MAX_DISPATCH_ATTEMPTS,
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut abandoned = 0;
+    for id in ids {
+        if abandon_task(pool, id.into()).await? {
+            abandoned += 1;
+        }
+    }
+    Ok(abandoned)
+}
+
+/// Terminal give-up: mark the task FAILED with a synthetic result row
+/// and drive the deployment through the same failure mapping an
+/// agent-reported failure takes (slot semantics, replacement chains).
+/// Re-checks eligibility under lock so a result that lands concurrently
+/// wins; a duplicate agent report arriving later is already an
+/// idempotent no-op in `complete`.
+async fn abandon_task(pool: &MySqlPool, task_id: TaskId) -> Result<bool, AppError> {
+    let now_utc = chrono::Utc::now();
+    let now = now_utc.naive_utc();
+    let stale = (now_utc - chrono::Duration::seconds(REDISPATCH_AFTER_SECS)).naive_utc();
+    let mut tx = pool.begin().await?;
+    let row = sqlx::query!(
+        r#"SELECT task_type, deployment_id AS "deployment_id: Uuid",
+                  server_id AS "server_id: Uuid", attempts
+           FROM agent_tasks
+           WHERE id = ? AND state = 'DISPATCHED' AND dispatched_at < ? AND attempts >= ?
+           FOR UPDATE"#,
+        task_id.0,
+        stale,
+        MAX_DISPATCH_ATTEMPTS,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(row) = row else {
+        // Completed, re-claimed, or already abandoned in the meantime.
+        tx.commit().await?;
+        return Ok(false);
+    };
+    let error = format!(
+        "abandoned by controller: no result after {} dispatch attempts (agent unresponsive or repeatedly crashing on this task)",
+        row.attempts,
+    );
+    sqlx::query!(
+        "UPDATE agent_tasks SET state = 'FAILED', completed_at = ?, updated_at = ? WHERE id = ?",
+        now,
+        now,
+        task_id.0,
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        r#"INSERT INTO agent_task_results (id, agent_task_id, success, detail, reported_at)
+           VALUES (?, ?, FALSE, ?, ?)"#,
+        Uuid::now_v7(),
+        task_id.0,
+        serde_json::to_string(&serde_json::json!({ "error": error }))
+            .map_err(AppError::internal)?,
+        now,
+    )
+    .execute(&mut *tx)
+    .await?;
+    let task = TaskRow {
+        task_type: row.task_type.parse().map_err(AppError::internal)?,
+        deployment_id: row.deployment_id.map(Into::into),
+        server_id: row.server_id.into(),
+    };
+    let report = TaskResultReport {
+        task_id,
+        success: false,
+        container_id: None,
+        error: Some(error.clone()),
+        failure_stage: None,
+        health_status: None,
+        health_detail: None,
+        readiness: None,
+        storage: None,
+    };
+    advance_deployment(&mut tx, &task, &report, &Actor::controller()).await?;
+    crate::audit::record(
+        &mut *tx,
+        crate::audit::AuditEntry {
+            actor_type: foundry_shared::ActorType::Controller,
+            actor_id: None,
+            action: "TASK_ABANDONED",
+            subject_type: Some("agent_task"),
+            subject_id: Some(task_id.0),
+            detail: Some(serde_json::json!({
+                "task_type": task.task_type.as_str(),
+                "attempts": row.attempts,
+                "error": error,
+            })),
+            ip_address: None,
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    tracing::warn!(task_id = %task_id.0, task_type = %task.task_type.as_str(),
+        attempts = row.attempts, "task abandoned after max dispatch attempts");
+    Ok(true)
 }
 
 /// Result → state-machine mapping, including the replacement chain:
@@ -375,11 +513,12 @@ async fn advance_deployment(
     tx: &mut MySqlConnection,
     task: &TaskRow,
     report: &TaskResultReport,
+    actor: &Actor,
 ) -> Result<(), AppError> {
     let Some(deployment_id) = task.deployment_id else {
         return Ok(()); // REMOVE_VOLUME / inventory tasks carry no deployment
     };
-    let actor = Actor::agent();
+    let actor = actor.clone();
     let d = sqlx::query!(
         r#"SELECT replaced_by_deployment_id AS "replaced_by: Uuid", state,
                   adopted_container_id

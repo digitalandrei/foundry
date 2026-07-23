@@ -40,6 +40,24 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now foundry-backup.timer
 sudo "$SRV/bin/foundry-backup"
 
+# ── Retain live artifacts so scripts/rollback.sh has a target ──────
+echo "▶ retaining current artifacts for rollback…"
+if [ -x "$SRV/foundry-controller" ]; then
+  live_ver=$(curl -fsS http://127.0.0.1:8400/health 2>/dev/null |
+    sed -n 's/.*"version":"\([^"]*\)".*/\1/p' || true)
+  sudo \cp -f "$SRV/foundry-controller" "$SRV/foundry-controller.prev"
+  echo "${live_ver:-unknown}" | sudo tee "$SRV/.prev-version" >/dev/null
+fi
+if [ -d "$SRV/frontend" ]; then
+  sudo \rm -rf "$SRV/frontend.prev"
+  sudo \cp -rf "$SRV/frontend" "$SRV/frontend.prev"
+fi
+if [ -f "$SRV/downloads/foundry-agent" ]; then
+  sudo \cp -f "$SRV/downloads/foundry-agent" "$SRV/downloads/foundry-agent.prev"
+  [ -f "$SRV/downloads/foundry-agent.sha256" ] &&
+    sudo \cp -f "$SRV/downloads/foundry-agent.sha256" "$SRV/downloads/foundry-agent.prev.sha256"
+fi
+
 # ── Frontend: replace the tree wholesale (no stale bundles) ─────────
 echo "▶ publishing SPA (clean)…"
 sudo find "$SRV/frontend" -mindepth 1 -maxdepth 1 -exec \rm -rf {} +

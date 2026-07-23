@@ -54,6 +54,11 @@ action no longer uses it.
 - No automatic retry in v1 — failures are explicit and user-retriable
   (operational clarity over magic). Re-dispatch of an *unacknowledged*
   task after agent crash is not a retry; executors are idempotent.
+- Re-dispatch is bounded (5 attempts, 0.66.0): an exhausted task is
+  **abandoned** by a controller sweeper — terminal `FAILED` task, a
+  synthetic failure result, and the deployment driven through the normal
+  failure mapping with actor `CONTROLLER` plus a `TASK_ABANDONED` audit
+  record (`repos/tasks.rs::abandon_exhausted`).
 - Slot vanishing (MIG geometry change / server offline) while RUNNING:
   slot → `OFFLINE`, deployment flagged; resolution is operator-driven.
 

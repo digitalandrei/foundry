@@ -16,7 +16,7 @@ in `docs/plans/`.
 | 7 | Logs | [plans/phase-07.md](plans/phase-07.md) | ✅ Done — agent push-loop capture (incremental stdout+stderr, managed only) + bounded 7-day store + UI viewer; capturing on enrolled servers |
 | 8 | UI (full dashboard, dark+light themes) | [plans/phase-08.md](plans/phase-08.md) | 🔶 In progress — functional UI shipped incrementally (11 pages); route-level code splitting + keyboard interaction/DOM coverage landed in 0.51.0; Storage management + dual-pane files landed in 0.54/0.56; remaining per phase-08: light-mode-complete visual sweep and empty/loading/error pass |
 | 9 | Security hardening | [plans/phase-09.md](plans/phase-09.md) | ⬜ Not started — carries agent-credential rotation (deferred from Phase 4) |
-| 10 | Production readiness | [plans/phase-10.md](plans/phase-10.md) | 🔶 In progress — service live; CI, audit, telemetry, structured logs, local backup automation + restore CI, dependency gates, and MariaDB integration tests in place; production timer observation, Prometheus, and load acceptance pending |
+| 10 | Production readiness | [plans/phase-10.md](plans/phase-10.md) | 🔶 In progress — service live; CI, audit, telemetry, structured logs, local backup automation + restore CI, dependency gates, MariaDB integration tests, Prometheus `/metrics` (local-scrape, 0.66.0), task-abandonment ceiling + one-generation rollback (0.66.0) in place; production timer observation and load acceptance pending |
 | 11 | GPU groups + multi-use slots | (retired — see Amendments 2026-06-16) | ✅ Done (0.35.0) — one container across N whole GPUs; multi-use slots soft-share a GPU among ≤4; MIG/group mutual exclusion self-heals (0.47.0) |
 
 ## Success Criteria (v1 done)
@@ -620,3 +620,23 @@ reflected in the affected docs in the same commit set:
   missing dashboard-mockup placeholder retired in UI-DESIGN.md/assets.
   Affects SECURITY, UI-DESIGN, product-overview, `.claude/` rule sets, and
   ROADMAP.
+- **2026-07-23** (0.66.0) — **Bounded task re-dispatch, Prometheus
+  `/metrics`, and a rollback path** (three of the four blockers from the
+  2026-07-23 audit; agent-credential rotation stays in Phase 9). Task
+  re-dispatch is now capped at 5 attempts: `claim_next` skips exhausted
+  tasks and a 60s controller sweeper abandons them — terminal FAILED
+  task, synthetic failure result, deployment driven through the normal
+  failure mapping (actor CONTROLLER) plus a `TASK_ABANDONED` audit
+  record; a concurrently-landing result wins and late duplicate reports
+  stay no-ops. `GET /metrics` serves the phase-10 core gauge set
+  (build info, DB up, servers/slots/deployments/tasks by state, GitLab
+  mirror age per instance) on 127.0.0.1:8400 for local scrapers; nginx
+  keeps returning 404 externally. `scripts/deploy.sh` retains one
+  previous generation (controller binary, SPA tree, served agent
+  binary + checksum, displaced version) and the new
+  `scripts/rollback.sh` restores it with `/health` verification —
+  forward-only migrations still require the pre-migration backup
+  restore first when a migration-bearing deploy is rolled back.
+  MariaDB-backed tests cover abandonment end-to-end and the /metrics
+  families. Affects API, ARCHITECTURE, DEPLOYMENT, SECURITY,
+  codebase-map, the container-lifecycle skill, and ROADMAP.

@@ -59,6 +59,7 @@ async fn serve() -> Result<(), Box<dyn Error>> {
     repos::servers::spawn_offline_sweeper(pool.clone());
     repos::metrics::spawn_sweeper(pool.clone());
     repos::logs::spawn_sweeper(pool.clone());
+    repos::tasks::spawn_abandon_sweeper(pool.clone());
 
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))

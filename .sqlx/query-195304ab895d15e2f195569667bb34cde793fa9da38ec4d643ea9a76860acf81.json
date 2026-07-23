@@ -1,0 +1,24 @@
+{
+  "db_name": "MySQL",
+  "query": "SELECT id AS \"id: Uuid\" FROM agent_tasks\n           WHERE state = 'DISPATCHED' AND dispatched_at < ? AND attempts >= ?",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Uuid",
+        "type_info": {
+          "type": "String",
+          "flags": "NOT_NULL | PRIMARY_KEY | BINARY | NO_DEFAULT_VALUE",
+          "max_size": 16
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "195304ab895d15e2f195569667bb34cde793fa9da38ec4d643ea9a76860acf81"
+}
