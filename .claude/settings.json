@@ -2,15 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(npm run *)",
-      "Bash(sed -i 's/^version = \"0.39.0\"/version = \"0.40.0\"/' Cargo.toml)",
-      "Bash(node -e \"const j=require\\('./frontend/package.json'\\);j.version='0.40.0';require\\('fs'\\).writeFileSync\\('frontend/package.json',JSON.stringify\\(j,null,2\\)+'\\\\n'\\)\")",
       "Bash(node -p \"require\\('./frontend/package.json'\\).version\")",
       "Bash(echo \"versions: $\\(grep -m1 '^version' Cargo.toml\\) / frontend $\\(node -p \"require\\('./frontend/package.json'\\).version\"\\)\")",
       "Bash(scripts/deploy.sh)",
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(./scripts/deploy.sh)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(grep -rniE \"\\(password|passwd|secret|token|api_key|apikey|private_key|credential\\)\\\\s*[:=]\\\\s*[\\\\\"'][^\\\\\"'{}$]{6,}\" /opt/foundry/controller /opt/foundry/agent /opt/foundry/shared /opt/foundry/frontend/src)",
+      "Bash(sort -t: -k2 -rn)"
     ]
   },
   "hooks": {

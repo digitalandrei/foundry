@@ -26,10 +26,16 @@ touched() { echo "$files" | grep -qE "$1"; }
 
 warnings=()
 
-# Controller routes / lifecycle / task queue ↔ API.md, ARCHITECTURE.md, controller agent
-if touched '^controller/src/(routes/|lifecycle\.rs|repos/(tasks|deployments)\.rs)'; then
+# Controller routes / lifecycle / task queue / feature repos ↔ API.md, ARCHITECTURE.md, controller agent
+if touched '^controller/src/(routes/|lifecycle\.rs|files\.rs|shell\.rs|repos/(tasks|deployments|volumes|gpu_groups|logs|metrics)\.rs)'; then
   touched '^docs/(API|ARCHITECTURE)\.md|^\.claude/agents/controller\.md' || \
-    warnings+=("controller routes/lifecycle/tasks changed; review docs/API.md, docs/ARCHITECTURE.md (state machines), and .claude/agents/controller.md.")
+    warnings+=("controller routes/lifecycle/tasks/feature repos changed; review docs/API.md, docs/ARCHITECTURE.md (state machines), and .claude/agents/controller.md.")
+fi
+
+# Security-bearing controller code ↔ SECURITY.md
+if touched '^controller/src/(auth/|crypto\.rs|audit\.rs)'; then
+  touched '^docs/SECURITY\.md|^\.claude/agents/security\.md' || \
+    warnings+=("auth/crypto/audit code changed; review docs/SECURITY.md (controls + invariants) and .claude/agents/security.md.")
 fi
 
 # GitLab client code ↔ GITLAB-INTEGRATION.md

@@ -62,7 +62,8 @@ protocol, tokens, or deployment execution.
 - Re-enrollment (fresh token + `--register --force`) **replaces** the
   credential — the old one stops working immediately.
 - **Token rotation** beyond re-enrollment (admin-triggered confirm-then-
-  switch) is planned within Phase 4; not yet implemented.
+  switch) was deferred to Phase 9 (see `plans/phase-09.md`); not yet
+  implemented.
 - An agent's credential authorizes actions only for its own `server_id`.
 
 ## Registry Credentials

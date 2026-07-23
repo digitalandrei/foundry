@@ -5,9 +5,9 @@ approved dashboard mockup (dark mode). Code-level rules live in
 `FRONTEND_RULES.md`. Keep slot-state semantics in sync with
 `ARCHITECTURE.md` § Slot states.
 
-> Mockup file: `docs/assets/dashboard-mockup-dark.png` — **placeholder**:
-> the image was shared in conversation; drop the PNG at this path when
-> convenient. The description below is authoritative until then.
+> The original mockup PNG was never added to the repo; the shipped UI has
+> long since superseded it. The written contract below plus the live UI at
+> `https://foundry.cloudcraft.ro` are authoritative.
 
 ## Pages
 

@@ -601,3 +601,22 @@ reflected in the affected docs in the same commit set:
   ARCHITECTURE, DATABASE, SECURITY, UI-DESIGN, TESTING, codebase-map, shared
   deployment DTOs, controller volume/deployment repositories, and deploy
   dialog components.
+- **2026-07-23** (docs-only, no version bump) — **Doctrine/docs/codebase
+  audit + drift remediation.** A full audit of the doctrine layer, deep
+  docs, `.claude/` rule sets, and codebase confirmed the deep docs and
+  amendments log are current, code health is strong (zero TODOs, central
+  error envelope, strict TS, warnings-as-errors CI), and identified four
+  production blockers now logged for Phase 9/10: no task max-attempts
+  ceiling (tasks redispatch every 5 min forever), no rollback path beyond
+  manual DB restore, Prometheus `/metrics` + alerting still pending, and
+  agent-credential rotation unimplemented (Phase 9 not started). Drift
+  fixed in this set: doc-drift hook watch-list extended (feature repos,
+  files/shell, and a new auth/crypto/audit ↔ SECURITY.md rule),
+  product-overview refreshed from 0.48-era to 0.65.0 (storage model,
+  file browser, app URLs, readiness/upgrades; Prometheus honestly marked
+  pending), SECURITY.md rotation note repointed Phase 4 → Phase 9, dead
+  0.39→0.40 version-bump permissions removed from `.claude/settings.json`,
+  `advisor-plans/` created to match its doctrine references, and the
+  missing dashboard-mockup placeholder retired in UI-DESIGN.md/assets.
+  Affects SECURITY, UI-DESIGN, product-overview, `.claude/` rule sets, and
+  ROADMAP.
